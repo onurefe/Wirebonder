@@ -1,0 +1,5 @@
+(sym_lib_table
+  (lib (name "LibreSolar")(type "KiCad")(uri "${KIPRJMOD}/LibreSolar.kicad_sym")(options "")(descr ""))
+  (lib (name "SwarmRobots")(type "KiCad")(uri "${KIPRJMOD}/st-microelectronics.kicad_sym")(options "")(descr ""))
+  (lib (name "ReflexCreations")(type "KiCad")(uri "${KIPRJMOD}/reflex-creations.kicad_sym")(options "")(descr ""))
+)
