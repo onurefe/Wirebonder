@@ -1,0 +1,4 @@
+(fp_lib_table
+  (lib (name "conn")(type "KiCad")(uri "${KIPRJMOD}/conn.pretty")(options "")(descr ""))
+  (lib (name "inductor")(type "KiCad")(uri "${KIPRJMOD}/inductor.pretty")(options "")(descr ""))
+)

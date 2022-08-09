@@ -2,4 +2,6 @@
   (lib (name "LibreSolar")(type "KiCad")(uri "${KIPRJMOD}/LibreSolar.kicad_sym")(options "")(descr ""))
   (lib (name "SwarmRobots")(type "KiCad")(uri "${KIPRJMOD}/st-microelectronics.kicad_sym")(options "")(descr ""))
   (lib (name "ReflexCreations")(type "KiCad")(uri "${KIPRJMOD}/reflex-creations.kicad_sym")(options "")(descr ""))
+  (lib (name "Drv8825")(type "KiCad")(uri "${KIPRJMOD}/drv8825.kicad_sym")(options "")(descr ""))
+  (lib (name "expander")(type "KiCad")(uri "${KIPRJMOD}/expander.kicad_sym")(options "")(descr ""))
 )

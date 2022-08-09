@@ -1,0 +1,39 @@
+Left panel pinout:{
+'tail_plus': [3, 13], 
+'tail_minus': [1, 13], 
+'step_minus': [4, 13], 
+'step_plus': [6, 13], 
+'loop_minus': [1, 14], 
+'loop_plus': [4, 14], 
+'search_minus': [1, 11], 
+'search_plus': [4, 11], 
+'up': [8, 14], 
+'right': [5, 13], 
+'down': [3, 14], 
+'left': [6, 11], 
+'minus': [6, 14], 
+'plus': [5, 14], 
+'enter': [8, 11], 
+'load': [8, 13], 
+'save': [7, 14], 
+'add': [7, 11], 
+'esc': [5, 11], 
+'manual': [3, 11], 
+'led_anode': [9], 
+'led_cathode': [2]
+}
+
+Right panel pinout:{
+'test_led': [2, 10],
+'setup_led': [2, 12],
+'short_led': [2, 16],
+'clamp_open_led': [2, 11],
+'high_reset_led': [2, 13],
+'open_led': [2, 15],
+'clamp_open': [3, 14], 
+'high_reset': [4, 14],
+'setup': [5, 14],
+'light': [6, 14], 
+'reset': [7, 14], 
+'test': [8, 14]
+}

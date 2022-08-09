@@ -1,0 +1,3 @@
+Around 6 volts, it was taking 100mamps; after like 7-8 volts, it died.
+
+At 5 volts, it was taking 50mamps.
