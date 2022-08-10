@@ -752,6 +752,7 @@
     )
   )
 
+
   (junction (at 127 147.32) (diameter 0) (color 0 0 0 0)
     (uuid 05d18135-d9b1-4c54-8780-bbbd6d7a8e07)
   )
@@ -2172,6 +2173,12 @@
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Datasheet" "~" (id 3) (at 239.395 39.37 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "Link" "https://ozdisan.com/connectors-and-interconnects/headers/pin-headers/L-KLS1-207-2-10-S" (id 4) (at 239.395 39.37 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "Price" "0.04014" (id 5) (at 239.395 39.37 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (pin "1" (uuid bc0762ec-48ab-4044-9e08-7946b59ea8ec))
