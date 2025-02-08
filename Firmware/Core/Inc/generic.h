@@ -20,6 +20,10 @@
 #define FALSE (0)
 #define TRUE (1)
 
+#ifndef NULL
+#define NULL ((void *)0)
+#endif
+
 /* Exported macros ---------------------------------------------------------*/
 #define SET_BIT(variable, bit) ((variable) |= (1 << (bit)))
 #define CLEAR_BIT(variable, bit) ((variable) &= ~(1 << (bit)))
