@@ -23,6 +23,37 @@
 #define PIN_MONITOR_MAX_NUMBER_OF_MONITORED_PINS 8
 #define PIN_MONITOR_SAMPLING_FREQUENCY 50
 
+/* ADC VOLTAGE RANGE -------------------------------------------------------*/
+#define ADC_VOLTAGE_RANGE 3.3
+#define ADC_BITS 12
+
+/* ADC Dispatcher ----------------------------------------------------------*/
+#define ADC_DISPATCHER_MEASUREMENT_FREQUENCY 4000
+
+/* LVDT --------------------------------------------------------------------*/
+#define LVDT_SIGNAL_FREQ                1000
+#define LVDT_SENSING_SAMPLING_RATE      (4 * LVDT_SIGNAL_FREQ)
+#define LVDT_GENERATION_SAMPLING_RATE   (128 * LVDT_SIGNAL_FREQ)
+
+/* ADC2 Conversion orders --------------------------------------------------*/
+#define FORCE_COIL_ISENS_ORDER 0
+#define ZMOTOR_TACHOMETER_ORDER 1
+#define LVDT_A_ORDER 2
+#define LVDT_B_ORDER 3
+
+/* Force coil driver module configuration ----------------------------------*/
+#define FORCE_COIL_DRIVER_CONTROL_ISR_FREQUENCY 1000
+#define FORCE_COIL_DRIVER_I2V_CONVERSION_FACTOR 0.781
+#define FORCE_COIL_DRIVER_ADC2I_CONVERSION_FACTOR \
+(ADC_VOLTAGE_RANGE / (FORCE_COIL_DRIVER_I2V_CONVERSION_FACTOR * (1 << ADC_BITS)))
+
+#define FORCE_COIL_DRIVER_PID_GAIN 1.0
+#define FORCE_COIL_DRIVER_PID_INTEGRAL_TC 0.01
+#define FORCE_COIL_DRIVER_PID_DERIVATIVE_TC 0.0
+#define FORCE_COIL_DRIVER_PID_INPUT_FILTER_TC 0.001
+#define FORCE_COIL_DRIVER_PID_OUTPUT_MIN 0.0
+#define FORCE_COIL_DRIVER_PID_OUTPUT_MAX 1.0
+
 /* Stepper module configuration --------------------------------------------*/
 #define STEPPER_SEGMENT_QUEUE_CAPACITY_IN_NUM_ELEMENTS 32
 

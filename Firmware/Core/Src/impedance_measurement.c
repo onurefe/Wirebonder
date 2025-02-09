@@ -37,6 +37,7 @@ static void compute4PointPhase(const uint16_t samples[NUM_SAMPLES_PER_SET],
                                float *amplitude,
                                float *offset,
                                float *phaseRad);
+                               
 static void processDMAData(uint16_t *dmaBuffer, uint16_t numElements);
 
 /* ----------------- Helper Functions ----------------- */
@@ -144,6 +145,7 @@ static void processDMAData(uint16_t *dmaBuffer, uint16_t numElements)
     uint16_t numPairs = numElements / 2;
     // Number of complete sets (each set is 4 pairs).
     uint16_t numSets = numPairs / NUM_SAMPLES_PER_SET;
+    
     if (numSets == 0)
         return;  // Not enough data.
     

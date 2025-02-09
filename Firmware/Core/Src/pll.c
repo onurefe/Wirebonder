@@ -17,6 +17,8 @@ static PLL_State_t sPLLState = PLL_STATE_UNINIT;
 
 /* ------------------ Internal Variables ------------------ */
 static float sCenterFrequency = 0.0f;   // Center frequency (Hz)
+static float sFrequencyCorrection = 0.0f;
+
 static PID_Controller pidPLL;           // PLL PID controller instance
 
 // TIMER2 handle – used to drive the piezoelectric transducer.
@@ -43,20 +45,18 @@ static void PLL_UpdateTimer2Frequency(float newFrequency)
 {
     // Fixed prescaler value.
     uint32_t prescaler = 83; // Timer clock = 84e6/(83+1)=1e6 Hz.
+    // Calculate new auto-reload register value.
     uint32_t arr = (uint32_t)(1000000.0f / newFrequency) - 1;
     
-    // Stop TIMER2 before reconfiguration.
-    HAL_TIM_Base_Stop(&htim2);
+    // Update prescaler and auto-reload registers on the fly.
+    __HAL_TIM_SET_PRESCALER(&htim2, prescaler);
+    __HAL_TIM_SET_AUTORELOAD(&htim2, arr);
     
-    htim2.Init.Prescaler = prescaler;
-    htim2.Init.Period = arr;
+    // Optionally, reset the counter for a clean start.
+    __HAL_TIM_SET_COUNTER(&htim2, 0);
     
-    if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
-        // Error handling: you might log or assert here.
-    }
-    
-    // Restart TIMER2.
-    HAL_TIM_Base_Start(&htim2);
+    // Generate an update event to force the timer to load the new PSC and ARR values immediately.
+    __HAL_TIM_GENERATE_EVENT(&htim2, TIM_EVENTSOURCE_UPDATE);
 }
 
 /**
@@ -71,21 +71,14 @@ static void PLL_UpdateTimer2Frequency(float newFrequency)
  */
 static void PLL_ImpedanceCallback(ComplexImpedance impedance)
 {
+    // Update TIMER2 frequency.
+    PLL_UpdateTimer2Frequency(sCenterFrequency + sFrequencyCorrection);
+
     // Error is the measured phase (we desire zero phase difference).
     float error = impedance.phase; // desired phase is 0.
     
     // Compute PID output (frequency correction in Hz).
-    float freqCorrection = PID_Execute(&pidPLL, 0.0f, error);
-    
-    // Compute new frequency = center frequency + frequency correction.
-    float newFrequency = sCenterFrequency + freqCorrection;
-    
-    // Optionally enforce minimum/maximum frequency limits.
-    if (newFrequency < 1.0f)
-        newFrequency = 1.0f;
-    
-    // Update TIMER2 frequency.
-    PLL_UpdateTimer2Frequency(newFrequency);
+    sFrequencyCorrection = PID_Execute(&pidPLL, 0.0f, error);
 }
 
 /* ------------------ Public Functions ------------------ */

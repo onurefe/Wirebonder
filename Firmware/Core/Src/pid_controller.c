@@ -1,48 +1,55 @@
 #include "pid_controller.h"
 #include "generic.h"
 
-void PID_Init(PID_Controller *pid, float gain, float integral_tc, float derivative_tc, float dt, float setpoint,
+void PID_Init(PID_Controller *pid, float gain, float integral_tc, float derivative_tc, float dt,
               float filter_time_constant, float output_min, float output_max)
 {
-    if (pid == NULL) {
+    if (pid == NULL) 
+    {
         return;
     }
     
+    if (pid->state != STATE_UNINIT) 
+    {
+        return;
+    }
+
     /* Initialize new PID parameters */
     pid->gain = gain;
     pid->integral_tc = integral_tc;
     pid->derivative_tc = derivative_tc;
     pid->dt = dt;
-    pid->setpoint = setpoint;
     
-    /* Initialize internal PID state */
-    pid->integral = 0.0f;
-    pid->prev_error = 0.0f;
-    pid->output = 0.0f;
+    /* Set output limiting parameters */
+    pid->output_min = output_min;
+    pid->output_max = output_max;
+    pid->filter_time_constant = filter_time_constant;
     
     /* Initialize EMA filter parameters for error */
-    pid->filter_time_constant = filter_time_constant;
     if (filter_time_constant > 0.0f) {
         pid->filter_alpha = dt / (filter_time_constant + dt);
     } else {
         /* If time constant is zero or negative, bypass filtering (α = 1) */
         pid->filter_alpha = 1.0f;
     }
-    pid->filtered_error = 0.0f;
-    
-    /* Set output limiting parameters */
-    pid->output_min = output_min;
-    pid->output_max = output_max;
-    
+
     /* Set controller state to READY */
-    pid->state = PID_STATE_READY;
+    pid->state = STATE_READY;
 }
 
-void PID_Start(PID_Controller *pid)
+void PID_Start(PID_Controller *pid, float setpoint)
 {
-    if (pid == NULL) {
+    if (pid == NULL) 
+    {
         return;
     }
+    
+    if (pid->state != STATE_READY) 
+    {
+        return;
+    }
+
+    pid->setpoint = setpoint;
     
     /* Reset internal PID variables */
     pid->integral = 0.0f;
@@ -53,16 +60,21 @@ void PID_Start(PID_Controller *pid)
     pid->filtered_error = 0.0f;
     
     /* Set state to OPERATING */
-    pid->state = PID_STATE_OPERATING;
+    pid->state = STATE_OPERATING;
 }
 
 float PID_Execute(PID_Controller *pid, float setpoint, float measured_value)
 {
-    if (pid == NULL || pid->state != PID_STATE_OPERATING) {
-        /* Either invalid pointer or controller not running */
-        return pid ? pid->output : 0.0f;
+    if (pid == NULL) 
+    {
+        return 0.0;
     }
     
+    if (pid->state != STATE_OPERATING) 
+    {
+        return 0.0;
+    }
+
     /* Update the setpoint (it can change on the fly) */
     pid->setpoint = setpoint;
     
@@ -103,10 +115,16 @@ float PID_Execute(PID_Controller *pid, float setpoint, float measured_value)
 
 void PID_Stop(PID_Controller *pid)
 {
-    if (pid == NULL) {
+    if (pid == NULL) 
+    {
+        return;
+    }
+    
+    if (pid->state != STATE_OPERATING) 
+    {
         return;
     }
     
     /* Set state to READY to indicate the controller is stopped */
-    pid->state = PID_STATE_READY;
+    pid->state = STATE_READY;
 }

@@ -8,6 +8,7 @@
         "tachometer.h": "c",
         "zmotor_control.h": "c",
         "impedance_measurement.h": "c",
-        "pll.h": "c"
+        "pll.h": "c",
+        "stm32f4xx_hal_conf.h": "c"
     }
 }
