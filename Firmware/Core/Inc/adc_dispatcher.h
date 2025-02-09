@@ -15,9 +15,7 @@ typedef void (*AdcDispatcher_Callback_t)(uint16_t value);
 void AdcDispatcher_Init(ADC_HandleTypeDef *hadc, TIM_HandleTypeDef *htim);
 void AdcDispatcher_Start(void);
 void AdcDispatcher_Stop(void);
-int8_t AdcDispatcher_RegisterChannel(uint8_t conversionOrder, 
-                                     uint16_t downsamplingFactor, 
-                                     AdcDispatcher_Callback_t callback);
+void AdcDispatcher_RegisterChannel(uint8_t conversionOrder, AdcDispatcher_Callback_t callback);
 
 #ifdef __cplusplus
 }

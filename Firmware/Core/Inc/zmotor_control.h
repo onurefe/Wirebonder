@@ -5,49 +5,24 @@
 extern "C" {
 #endif
 
+#include "stm32f4xx_hal.h"  // Change if using a different series
 #include <stdint.h>
 
-/**
- * @brief Initialize the motor control module.
- *
- * This module integrates:
- *   - Tachometer module for speed measurement.
- *   - LVDT module for position measurement.
- *   - Two PID controllers (for position and speed).
- *   - PWM output for motor drive.
- *
- * Call this function once before using the module.
- */
-void MotorControl_Init(void);
+/* Exported constants --------------------------------------------*/
+#define ZMOTOR_CONTROL_SETPOINT_ACHIEVED_EVENT_ID 0
 
-/**
- * @brief Start the motor control loop.
- *
- * This function starts the integrated measurement modules and PWM output.
- */
-void MotorControl_Start(void);
+/* Exported types ------------------------------------------------*/
+typedef void (*ZMotorControl_Callback_t)(uint16_t eventId);
 
-/**
- * @brief Stop the motor control loop.
- *
- * This function stops the measurement modules and PWM output.
- */
-void MotorControl_Stop(void);
+/* Exported functions --------------------------------------------*/
+void ZMotorControl_Init(DAC_HandleTypeDef *lvdtDac, 
+                        TIM_HandleTypeDef *lvdtHtim, 
+                        uint32_t lvdtDacChannel);
 
-/**
- * @brief Set the desired position setpoint.
- *
- * @param pos Desired position (in units consistent with the LVDT module).
- */
-void MotorControl_SetPositionSetpoint(float pos);
-
-/**
- * @brief Run one cycle of the motor control update loop.
- *
- * This function should be called periodically (e.g., from a timer interrupt or main loop)
- * to update the control loop.
- */
-void MotorControl_Update(void);
+void ZMotorControl_Start(void);
+void ZMotorControl_Stop(void);
+void ZMotorControl_SetPositionSetpoint(float position);
+void ZMotorControl_RegisterCallback(ZMotorControl_Callback_t callback);
 
 #ifdef __cplusplus
 }

@@ -1,122 +1,202 @@
 #include "zmotor_control.h"
-#include "tachometer.h"         // Provides Tachometer_GetLatestSpeed(), Tachometer_Start(), etc.
-#include "lvdt_phase_detection.h" // Provides LVDT_GetPhaseDifference(), LVDT_PhaseDetection_Start(), etc.
-#include "pid_controller.h"      // Provides PID_Init(), PID_Start(), PID_Execute(), etc.
-#include "stm32f4xx_hal.h"       // HAL drivers for PWM and timer (adjust as needed)
-#include <stdint.h>
-#include <stdbool.h>
-#include <math.h>
+#include "tachometer.h"         
+#include "lvdt.h"               
+#include "pid_controller.h"      
+#include "stm32f4xx_hal.h"
+#include "generic.h"
+#include "configuration.h"
+#include "math.h"
 
-/* ------------------ Module State Definitions ------------------ */
-typedef enum {
-    MOTOR_STATE_UNINIT = 0,
-    MOTOR_STATE_READY,
-    MOTOR_STATE_OPERATING
-} MotorState_t;
+static State_t g_state = STATE_UNINIT;
 
-static MotorState_t sMotorState = MOTOR_STATE_UNINIT;
+static uint8_t g_numCallbacks;
+static ZMotorControl_Callback_t g_callbacks[ZMOTOR_CONTROL_MAX_NUM_OF_CALLBACKS];
 
-/* ------------------ Global Variables ------------------ */
-static float sPositionSetpoint = 0.0f;   // Desired position
-
-/* PID controllers for position and speed */
 static PID_Controller pidPosition;
-static PID_Controller pidSpeed;
+static PID_Controller pidVelocity;
 
-/* PWM output: using TIM2 Channel 1 for motor drive.
-   The PWM duty cycle will be computed such that:
-     - 0.5 (50%) means zero speed (no motion),
-     - >0.5 means positive (forward) motion,
-     - <0.5 means negative (reverse) motion.
- */
-static TIM_HandleTypeDef htim2;  // PWM timer handle
+static float g_positionSetpoint = 0.0f;
 
-/* ------------------ Forward Declarations ------------------ */
-static void MotorControl_PWMInit(void);
-static void MotorControl_PWMSetDuty(float duty);
+static TIM_HandleTypeDef *g_motorDrivePwmHtim;  // PWM timer handle
+static uint32_t g_motorDriverPwmChannel;
 
-/* ------------------ Public Functions ------------------ */
+static Bool_t g_velocityMeasurementReceived;
+static Bool_t g_positionMeasurementReceived;
+static Bool_t g_newSetpoint;
 
-/**
- * @brief Initialize the motor control module.
- *
- * This function initializes the tachometer and LVDT modules,
- * configures the PID controllers for position and speed,
- * and initializes the PWM output.
- */
-void MotorControl_Init(void)
+static float g_velocityMeasurement;
+static float g_positionMeasurement;
+
+/* Private functions ------------------------------------*/
+static float clip(float value, float minValue, float maxValue)
 {
-    if (sMotorState != MOTOR_STATE_UNINIT)
+    if (value > maxValue) 
     {
-        // Already initialized.
+        value = maxValue;
+    }
+    else if (value < minValue)
+    {
+        value = minValue;
+    }
+
+    return value;
+}
+
+static void setDuty(float duty)
+{
+    duty = clip(duty, ZMOTOR_CONTROL_MIN_DUTY , ZMOTOR_CONTROL_MAX_DUTY);
+
+    uint32_t period = g_motorDrivePwmHtim->Init.Period + 1;
+    uint32_t pulse = (uint32_t)(duty * period);
+    
+    __HAL_TIM_SET_COMPARE(g_motorDrivePwmHtim, g_motorDriverPwmChannel, pulse);
+}
+
+static void notifySetpointAchieved(void)
+{
+    for (uint8_t i = 0; i < g_numCallbacks; i++)
+    {
+        if (g_callbacks[i] != NULL)
+        {
+            g_callbacks[i](ZMOTOR_CONTROL_SETPOINT_ACHIEVED_EVENT_ID);
+        }
+    }
+}
+
+static void controlUpdate(void)
+{
+    if (g_state != STATE_OPERATING)
+    {
+        return;
+    }
+    
+    float desired_velocity = PID_Execute(&pidPosition, 
+                                         g_positionSetpoint, 
+                                         g_positionMeasurement);
+
+    float velocity_control_output = PID_Execute(&pidVelocity, 
+                                                desired_velocity, 
+                                                g_velocityMeasurement);
+    
+    if (g_newSetpoint) 
+    {
+        float position_error = fabsf(g_positionSetpoint - g_positionMeasurement);
+        float velocity_error = fabsf(desired_velocity - g_velocityMeasurement);
+
+        if ((position_error < ZMOTOR_SETPOINT_ACHIEVED_EVENT_MAX_POSITION_ERROR) && \
+            (velocity_error < ZMOTOR_SETPOINT_ACHIEVED_EVENT_MAX_VELOCITY_ERROR))
+        {
+            notifySetpointAchieved();
+            g_newSetpoint = FALSE;
+        }
+    }
+    float duty = 0.5f + velocity_control_output;
+    
+    setDuty(duty);
+}
+
+static void tachometerMeasurementCallback(float velocity)
+{
+    if (g_state != STATE_OPERATING) 
+    {
+        return;
+    }
+
+    g_velocityMeasurement = velocity;
+    g_velocityMeasurementReceived = TRUE;
+
+    if (g_positionMeasurementReceived) 
+    {
+        g_velocityMeasurementReceived = FALSE;
+        g_positionMeasurementReceived = FALSE;
+        
+        controlUpdate();
+    }
+}
+
+static void lvdtMeasurementCallback(float position)
+{
+    if (g_state != STATE_OPERATING) 
+    {
+        return;
+    }
+
+    g_positionMeasurement = position;
+    g_positionMeasurementReceived = TRUE;
+
+    if (g_velocityMeasurementReceived) 
+    {
+        g_velocityMeasurementReceived = FALSE;
+        g_positionMeasurementReceived = FALSE;
+
+        controlUpdate();
+    }
+}
+/* ------------------ Public Functions ------------------ */
+void ZMotorControl_Init(DAC_HandleTypeDef *lvdtDac, 
+                        TIM_HandleTypeDef *lvdtHtim, 
+                        uint32_t lvdtDacChannel)
+{
+    if (g_state != STATE_UNINIT)
+    {
         return;
     }
     
     /* Initialize external measurement modules */
     Tachometer_Init();
-    LVDT_PhaseDetection_Init();
+    LVDT_Init(lvdtDac, lvdtHtim, lvdtDacChannel);
     
-    /* Initialize the PID controllers.
-       The following parameters are examples and must be tuned for your system.
-       For the position PID controller, assume:
-         - gain = 1.0,
-         - integral time constant = 0.5 s,
-         - derivative time constant = 0.1 s,
-         - dt = 1 ms (0.001 s),
-         - initial setpoint = 0,
-         - output limits = [-1.0, 1.0].
-       For the speed PID controller, assume:
-         - gain = 1.0,
-         - integral time constant = 0.3 s,
-         - derivative time constant = 0.05 s,
-         - dt = 1 ms,
-         - initial setpoint = 0,
-         - output limits = [-1.0, 1.0].
-    */
-    PID_Init(&pidPosition, 1.0f, 0.5f, 0.1f, 0.001f, 0.0f, 0.05f, -1.0f, 1.0f);
-    PID_Init(&pidSpeed,    1.0f, 0.3f, 0.05f, 0.001f, 0.0f, 0.05f, -1.0f, 1.0f);
-    PID_Start(&pidPosition);
-    PID_Start(&pidSpeed);
+    Tachometer_RegisterCallback(tachometerMeasurementCallback);
+    LVDT_RegisterCallback(lvdtMeasurementCallback);
+
+    /* Initialize PID controllers. */
+    PID_Init(&pidPosition, 
+             ZMOTOR_POSITION_CONTROL_PID_GAIN, 
+             ZMOTOR_POSITION_CONTROL_PID_INTEGRAL_TC, 
+             ZMOTOR_POSITION_CONTROL_PID_DERIVATIVE_TC, 
+             ZMOTOR_POSITION_CONTROL_PID_DT, 
+             ZMOTOR_POSITION_CONTROL_PID_FILTER_TC, 
+             ZMOTOR_POSITION_CONTROL_PID_OUTPUT_MIN,
+             ZMOTOR_POSITION_CONTROL_PID_OUTPUT_MAX);
     
-    /* Initialize PWM output */
-    MotorControl_PWMInit();
-    
-    sMotorState = MOTOR_STATE_READY;
+    PID_Init(&pidVelocity, 
+             ZMOTOR_VELOCITY_CONTROL_PID_GAIN, 
+             ZMOTOR_VELOCITY_CONTROL_PID_INTEGRAL_TC, 
+             ZMOTOR_VELOCITY_CONTROL_PID_DERIVATIVE_TC, 
+             ZMOTOR_VELOCITY_CONTROL_PID_DT, 
+             ZMOTOR_VELOCITY_CONTROL_PID_FILTER_TC, 
+             ZMOTOR_VELOCITY_CONTROL_PID_OUTPUT_MIN,
+             ZMOTOR_VELOCITY_CONTROL_PID_OUTPUT_MAX);
+             
+    g_state = STATE_READY;
 }
 
-/**
- * @brief Start the motor control loop.
- *
- * This function starts the tachometer and LVDT modules and begins PWM output.
- */
-void MotorControl_Start(void)
+
+void ZMotorControl_Start(void)
 {
-    if (sMotorState != MOTOR_STATE_READY)
+    if (g_state != STATE_READY)
     {
         return;
     }
     
     Tachometer_Start();
-    LVDT_PhaseDetection_Start();
+    LVDT_Start();
     
-    /* Start the PWM output */
-    if (HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1) != HAL_OK)
+    PID_Start(&pidPosition, 0.);
+    PID_Start(&pidVelocity, 0.);
+
+    if (HAL_TIM_PWM_Start(g_motorDrivePwmHtim, g_motorDriverPwmChannel) != HAL_OK) 
     {
-        // Error handling: if PWM fails to start, consider error recovery.
         return;
     }
     
-    sMotorState = MOTOR_STATE_OPERATING;
+    g_newSetpoint = FALSE;
+    g_state = STATE_OPERATING;
 }
 
-/**
- * @brief Stop the motor control loop.
- *
- * This function stops the measurement modules and PWM output.
- */
-void MotorControl_Stop(void)
+void ZMotorControl_Stop(void)
 {
-    if (sMotorState != MOTOR_STATE_OPERATING)
+    if (g_state != STATE_OPERATING)
     {
         return;
     }
@@ -124,118 +204,32 @@ void MotorControl_Stop(void)
     Tachometer_Stop();
     LVDT_PhaseDetection_Stop();
     
-    HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
+    HAL_TIM_PWM_Stop(g_motorDrivePwmHtim, g_motorDriverPwmChannel);
     
-    sMotorState = MOTOR_STATE_READY;
+    g_state = STATE_READY;
 }
 
-/**
- * @brief Set the desired position setpoint.
- *
- * @param pos Desired position.
- */
-void MotorControl_SetPositionSetpoint(float pos)
+void ZMotorControl_SetPositionSetpoint(float position)
 {
-    sPositionSetpoint = pos;
-}
-
-/**
- * @brief Update the motor control loop.
- *
- * This function reads the measured position and speed, computes control commands
- * via the PID controllers, and updates the PWM duty cycle accordingly.
- * It should be called periodically (e.g., every 1 ms).
- */
-void MotorControl_Update(void)
-{
-    if (sMotorState != MOTOR_STATE_OPERATING)
+    if (g_state != STATE_OPERATING) 
     {
         return;
     }
-    
-    /* Read measured position from the LVDT module.
-       In this example, LVDT_GetPhaseDifference() returns a value proportional to position.
-    */
-    float measuredPosition = LVDT_GetPhaseDifference();
-    
-    /* Execute the position PID.
-       The output is a desired speed setpoint.
-    */
-    float desiredSpeed = PID_Execute(&pidPosition, sPositionSetpoint, measuredPosition);
-    
-    /* Read the measured speed from the tachometer module */
-    float measuredSpeed = Tachometer_GetLatestSpeed();
-    
-    /* Execute the speed PID.
-       The output is a control signal that we map to PWM duty cycle.
-    */
-    float speedControlOutput = PID_Execute(&pidSpeed, desiredSpeed, measuredSpeed);
-    
-    /* Map the speed control output to a PWM duty cycle.
-       We define:
-         duty = 0.5 + (speedControlOutput),
-       so that when speedControlOutput is 0 the duty is 50% (no motion).
-       Limit duty to [0, 1].
-    */
-    float duty = 0.5f + speedControlOutput;
-    if (duty > 1.0f)
-        duty = 1.0f;
-    else if (duty < 0.0f)
-        duty = 0.0f;
-    
-    MotorControl_PWMSetDuty(duty);
+
+    g_positionSetpoint = position;
+    g_newSetpoint = TRUE;
 }
 
-/* ------------------ Private Functions for PWM Output ------------------ */
-
-/**
- * @brief Initialize the PWM timer for motor control.
- *
- * In this example, we configure TIM2 Channel 1 for PWM output.
- * The PWM frequency is set to 20 kHz.
- */
-static void MotorControl_PWMInit(void)
+void ZMotorControl_RegisterCallback(ZMotorControl_Callback_t callback)
 {
-    __HAL_RCC_TIM2_CLK_ENABLE();
-    
-    /* Example configuration:
-       Assume the timer clock is 84 MHz. To obtain a PWM frequency of 20 kHz:
-       Choose PSC and ARR such that: 84e6 / ((PSC+1)*(ARR+1)) = 20e3.
-       For instance, PSC = 83 and ARR = 49 yield: 84e6/(84*50)=20,000 Hz.
-    */
-    htim2.Instance = TIM2;
-    htim2.Init.Prescaler = 83;
-    htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim2.Init.Period = 49;
-    htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-    if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+    if (g_state != STATE_READY)
     {
-        // Error handling.
+        return;
     }
-    
-    /* Configure PWM channel 1 */
-    TIM_OC_InitTypeDef sConfigOC = {0};
-    sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    /* Start with a 50% duty cycle (neutral command) */
-    sConfigOC.Pulse = (htim2.Init.Period + 1) / 2;
-    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-    if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-    {
-        // Error handling.
-    }
-}
 
-/**
- * @brief Update the PWM duty cycle.
- *
- * @param duty Duty cycle in the range [0, 1]. A duty of 0.5 corresponds to zero motor movement.
- */
-static void MotorControl_PWMSetDuty(float duty)
-{
-    uint32_t period = htim2.Init.Period + 1;
-    uint32_t pulse = (uint32_t)(duty * period);
-    
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, pulse);
+    if (g_numCallbacks > ZMOTOR_CONTROL_MAX_NUM_OF_CALLBACKS) {
+        return;
+    }
+
+    g_callbacks[g_numCallbacks++] = callback;
 }
