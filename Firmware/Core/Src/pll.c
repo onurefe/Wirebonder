@@ -1,156 +1,182 @@
 #include "pll.h"
-#include "pid_controller.h"      // PID controller library
-#include "impedance_measurement.h" // Provides ComplexImpedance and callback registration
-#include "stm32f4xx_hal.h"       // HAL for timer configuration (adjust as needed)
-#include <stdint.h>
-#include <stdbool.h>
-#include <math.h>
+#include "pid_controller.h"
+#include "ultrasonic_driver.h"
+#include "stm32f4xx_hal.h"
+#include "configuration.h"
+#include "math.h"
+#include "generic.h"
+#include "adc_conversion_orders.h"
 
-/* ------------------ Internal State Definitions ------------------ */
-typedef enum {
-    PLL_STATE_UNINIT = 0,
-    PLL_STATE_READY,
-    PLL_STATE_OPERATING
-} PLL_State_t;
+/* Private variables -------------------------------------*/
+static const uint16_t g_sineLookup[PLL_SINE_LOOKUP_SIZE];
 
-static PLL_State_t sPLLState = PLL_STATE_UNINIT;
+static uint16_t g_dacBuffer[PLL_ADC_DOUBLE_BUFFER_SIZE];
+static uint16_t g_adcBuffer[PLL_DAC_DOUBLE_BUFFER_SIZE];
 
-/* ------------------ Internal Variables ------------------ */
-static float sCenterFrequency = 0.0f;   // Center frequency (Hz)
-static float sFrequencyCorrection = 0.0f;
+static State_t g_state = STATE_UNINIT;
+static PID_Controller g_pid;
 
-static PID_Controller pidPLL;           // PLL PID controller instance
+static float g_centerFrequency;
+static float g_correctionFrequency;
+static float g_ddsPhase;
 
-// TIMER2 handle – used to drive the piezoelectric transducer.
-static TIM_HandleTypeDef htim2;
-
-/* ------------------ Private Function Prototypes ------------------ */
-static void PLL_ImpedanceCallback(ComplexImpedance impedance);
-static void PLL_UpdateTimer2Frequency(float newFrequency);
-
-/* ------------------ Private Functions ------------------ */
-
-/**
- * @brief Update TIMER2 frequency.
- *
- * Given a desired new frequency (Hz), this function recalculates TIMER2's period
- * and restarts the timer. For this example, we assume that:
- *   - TIMER2 clock is derived from a fixed clock (e.g. 84 MHz),
- *   - A fixed prescaler (e.g. 83) is used, so that the timer clock becomes 84e6/84 = 1 MHz.
- * Then the period (ARR) is calculated as: ARR = (1e6 / newFrequency) - 1.
- *
- * @param newFrequency The new frequency (Hz) for TIMER2.
- */
-static void PLL_UpdateTimer2Frequency(float newFrequency)
+/* Private functions -------------------------------------*/
+float mean(uint16_t *rawSignal, uint16_t numSamples)
 {
-    // Fixed prescaler value.
-    uint32_t prescaler = 83; // Timer clock = 84e6/(83+1)=1e6 Hz.
-    // Calculate new auto-reload register value.
-    uint32_t arr = (uint32_t)(1000000.0f / newFrequency) - 1;
-    
-    // Update prescaler and auto-reload registers on the fly.
-    __HAL_TIM_SET_PRESCALER(&htim2, prescaler);
-    __HAL_TIM_SET_AUTORELOAD(&htim2, arr);
-    
-    // Optionally, reset the counter for a clean start.
-    __HAL_TIM_SET_COUNTER(&htim2, 0);
-    
-    // Generate an update event to force the timer to load the new PSC and ARR values immediately.
-    __HAL_TIM_GENERATE_EVENT(&htim2, TIM_EVENTSOURCE_UPDATE);
+    uint32_t accumulator = 0;
+
+    for (uint16_t i = 0; i < numSamples; i++)
+    {
+        accumulator += rawSignal[i];
+    }
+
+    float mean = (float)accumulator / numSamples;
+    return mean;
 }
 
-/**
- * @brief PLL callback registered with the impedance measurement module.
- *
- * This function is called whenever a new impedance measurement is ready.
- * The measured phase (in radians) is used as the error (desired phase = 0).
- * The PID controller computes a frequency correction (in Hz) which is added to
- * the center frequency to determine the new TIMER2 frequency.
- *
- * @param impedance The measured complex impedance.
- */
-static void PLL_ImpedanceCallback(ComplexImpedance impedance)
+uint16_t computeLag(void)
 {
-    // Update TIMER2 frequency.
-    PLL_UpdateTimer2Frequency(sCenterFrequency + sFrequencyCorrection);
-
-    // Error is the measured phase (we desire zero phase difference).
-    float error = impedance.phase; // desired phase is 0.
+    float lag_in_samples;
+    lag_in_samples = roundf((float)ADC1_SAMPLING_FREQUENCY / (4 * g_centerFrequency));
     
-    // Compute PID output (frequency correction in Hz).
-    sFrequencyCorrection = PID_Execute(&pidPLL, 0.0f, error);
+    return (uint16_t)lag_in_samples;
 }
 
-/* ------------------ Public Functions ------------------ */
+float computePhaseLag(uint16_t lagInSamples, float outputFrequency)
+{
+    float delay = (float)lagInSamples / ADC1_SAMPLING_FREQUENCY;
+    
+    return 2 * M_PI * outputFrequency * delay;
+}
 
+float fillDDSBuffer(uint16_t *buffer, uint16_t numSamples, float frequency, float startingPhase)
+{
+    float phase;
+
+    for (uint16_t i=0; i < numSamples; i++)
+    {
+        float t = (float)i / DAC1_SAMPLING_FREQUENCY;
+        phase = startingPhase + 2.0 * M_PI * frequency * t;
+
+        uint32_t idx = (uint32_t)fabsf((float)PLL_SINE_LOOKUP_SIZE * phase / (2 * M_PI));
+        buffer[i] = g_sineLookup[idx % PLL_SINE_LOOKUP_SIZE]; 
+    }
+
+    float next_starting_phase = phase + 2.0 * M_PI * frequency / DAC1_SAMPLING_FREQUENCY;
+    return next_starting_phase;
+}
+
+float computePhaseDifference(uint16_t *sampleBuffer, uint16_t numSamples)
+{
+    float raw_active_power = 0.;
+    float raw_pseudo_reactive_power = 0.;
+    float raw_mean_voltage = 0.;
+    float raw_mean_current = 0.;
+
+    uint16_t lag = computeLag();
+    
+    for (uint16_t i = 0; i < numSamples; i++)
+    {
+        raw_mean_voltage += sampleBuffer[2*i + VSENS_CONVERSION_ORDER]; 
+        raw_mean_current += sampleBuffer[2*i + ISENS_CONVERSION_ORDER];
+    }
+
+    raw_mean_current = raw_mean_current / numSamples;
+    raw_mean_voltage = raw_mean_voltage / numSamples;
+
+    for (uint16_t i = lag; i < numSamples; i++)
+    {
+        float raw_voltage = (float)sampleBuffer[2*i + VSENS_CONVERSION_ORDER] - raw_mean_voltage;
+        float raw_current = (float)sampleBuffer[2*i + ISENS_CONVERSION_ORDER] - raw_mean_current;
+        float raw_current_lagged = (float)sampleBuffer[2*(i - lag) + ISENS_CONVERSION_ORDER] - raw_mean_current;
+
+        raw_active_power += raw_voltage * raw_current;
+        raw_pseudo_reactive_power += raw_voltage * raw_current_lagged;
+    }
+
+    float phase_shift = computePhaseLag(lag, g_centerFrequency + g_correctionFrequency);
+    float raw_reactive_power = (raw_pseudo_reactive_power - cosf(phase_shift) * raw_active_power) \
+     / sinf(phase_shift);
+
+    return atan2f(raw_active_power, raw_reactive_power);
+}
+
+void ultrasonicDriverNotificationCallback(uint16_t eventId, uint16_t *buffer)
+{
+    (void)eventId; 
+
+    if (eventId == ULTRASONIC_DRIVER_ADC_BUFFER_FULL_EVENT_ID) 
+    {
+        float phase_difference = computePhaseDifference(buffer, PLL_ADC_DOUBLE_BUFFER_SIZE/2);
+        g_correctionFrequency = PID_Execute(&g_pid, 0., phase_difference);
+    }
+
+    if (eventId == ULTRASONIC_DRIVER_DAC_BUFFER_EMPTY_EVENT_ID)
+    {
+        float output_frequency = g_centerFrequency + g_correctionFrequency;
+        g_ddsPhase = fillDDSBuffer(buffer, (PLL_DAC_DOUBLE_BUFFER_SIZE/2), output_frequency, g_ddsPhase);     
+    }
+}
+
+/* Public functions --------------------------------------*/
 void PLL_Init(void)
 {
-    if (sPLLState != PLL_STATE_UNINIT)
+    if (g_state != STATE_UNINIT) 
+    {
         return;
-    
-    // Initialize the PLL PID controller.
-    // Example parameters: Kp = 10.0, Ki = 50.0, Kd = 0.0, dt = 0.001 s, output limits = [-100, 100] Hz.
-    PID_Init(&pidPLL, 10.0f, 50.0f, 0.0f, 0.001f, 0.0f, 0.05f, -100.0f, 100.0f);
-    PID_Start(&pidPLL);
-    
-    // Initialize TIMER2.
-    // Enable TIM2 clock.
-    __HAL_RCC_TIM2_CLK_ENABLE();
-    htim2.Instance = TIM2;
-    
-    // Use a default center frequency; this will be updated when PLL_Activate() is called.
-    sCenterFrequency = 100000.0f; // e.g., 100 kHz default.
-    uint32_t prescaler = 83; // Fixed prescaler => timer clock = 1 MHz.
-    uint32_t arr = (uint32_t)(1000000.0f / sCenterFrequency) - 1;
-    htim2.Init.Prescaler = prescaler;
-    htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim2.Init.Period = arr;
-    htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-    if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
-        // Error handling.
     }
-    HAL_TIM_Base_Start(&htim2);
-    
-    // Register the PLL callback with the impedance measurement module.
-    ImpedanceMeasurement_RegisterCallback(PLL_ImpedanceCallback);
-    
-    sPLLState = PLL_STATE_READY;
+
+    PID_Init(&g_pid, 
+             PLL_PID_CONTROLLER_GAIN, 
+             PLL_PID_CONTROLLER_INTEGRAL_TC, 
+             PLL_PID_CONTROLLER_DERIVATIVE_TC, 
+             (1.0 / PLL_PID_CONTROLLER_UPDATE_FREQUENCY), 
+             PLL_PID_CONTROLLER_FILTER_TC, 
+             PLL_PID_CONTROLLER_MIN_FREQUENCY_DEVIATION, 
+             PLL_PID_CONTROLLER_MAX_FREQUENCY_DEVIATION);
+
+    g_state = STATE_READY;
 }
 
-void PLL_Start(void)
+void PLL_Start(float centerFrequency)
 {
-    if (sPLLState != PLL_STATE_READY)
+    if (g_state != STATE_READY) 
+    {
         return;
-    
-    sPLLState = PLL_STATE_OPERATING;
+    }
+
+    /* Start PID controller. */
+    PID_Start(&g_pid, 0.);
+
+    /* Start working registers. */
+    g_correctionFrequency = 0.;
+    g_ddsPhase = 0.;
+
+    /* Fill DDS buffer initially. */
+    g_ddsPhase = fillDDSBuffer(g_dacBuffer, 
+                               PLL_DAC_DOUBLE_BUFFER_SIZE, 
+                               g_centerFrequency, 
+                               g_ddsPhase);    
+
+    /* Start ultrasonic driver. */
+    UltrasonicDriver_Start(g_dacBuffer, 
+                           g_adcBuffer, 
+                           PLL_DAC_DOUBLE_BUFFER_SIZE, 
+                           PLL_ADC_DOUBLE_BUFFER_SIZE, 
+                           TRUE, 
+                           ultrasonicDriverNotificationCallback);
+
+    g_state = STATE_OPERATING;
 }
 
 void PLL_Stop(void)
 {
-    if (sPLLState != PLL_STATE_OPERATING)
+    if (g_state != STATE_OPERATING) 
+    {
         return;
-    
-    sPLLState = PLL_STATE_READY;
-}
+    }
 
-/**
- * @brief Activate the PLL with the given center frequency.
- *
- * This function sets the center frequency, updates TIMER2 accordingly,
- * and starts the PLL processing. The final frequency applied to TIMER2 is:
- *   finalFrequency = centerFrequency + (PID output).
- *
- * @param centerFrequency The desired center frequency in Hz.
- */
-void PLL_Activate(float centerFrequency)
-{
-    // Set the center frequency.
-    sCenterFrequency = centerFrequency;
-    
-    // Update TIMER2 to run at the center frequency initially.
-    PLL_UpdateTimer2Frequency(sCenterFrequency);
-    
-    // Start PLL processing.
-    PLL_Start();
+    UltrasonicDriver_Stop();
+
+    g_state = STATE_READY;
 }

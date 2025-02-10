@@ -90,7 +90,8 @@ static void controlUpdate(void)
             g_newSetpoint = FALSE;
         }
     }
-    float duty = 0.5f + velocity_control_output;
+    
+    float duty = ZMOTOR_ZERO_VELOCITY_DUTY + velocity_control_output;
     
     setDuty(duty);
 }
@@ -190,6 +191,8 @@ void ZMotorControl_Start(void)
         return;
     }
     
+    setDuty(ZMOTOR_ZERO_VELOCITY_DUTY);
+
     g_newSetpoint = FALSE;
     g_state = STATE_OPERATING;
 }

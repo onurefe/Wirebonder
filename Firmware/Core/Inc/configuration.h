@@ -23,9 +23,31 @@
 #define PIN_MONITOR_MAX_NUMBER_OF_MONITORED_PINS 8
 #define PIN_MONITOR_SAMPLING_FREQUENCY 50
 
+/* DAC ---------------------------------------------------------------------*/
+#define DAC_VOLTAGE_RANGE 3.3
+#define DAC_BITS 12
+#define DAC1_SAMPLING_FREQUENCY 348000
+
 /* ADC VOLTAGE RANGE -------------------------------------------------------*/
 #define ADC_VOLTAGE_RANGE 3.3
 #define ADC_BITS 12
+#define ADC1_SAMPLING_FREQUENCY 348000
+
+/* Ultrasonic Transducer ---------------------------------------------------*/
+#define ULTRASONIC_TRANSDUCER_DEFAULT_FREQUENCY 58000
+
+/* PLL ---------------------------------------------------------------------*/
+#define PLL_ADC_DOUBLE_BUFFER_SIZE 1024
+#define PLL_DAC_DOUBLE_BUFFER_SIZE 1024
+#define PLL_SINE_LOOKUP_SIZE 4096
+
+#define PLL_PID_CONTROLLER_GAIN 1.
+#define PLL_PID_CONTROLLER_INTEGRAL_TC 1.
+#define PLL_PID_CONTROLLER_DERIVATIVE_TC 0.
+#define PLL_PID_CONTROLLER_UPDATE_FREQUENCY 50
+#define PLL_PID_CONTROLLER_FILTER_TC 0.
+#define PLL_PID_CONTROLLER_MIN_FREQUENCY_DEVIATION -1000.
+#define PLL_PID_CONTROLLER_MAX_FREQUENCY_DEVIATION 1000.
 
 /* ADC Dispatcher ----------------------------------------------------------*/
 #define ADC_DISPATCHER_NOTIFICATION_FREQUENCY 4000
@@ -52,6 +74,8 @@
 /* Z Motor Control ---------------------------------------------------------*/
 #define ZMOTOR_CONTROL_MAX_NUM_OF_CALLBACKS 8
 
+#define ZMOTOR_ZERO_VELOCITY_DUTY 0.5
+
 #define ZMOTOR_SETPOINT_ACHIEVED_EVENT_MAX_POSITION_ERROR 1e-2 
 #define ZMOTOR_SETPOINT_ACHIEVED_EVENT_MAX_VELOCITY_ERROR 1e-2
 
@@ -75,8 +99,12 @@
 #define ZMOTOR_CONTROL_MIN_DUTY 0.0
 
 /* Force coil driver module configuration ----------------------------------*/
-#define FORCE_COIL_DRIVER_CONTROL_ISR_FREQUENCY 1000
-#define FORCE_COIL_DRIVER_I2V_CONVERSION_FACTOR 0.781
+#define FORCE_COIL_MAX_NUM_OF_CALLBACKS 8
+
+#define FORCE_COIL_DRIVER_SETPOINT_ACHIEVED_EVENT_MAX_CURRENT_ERROR 1e-2
+
+#define FORCE_COIL_DRIVER_CONTROL_UPDATE_FREQUENCY 1000
+#define FORCE_COIL_DRIVER_V2I_CONVERSION_FACTOR   (1.0/0.781)
 
 #define FORCE_COIL_DRIVER_PID_GAIN 1.0
 #define FORCE_COIL_DRIVER_PID_INTEGRAL_TC 0.01
@@ -84,6 +112,9 @@
 #define FORCE_COIL_DRIVER_PID_INPUT_FILTER_TC 0.001
 #define FORCE_COIL_DRIVER_PID_OUTPUT_MIN 0.0
 #define FORCE_COIL_DRIVER_PID_OUTPUT_MAX 1.0
+
+#define FORCE_COIL_MAX_DUTY 1.0 
+#define FORCE_COIL_MIN_DUTY 0.0
 
 /* Stepper module configuration --------------------------------------------*/
 #define STEPPER_SEGMENT_QUEUE_CAPACITY_IN_NUM_ELEMENTS 32
