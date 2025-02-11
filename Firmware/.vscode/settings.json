@@ -9,6 +9,8 @@
         "zmotor_control.h": "c",
         "impedance_measurement.h": "c",
         "pll.h": "c",
-        "stm32f4xx_hal_conf.h": "c"
+        "stm32f4xx_hal_conf.h": "c",
+        "adc_conversion_orders.h": "c",
+        "us_impedance_scanner.h": "c"
     }
 }

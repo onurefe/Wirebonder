@@ -103,8 +103,6 @@ float computePhaseDifference(uint16_t *sampleBuffer, uint16_t numSamples)
 
 void ultrasonicDriverNotificationCallback(uint16_t eventId, uint16_t *buffer)
 {
-    (void)eventId; 
-
     if (eventId == ULTRASONIC_DRIVER_ADC_BUFFER_FULL_EVENT_ID) 
     {
         float phase_difference = computePhaseDifference(buffer, PLL_ADC_DOUBLE_BUFFER_SIZE/2);
