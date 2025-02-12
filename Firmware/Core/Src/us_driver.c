@@ -1,4 +1,4 @@
-#include "ultrasonic_driver.h"
+#include "us_driver.h"
 
 /* Private variables --------------------------------------------------*/
 /* Peripherals etc. */
@@ -18,13 +18,13 @@ static uint16_t g_adcBufferSize;
 static uint16_t g_dacBufferSize;
 
 static Bool_t g_continuousOperation;
-static UltrasonicDriver_Callback_t g_callback;
+static UsDriver_Callback_t g_callback;
 
 /* Public functions ----------------------------------------------------*/
-void UltrasonicDriver_Init(TIM_HandleTypeDef *htim, 
-                           ADC_HandleTypeDef *hadc, 
-                           DAC_HandleTypeDef *hdac, 
-                           uint32_t dacChannel)
+void UsDriver_Init(TIM_HandleTypeDef *htim, 
+                   ADC_HandleTypeDef *hadc, 
+                   DAC_HandleTypeDef *hdac, 
+                   uint32_t dacChannel)
 {
     if (g_state != STATE_UNINIT) 
     {
@@ -40,12 +40,12 @@ void UltrasonicDriver_Init(TIM_HandleTypeDef *htim,
     g_state = STATE_READY;
 }
 
-void UltrasonicDriver_Start(uint16_t *dacBuffer, 
-                            uint16_t *adcBuffer, 
-                            uint16_t dacBufferSize, 
-                            uint16_t adcBufferSize, 
-                            Bool_t continuousOperation, 
-                            UltrasonicDriver_Callback_t callback)
+void UsDriver_Start(uint16_t *dacBuffer, 
+                    uint16_t *adcBuffer, 
+                    uint16_t dacBufferSize, 
+                    uint16_t adcBufferSize, 
+                    Bool_t continuousOperation, 
+                    UsDriver_Callback_t callback)
 {
     if (g_state != STATE_READY) 
     {
@@ -82,7 +82,7 @@ void UltrasonicDriver_Start(uint16_t *dacBuffer,
     g_state = STATE_OPERATING;
 }
 
-void UltrasonicDriver_Stop(void)
+void UsDriver_Stop(void)
 {
     if (g_state != STATE_OPERATING) 
     {
@@ -110,7 +110,7 @@ void UltrasonicDriver_Stop(void)
     g_state = STATE_READY;
 }
 
-void UltrasonicDriver_ADCDMAHalfCallback(ADC_HandleTypeDef *hadc)
+void UsDriver_ADCDMAHalfCallback(ADC_HandleTypeDef *hadc)
 {
     if (g_state != STATE_OPERATING)
     {
@@ -120,11 +120,11 @@ void UltrasonicDriver_ADCDMAHalfCallback(ADC_HandleTypeDef *hadc)
     /* For continuous operation, circular buffer is assumed. */
     if (g_continuousOperation) 
     {
-        g_callback(ULTRASONIC_DRIVER_ADC_BUFFER_FULL_EVENT_ID, g_adcBuffer);
+        g_callback(US_DRIVER_ADC_BUFFER_FULL_EVENT_ID, g_adcBuffer);
     }
 }
 
-void UltrasonicDriver_ADCDMAFullCallback(ADC_HandleTypeDef *hadc)
+void UsDriver_ADCDMAFullCallback(ADC_HandleTypeDef *hadc)
 {
     if (g_state != STATE_OPERATING)
         return;
@@ -132,16 +132,16 @@ void UltrasonicDriver_ADCDMAFullCallback(ADC_HandleTypeDef *hadc)
     /* For continuous operation, circular buffer is assumed. */
     if (g_continuousOperation) 
     {
-        g_callback(ULTRASONIC_DRIVER_ADC_BUFFER_FULL_EVENT_ID, &g_adcBuffer[g_adcBufferSize / 2]);
+        g_callback(US_DRIVER_ADC_BUFFER_FULL_EVENT_ID, &g_adcBuffer[g_adcBufferSize / 2]);
     }
     else
     {
-        g_callback(ULTRASONIC_DRIVER_OPERATION_COMPLETED_EVENT_ID, &g_adcBuffer[g_adcBufferSize / 2]);
+        g_callback(US_DRIVER_OPERATION_COMPLETED_EVENT_ID, &g_adcBuffer[g_adcBufferSize / 2]);
         UltrasonicDriver_Stop();
     }
 }
 
-void UltrasonicDriver_DACDMAHalfCallback(DAC_HandleTypeDef *hdac)
+void UsDriver_DACDMAHalfCallback(DAC_HandleTypeDef *hdac)
 {
     if (g_state != STATE_OPERATING)
     {
@@ -151,11 +151,11 @@ void UltrasonicDriver_DACDMAHalfCallback(DAC_HandleTypeDef *hdac)
     /* For continuous operation, circular buffer is assumed. */
     if (g_continuousOperation) 
     {
-        g_callback(ULTRASONIC_DRIVER_DAC_BUFFER_EMPTY_EVENT_ID, g_dacBuffer);
+        g_callback(US_DRIVER_DAC_BUFFER_EMPTY_EVENT_ID, g_dacBuffer);
     }
 }
 
-void UltrasonicDriver_DACDMAFullCallback(DAC_HandleTypeDef *hdac)
+void UsDriver_DACDMAFullCallback(DAC_HandleTypeDef *hdac)
 {
     if (g_state != STATE_OPERATING)
         return;
@@ -163,6 +163,6 @@ void UltrasonicDriver_DACDMAFullCallback(DAC_HandleTypeDef *hdac)
     /* For continuous operation, circular buffer is assumed. */
     if (g_continuousOperation) 
     {
-        g_callback(ULTRASONIC_DRIVER_DAC_BUFFER_EMPTY_EVENT_ID, &g_dacBuffer[g_dacBufferSize / 2]);
+        g_callback(US_DRIVER_DAC_BUFFER_EMPTY_EVENT_ID, &g_dacBuffer[g_dacBufferSize / 2]);
     }
 }

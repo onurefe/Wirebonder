@@ -5,7 +5,7 @@
 #ifndef GENERIC_H
 #define GENERIC_H
 
-#include <stdint.h>
+#include "main.h"
 
 #define MAX_UINT8 0xFF
 #define MAX_INT8 0x7F

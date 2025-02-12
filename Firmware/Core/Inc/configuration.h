@@ -1,16 +1,6 @@
 #ifndef CONFIGURATION_H
 #define CONFIGURATION_H
 
-/* General configuration ---------------------------------------------------*/
-#define NUMBER_OF_CHAMBERS 3
-
-/* Timer module configuration ----------------------------------------------*/
-#define TIMER_UC_CLOCK_FREQUENCY 16000000UL
-#define TIMER_MAX_NUM_DELEGATES 16U
-
-#define TIMER1_ISR_FREQUENCY 1000UL
-#define TIMER2_ISR_FREQUENCY 8000UL
-
 /* Serial module. ----------------------------------------------------------*/
 #define SERIAL_BAUDRATE 9600
 #define SERIAL_LINE_TERMINATOR "\n"
@@ -19,8 +9,23 @@
 #define EEPROM_MANAGER_MAX_USABLE_MEMORY_SIZE 4096
 #define EEPROM_MANAGER_MAX_NUM_OF_ALLOCATIONS 20
 
+#define US_VOLTAGE_SENSING_VOLTAGE_DIVIDER_GAIN   (61.9 / (2200.0 + 61.9)) 
+#define US_VOLTAGE_SENSING_AFE_GAIN               (8.2/2.15)
+#define US_VOLTAGE_SENSING_GAIN \
+(US_VOLTAGE_SENSING_VOLTAGE_DIVIDER_GAIN * US_VOLTAGE_SENSING_AFE_GAIN)
+
+#define US_CURRENT_SENSING_RESISTOR_VALUE         1.0 
+#define US_CURRENT_SENSING_AFE_GAIN               (8.2/2.2)
+#define US_CURRENT_SENSING_GAIN \
+(US_CURRENT_SENSING_RESISTOR_VALUE * US_CURRENT_SENSING_AFE_GAIN)
+
+/* Solenoid Driver ---------------------------------------------------------*/
+#define SOLENOID_DRIVER_MAX_SOLENOIDS           8
+#define SOLENOID_DRIVER_DEADZONE_DELAY          0.005
+#define SOLENOID_DRIVER_TRANSITION_TIME         0.05
+
 /* Pin monitor module configuration ----------------------------------------*/
-#define PIN_MONITOR_MAX_NUMBER_OF_MONITORED_PINS 8
+#define PIN_MONITOR_MAX_NUMBER_OF_MONITORED_PINS 16
 #define PIN_MONITOR_SAMPLING_FREQUENCY 50
 
 /* DAC ---------------------------------------------------------------------*/
@@ -32,6 +37,13 @@
 #define ADC_VOLTAGE_RANGE 3.3
 #define ADC_BITS 12
 #define ADC1_SAMPLING_FREQUENCY 348000
+
+/* Pin Monitor module ------------------------------------------------------*/
+#define PIN_MONITOR_SAMPLING_FREQUENCY 50
+
+/* Timer module ------------------------------------------------------------*/
+#define TIMER_MAX_NUM_DELEGATES  8
+#define TIMER_TICK_FREQUENCY 1000
 
 /* Ultrasonic Transducer ---------------------------------------------------*/
 #define US_IMPEDANCE_SCANNER_NUM_FREQUENCIES 16
@@ -48,8 +60,8 @@
 (DAC1_SAMPLING_FREQUENCY / US_IMPEDANCE_SCANNER_FREQUENCY_STEP)
 
 /* PLL ---------------------------------------------------------------------*/
-#define PLL_ADC_DOUBLE_BUFFER_SIZE 1024
-#define PLL_DAC_DOUBLE_BUFFER_SIZE 1024
+#define PLL_ADC_SAMPLES 1024
+#define PLL_DAC_SAMPLES 1024
 #define PLL_SINE_LOOKUP_SIZE 4096
 
 #define PLL_PID_CONTROLLER_GAIN 1.

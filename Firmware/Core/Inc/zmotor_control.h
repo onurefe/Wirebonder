@@ -19,7 +19,7 @@ void ZMotorControl_Init(DAC_HandleTypeDef *lvdtDac,
                         TIM_HandleTypeDef *lvdtHtim, 
                         uint32_t lvdtDacChannel);
 
-void ZMotorControl_Start(void);
+void ZMotorControl_Start(float position);
 void ZMotorControl_Stop(void);
 void ZMotorControl_SetPositionSetpoint(float position);
 void ZMotorControl_RegisterCallback(ZMotorControl_Callback_t callback);

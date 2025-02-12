@@ -8,7 +8,8 @@
 extern "C" {
 #endif
 
-#define FORCE_COIL_SETPOINT_ACHIEVED_EVENT_ID 0
+#define FORCE_COIL_SETPOINT_ACHIEVED_EVENT_ID   0
+#define FORCE_COIL_ERROR_EVENT_ID               1
 
 typedef void (*ForceCoil_Callback_t)(uint16_t eventId);
 

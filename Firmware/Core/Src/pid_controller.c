@@ -1,7 +1,7 @@
 #include "pid_controller.h"
 #include "generic.h"
 
-void PID_Init(PID_Controller *pid, float gain, float integral_tc, float derivative_tc, float dt,
+void Pid_Init(Pid_Controller *pid, float gain, float integral_tc, float derivative_tc, float dt,
               float filter_time_constant, float output_min, float output_max)
 {
     if (pid == NULL) 
@@ -37,7 +37,7 @@ void PID_Init(PID_Controller *pid, float gain, float integral_tc, float derivati
     pid->state = STATE_READY;
 }
 
-void PID_Start(PID_Controller *pid, float setpoint)
+void Pid_Start(Pid_Controller *pid, float setpoint)
 {
     if (pid == NULL) 
     {
@@ -63,7 +63,7 @@ void PID_Start(PID_Controller *pid, float setpoint)
     pid->state = STATE_OPERATING;
 }
 
-float PID_Execute(PID_Controller *pid, float setpoint, float measured_value)
+float Pid_Execute(Pid_Controller *pid, float setpoint, float measured_value)
 {
     if (pid == NULL) 
     {
@@ -113,7 +113,7 @@ float PID_Execute(PID_Controller *pid, float setpoint, float measured_value)
     return pid->output;
 }
 
-void PID_Stop(PID_Controller *pid)
+void Pid_Stop(Pid_Controller *pid)
 {
     if (pid == NULL) 
     {

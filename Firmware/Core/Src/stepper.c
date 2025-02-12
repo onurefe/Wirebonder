@@ -1,9 +1,9 @@
 #include "stepper.h"
-#include "timer2.h"        // for TIMER2_ISR_FREQUENCY, delayMicroseconds, etc.
-#include "configuration.h" // for STEPPER_CFG_EN_PIN, STEPPER_STEP_PIN, etc.
+#include "timer.h"    
+#include "configuration.h"
 #include "fast_io.h"
 #include "delay.h"
-#include <stdlib.h>        // for abs()
+#include <stdlib.h> 
 
 /* Private definitions -----------------------------------------------------*/
 #define TICKS_PER_SEGMENT \
@@ -20,6 +20,9 @@ static void   updateMotorDirection   (Stepper_Handle_t *handle);
 static void   pulseStepPin           (Stepper_Handle_t *handle);
 static void   setMotorDirectionForward  (Stepper_Handle_t *handle);
 static void   setMotorDirectionBackward (Stepper_Handle_t *handle);
+
+static GPIO_TypeDef *cfgEnPort = NULL;
+static uint16_t cfgEnPin = 0xFFFF;
 
 /* Exported functions ------------------------------------------------------*/
 void Stepper_Init(Stepper_Handle_t *handle, 

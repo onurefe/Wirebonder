@@ -36,14 +36,14 @@ typedef struct {
 
     /* Controller state */
     State_t state;     /**< Current state of the controller */
-} PID_Controller;
+} Pid_Controller;
 
 
-void PID_Init(PID_Controller *pid, float gain, float integral_tc, float derivative_tc, float dt,
+void Pid_Init(Pid_Controller *pid, float gain, float integral_tc, float derivative_tc, float dt,
               float filter_time_constant, float output_min, float output_max);
-void PID_Start(PID_Controller *pid, float setpoint);
-float PID_Execute(PID_Controller *pid, float setpoint, float measured_value);
-void PID_Stop(PID_Controller *pid);
+void Pid_Start(Pid_Controller *pid, float setpoint);
+float Pid_Execute(Pid_Controller *pid, float setpoint, float measured_value);
+void Pid_Stop(Pid_Controller *pid);
 
 #ifdef __cplusplus
 }

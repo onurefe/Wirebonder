@@ -1,33 +1,5 @@
 #include "fast_io.h"
 
-void FastIO_PinMode(FastIO_Pin_t *pin, uint8_t mode)
-{
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-    // Specify which pin we’re configuring
-    GPIO_InitStruct.Pin = pin->GPIO_Pin;
-
-    // Interpret `mode`: 
-    //   For example, let “0” = Input, “1” = Output
-    if (mode == FASTIO_INPUT)
-    {
-        // Input floating (or pull-up/down depending on your need)
-        GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; 
-        GPIO_InitStruct.Pull = GPIO_NOPULL;
-    }
-    else
-    {
-        // Output push-pull
-        GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-        GPIO_InitStruct.Pull = GPIO_NOPULL;
-    }
-
-    // Initialize the pin using the HAL
-    HAL_GPIO_Init(pin->GPIOx, &GPIO_InitStruct);
-}
-
 Bool_t FastIO_ReadPin(FastIO_Pin_t *pin)
 {
     // Read the pin state using the HAL

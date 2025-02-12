@@ -4,9 +4,6 @@
 #include "stm32f4xx_hal.h"
 #include "generic.h"         // Assuming this defines Bool_t, TRUE/FALSE, etc.
 
-#define FASTIO_INPUT ((uint8_t)0x00)
-#define FASTIO_OUTPUT ((uint8_t)0x01)
-
 /* Exported types ----------------------------------------------------------*/
 typedef struct
 {
@@ -15,7 +12,6 @@ typedef struct
 } FastIO_Pin_t;
 
 /* Exported functions ------------------------------------------------------*/
-extern void  FastIO_PinMode   (FastIO_Pin_t *pin, uint8_t mode);
 extern Bool_t FastIO_ReadPin  (FastIO_Pin_t *pin);
 extern void  FastIO_SetPin    (FastIO_Pin_t *pin);
 extern void  FastIO_ClearPin  (FastIO_Pin_t *pin);

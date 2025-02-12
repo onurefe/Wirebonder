@@ -11,6 +11,9 @@
         "pll.h": "c",
         "stm32f4xx_hal_conf.h": "c",
         "adc_conversion_orders.h": "c",
-        "us_impedance_scanner.h": "c"
+        "us_impedance_scanner.h": "c",
+        "configuration.h": "c",
+        "solenoid_driver.h": "c",
+        "timer.h": "c"
     }
 }

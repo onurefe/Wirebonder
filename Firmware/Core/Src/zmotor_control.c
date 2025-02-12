@@ -12,8 +12,8 @@ static State_t g_state = STATE_UNINIT;
 static uint8_t g_numCallbacks;
 static ZMotorControl_Callback_t g_callbacks[ZMOTOR_CONTROL_MAX_NUM_OF_CALLBACKS];
 
-static PID_Controller pidPosition;
-static PID_Controller pidVelocity;
+static Pid_Controller pidPosition;
+static Pid_Controller pidVelocity;
 
 static float g_positionSetpoint = 0.0f;
 
@@ -173,7 +173,7 @@ void ZMotorControl_Init(DAC_HandleTypeDef *lvdtDac,
 }
 
 
-void ZMotorControl_Start(void)
+void ZMotorControl_Start(float positionSetpoint)
 {
     if (g_state != STATE_READY)
     {
@@ -183,7 +183,9 @@ void ZMotorControl_Start(void)
     Tachometer_Start();
     LVDT_Start();
     
-    PID_Start(&pidPosition, 0.);
+    g_positionSetpoint = positionSetpoint;
+    
+    PID_Start(&pidPosition, positionSetpoint);
     PID_Start(&pidVelocity, 0.);
 
     if (HAL_TIM_PWM_Start(g_motorDrivePwmHtim, g_motorDriverPwmChannel) != HAL_OK) 

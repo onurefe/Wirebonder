@@ -7,10 +7,21 @@ extern "C" {
 
 #include <stdint.h>
 
+/* Events ----------------------------------------------------*/
+#define PLL_BONDING_COMPLETED_EVENT_ID 0 
+#define PLL_INSUFFICIENT_BONDING_POWER_EVENT_ID 1
+
+/* Exported types --------------------------------------------*/
+typedef void (*Pll_Callback_t)(uint16_t eventId);
+
 /* Exported functions ----------------------------------------*/
-void PLL_Init(void);
-void PLL_Start(float centerFrequency);
-void PLL_Stop(void);
+void Pll_Init(void);
+void Pll_Start(float centerFrequency, 
+               float bondingEnergyInJoules, 
+               float maxBondingDuration, 
+               Pll_Callback_t callback);
+
+void Pll_Stop(void);
 
 #ifdef __cplusplus
 }
