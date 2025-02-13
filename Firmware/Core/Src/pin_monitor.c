@@ -1,4 +1,3 @@
-#include "configuration.h"
 #include "timer.h"
 #include "fast_io.h"
 #include "pin_monitor.h"
@@ -104,7 +103,7 @@ void PinMonitor_Start(void)
 
     g_tickCounter = 0;
     
-    Timer_Register(timerTickDelegate, NULL);
+    Timer_Register(timerTickDelegate);
 
     g_state = STATE_OPERATING;
 }

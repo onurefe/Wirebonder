@@ -139,13 +139,14 @@
 #define FORCE_COIL_MAX_DUTY 1.0 
 #define FORCE_COIL_MIN_DUTY 0.0
 
-/* Stepper module configuration --------------------------------------------*/
-#define STEPPER_SEGMENT_QUEUE_CAPACITY_IN_NUM_ELEMENTS 32
+/* Router module configuration ---------------------------------------------*/
+#define ROUTER_MAX_NUM_OF_ROUTERS 4
 
+/* Stepper module configuration --------------------------------------------*/
+#define STEPPER_MAX_NUM_OF_MOTORS 4
+#define STEPPER_SEGMENT_QUEUE_CAPACITY_IN_NUM_ELEMENTS 32
 #define STEPPER_DIR_PIN_INVERT FALSE
-#define STEPPER_CFG_EN_PIN 38
-#define STEPPER_STEP_PIN 54
-#define STEPPER_DIR_PIN 55
+#define STEPPER_TIMER_ISR_FREQUENCY 20000
 
 /* Pulser module configuration ---------------------------------------------*/
 #define PULSER_TIME_RESOLUTION_IN_MS 1
@@ -192,6 +193,12 @@
 #define LOADCELL_DEFAULT_CALIBRATION_WEIGHT_IN_KG 1.
 #define LOADCELL_GRAVITATIONAL_ACCELERATION 9.81
 
+/* Motion parameters -------------------------------------------------------*/
+#define Y_AXIS_MAX_VELOCITY         (5. / 100.)
+#define Y_AXIS_MAX_ACCELERATION     (5. / 100.)
+#define TEAR_AXIS_MAX_VELOCITY      (5. / 100.)
+#define TEAR_AXIS_MAX_ACCELERATION  (5. / 100.)
+
 /* Pulse scheduluer module configuration -----------------------------------*/
 #define PULSE_SCHEDULER_MAX_NUM_OF_RECORDED_PULSES 125
 
@@ -201,7 +208,7 @@
 /* Block executer module configuration -------------------------------------*/
 #define BLOCK_EXECUTER_BLOCK_QUEUE_CAPACITY_IN_NUM_OF_ELEMENTS 4
 
-#define BLOCK_EXECUTER_SEGMENT_RENDER_FREQUENCY 100
+#define BLOCK_EXECUTER_SEGMENT_RENDER_FREQUENCY 100.
 
 #define BLOCK_EXECUTER_HOMING_MAX_DISPLACEMENT_IN_MM 105.
 
