@@ -177,6 +177,8 @@ will set flags showing that o subtask is completed. So there should be a task ex
 typedef struct 
 {
     SemiAutoBondTask_State_t state;
+    Bool_t leftButtonClicked;
+    Bool_t leftButtonReleased;
     Bool_t zPositionAchieved;
     Bool_t contactPinTriggered;
     Bool_t semiAutoButtonReleased;
@@ -186,7 +188,11 @@ typedef struct
     Bool_t impedanceScanned;
     Bool_t bondingCompleted;
     Bool_t clampEnergized;
+    Bool_t clampReleased;
     Bool_t tearMoveCompleted;
+    Bool_t movedToKinkHeight;
+    Bool_t yReverseMoveCompleted;
+    Bool_t yMoveCompleted;
     float centerFrequency;
 } SemiAutoBondTask_Variables_t;
 
@@ -194,6 +200,8 @@ SemiAutoBondTask_Variables_t g_autoBondVariables;
 
 void clearFlags(void)
 {
+    g_autoBondVariables.leftButtonClicked = FALSE;
+    g_autoBondVariables.leftButtonReleased = FALSE;
     g_autoBondVariables.zPositionAchieved = FALSE;
     g_autoBondVariables.contactPinTriggered = FALSE;
     g_autoBondVariables.semiAutoButtonReleased = FALSE;
@@ -204,35 +212,55 @@ void clearFlags(void)
     g_autoBondVariables.bondingCompleted = FALSE;
     g_autoBondVariables.clampEnergized = FALSE;
     g_autoBondVariables.tearMoveCompleted = FALSE;
+    g_autoBondVariables.movedToKinkHeight = FALSE;
 }
 
 enum
 {
-    SEMI_AUTO_BOND_TASK_STATE_REVERSE_Z_MOVE_TO_SEARCH_LEVEL_1 = 0,
-    SEMI_AUTO_BOND_TASK_STATE_REVERSE_Z_MOVE_TO_BOND_LEVEL_1,
-    SEMI_AUTO_BOND_TASK_STATE_STABILIZE_1,
-    SEMI_AUTO_BOND_TASK_STATE_BONDING_FORCE_1,
-    SEMI_AUTO_BOND_TASK_STATE_IMPEDANCE_SCANNING_1,
-    SEMI_AUTO_BOND_TASK_STATE_APPLYING_US_POWER_1,
-    SEMI_AUTO_BOND_TASK_STATE_RESTING_1,
-    SEMI_AUTO_BOND_TASK_STATE_ENERGISING_CLAMP,
-    SEMI_AUTO_BOND_TASK_STATE_Z_MOVE_TO_KINK_HEIGHT_AND_T_MOVE,
-    SEMI_AUTO_BOND_TASK_STATE_Y_REVERSE_MOVE,
-    SEMI_AUTO_BOND_TASK_STATE_Z_MOVE_TO_LOOP_HEIGHT,
-    SEMI_AUTO_BOND_TASK_STATE_Y_FORWARD_MOVE,
-    SEMI_AUTO_BOND_TASK_STATE_TOGGLING_CLAMP,
-    SEMI_AUTO_BOND_TASK_STATE_LEVELING_DOWN_TO_SEARCH_LEVEL_2,
-    SEMI_AUTO_BOND_TASK_STATE_LEVELING_DOWN_TO_BOND_LEVEL_2,
-    SEMI_AUTO_BOND_TASK_STATE_STABILIZE_2,
-    SEMI_AUTO_BOND_TASK_STATE_BONDING_FORCE_2,
-    SEMI_AUTO_BOND_TASK_STATE_IMPEDANCE_SCANNING_2,
-    SEMI_AUTO_BOND_TASK_STATE_APPLYING_US_POWER_2,
-    SEMI_AUTO_BOND_TASK_STATE_RESTING_2,
-    SEMI_AUTO_BOND_TASK_STATE_RELEASING_CLAMP,
-    SEMI_AUTO_BOND_TASK_STATE_T_MOVE,
-    SEMI_AUTO_BOND_TASK_STATE_Z_MOVE_TO_RESET_LEVEL,
-    SEMI_AUTO_BOND_TASK_STATE_REVERSE_T_MOVE_WITH_US
+    SEMI_AUTO_BOND_STATE_WAITING_LEFT_CLICK_1 = 0,
+    SEMI_AUTO_BOND_STATE_REVERSE_Z_MOVE_TO_SEARCH_LEVEL_1,
+    SEMI_AUTO_BOND_STATE_REVERSE_Z_MOVE_TO_BOND_LEVEL_1,
+    SEMI_AUTO_BOND_STATE_STABILIZE_1,
+    SEMI_AUTO_BOND_STATE_BONDING_FORCE_1,
+    SEMI_AUTO_BOND_STATE_IMPEDANCE_SCANNING_1,
+    SEMI_AUTO_BOND_STATE_APPLYING_US_POWER_1,
+    SEMI_AUTO_BOND_STATE_RESTING_1,
+    SEMI_AUTO_BOND_STATE_ENERGISING_CLAMP,
+    SEMI_AUTO_BOND_STATE_Z_MOVE_TO_KINK_HEIGHT_AND_T_MOVE,
+    SEMI_AUTO_BOND_STATE_Y_REVERSE_MOVE,
+    SEMI_AUTO_BOND_STATE_WAITING_LEFT_CLICK_2,
+    SEMI_AUTO_BOND_STATE_Z_MOVE_TO_LOOP_HEIGHT,
+    SEMI_AUTO_BOND_STATE_Y_FORWARD_MOVE,
+    SEMI_AUTO_BOND_STATE_TOGGLING_CLAMP,
+    SEMI_AUTO_BOND_STATE_REVERSE_Z_MOVE_TO_SEARCH_LEVEL_2,
+    SEMI_AUTO_BOND_STATE_REVERSE_Z_MOVE_TO_BOND_LEVEL_2,
+    SEMI_AUTO_BOND_STATE_STABILIZE_2,
+    SEMI_AUTO_BOND_STATE_BONDING_FORCE_2,
+    SEMI_AUTO_BOND_STATE_IMPEDANCE_SCANNING_2,
+    SEMI_AUTO_BOND_STATE_APPLYING_US_POWER_2,
+    SEMI_AUTO_BOND_STATE_RESTING_2,
+    SEMI_AUTO_BOND_STATE_RELEASING_CLAMP,
+    SEMI_AUTO_BOND_STATE_T_MOVE,
+    SEMI_AUTO_BOND_STATE_Z_MOVE_TO_RESET_LEVEL,
+    SEMI_AUTO_BOND_STATE_REVERSE_T_MOVE_WITH_US
 };
+
+#define FORCE_COIL_TRACKING_CURRENT 1.0
+#define SEARCH_HEIGHT_1 1.0
+#define SEARCH_HEIGHT_2 1.0
+
+void waitingLeftClick1(void)
+{
+    if (g_autoBondVariables.leftButtonClicked)
+    {
+        clearFlags();
+
+        ForceCoilDriver_SetCurrentSetpoint(FORCE_COIL_TRACKING_CURRENT);
+        ZMotorControl_SetPositionSetpoint(SEARCH_HEIGHT_1);
+
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_REVERSE_Z_MOVE_TO_SEARCH_LEVEL_1;
+    }
+}
 
 #define LOWEST_OVERTRAVEL 1.0
 void reverseZMoveToSearchLevel1(void)
@@ -240,8 +268,9 @@ void reverseZMoveToSearchLevel1(void)
     if (g_autoBondVariables.zPositionAchieved && g_autoBondVariables.semiAutoButtonReleased)
     {
         clearFlags();
+        
         ForceCoilDriver_SetCurrentSetpoint(FORCE_COIL_CONSTANT_FORCE_CURRENT);
-        g_autoBondVariables.state = SEMI_AUTO_BOND_TASK_STATE_REVERSE_Z_MOVE_TO_BOND_LEVEL_1;
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_REVERSE_Z_MOVE_TO_BOND_LEVEL_1;
     }
 }
 
@@ -256,7 +285,8 @@ void reverseZMoveToBondLevel1(void)
         clearFlags();
         ZMotorControl_SetPositionSetpoint(LOWEST_OVERTRAVEL);
         TimerExpire_Activate(&g_firstStabilizationTimer);
-        g_autoBondVariables.state = SEMI_AUTO_BOND_TASK_STATE_STABILIZE_1;
+        
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_STABILIZE_1;
     }
 }
 
@@ -267,7 +297,8 @@ void stabilize1(void)
         clearFlags();
         TimerExpire_Activate(&g_bondingForceTimer);
         ForceCoilDriver_SetCurrentSetpoint(FORCE_COIL_BONDING_FORCE1_CURRENT);
-        g_autoBondVariables.state = SEMI_AUTO_BOND_TASK_STATE_BONDING_FORCE_1;
+        
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_BONDING_FORCE_1;
     }
 }
 
@@ -281,7 +312,8 @@ void bondingForce1(void)
                                  CurrentPhasors, 
                                  Impedances, 
                                  usImpedanceScannedCb);
-        g_autoBondVariables.state = SEMI_AUTO_BOND_TASK_STATE_IMPEDANCE_SCANNING_1;
+        
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_IMPEDANCE_SCANNING_1;
     }
 }
 
@@ -298,7 +330,7 @@ void impedanceScanning1(void)
                   MAX_BONDING_DURATION, 
                   pllBondingCompletedCb);
 
-        g_autoBondVariables.state = SEMI_AUTO_BOND_TASK_STATE_APPLYING_US_POWER_1;
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_APPLYING_US_POWER_1;
     }
 }
 
@@ -308,7 +340,8 @@ void applyingUsPower1(void)
     {
         clearFlags();
         TimerExpire_Activate(&g_restingTimer);
-        g_autoBondVariables.state = SEMI_AUTO_BOND_TASK_STATE_RESTING_1;
+        
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_RESTING_1;
     }
 }
 
@@ -323,7 +356,7 @@ void resting1(void)
         clearFlags();
         SolenoidDriver_SetHighPosition(&g_clampSolenoid);
 
-        g_autoBondVariables.state = SEMI_AUTO_BOND_TASK_STATE_ENERGISING_CLAMP;
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_ENERGISING_CLAMP;
     }
 }
 
@@ -338,19 +371,68 @@ void energyzingClamp1(void)
         ZMotorControl_SetPositionSetpoint(KINK_HEIGHT_1);
         Router_Append(&g_tearRouter, TEAR_DISPLACEMENT_1);
 
-        g_autoBondVariables.state = SEMI_AUTO_BOND_TASK_STATE_Z_MOVE_TO_KINK_HEIGHT_AND_T_MOVE;
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_Z_MOVE_TO_KINK_HEIGHT_AND_T_MOVE;
     }
 }
 
+#define Y_REVERSE_MOVE 1.0
+#define Y_FORWARD_MOVE 2.0
+
+#define LOOP_HEIGHT 10.0
+
 void zMoveToKinkHeightAndTMove(void)
 {
-    if (g_autoBondVariables.tearMoveCompleted)
+    if (g_autoBondVariables.movedToKinkHeight && \
+        g_autoBondVariables.tearMoveCompleted)
     {
         clearFlags();
 
-        ZMotorControl_SetPositionSetpoint(KINK_HEIGHT_1);
-        Router_Append(&g_tearRouter, TEAR_DISPLACEMENT_1);
+        Router_Append(&g_yRouter, Y_REVERSE_MOVE);
 
-        g_autoBondVariables.state = SEMI_AUTO_BOND_TASK_STATE_Y_REVERSE_MOVE;
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_Y_REVERSE_MOVE;
+    }
+}
+
+void yReverseMove(void)
+{
+    if (g_autoBondVariables.yReverseMoveCompleted)
+    {
+        clearFlags();
+
+        ZMotorControl_SetPositionSetpoint(LOOP_HEIGHT);
+        
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_Z_MOVE_TO_LOOP_HEIGHT;
+    }
+}
+
+void waitingLeftClick2(void)
+{
+    if (g_autoBondVariables.leftButtonClicked)
+    {
+        clearFlags();
+
+        ForceCoilDriver_SetCurrentSetpoint(FORCE_COIL_TRACKING_CURRENT);
+        ZMotorControl_SetPositionSetpoint(SEARCH_HEIGHT_2);
+        Router_Append(&g_yRouter, Y_FORWARD_MOVE);
+        SolenoidDriver_SetLowPosition(&g_clampSolenoid);
+
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_REVERSE_Z_MOVE_TO_SEARCH_LEVEL_2;
+    }
+}
+
+void waitingLeftButtonRelease2(void)
+{
+    if (g_autoBondVariables.leftButtonReleased && \
+        g_autoBondVariables.yMoveCompleted && \
+        g_autoBondVariables.clampReleased)
+    {
+        clearFlags();
+
+        ForceCoilDriver_SetCurrentSetpoint(FORCE_COIL_TRACKING_CURRENT);
+        ZMotorControl_SetPositionSetpoint(SEARCH_HEIGHT_2);
+        Router_Append(&g_yRouter, Y_FORWARD_MOVE);
+        SolenoidDriver_SetLowPosition(&g_clampSolenoid);
+
+        g_autoBondVariables.state = SEMI_AUTO_BOND_STATE_REVERSE_Z_MOVE_TO_SEARCH_LEVEL_2;
     }
 }

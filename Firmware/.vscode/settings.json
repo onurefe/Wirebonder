@@ -16,6 +16,7 @@
         "solenoid_driver.h": "c",
         "timer.h": "c",
         "router.h": "c",
-        "adc_dispatcher.h": "c"
+        "adc_dispatcher.h": "c",
+        "bonder.h": "c"
     }
 }
