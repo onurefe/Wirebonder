@@ -51,6 +51,10 @@ void Router_Register(Router_Handle_t *handle,
                      float maxAcceleration, 
                      Router_MotionCompletedCallback_t callback);
 
+void Router_Append(Router_Handle_t *handle, 
+                   float displacement);
+
+
 void Router_Start(void);
 void Router_Execute(void);
 void Router_TimerTick(void);

@@ -5,6 +5,8 @@
 #define SERIAL_BAUDRATE 9600
 #define SERIAL_LINE_TERMINATOR "\n"
 
+#define FORCE_COIL_CONSTANT_FORCE_CURRENT 1.0
+#define FORCE_COIL_BONDING_FORCE1_CURRENT 1.0
 /* EEPROM Manager module configuration -------------------------------------*/
 #define EEPROM_MANAGER_MAX_USABLE_MEMORY_SIZE 4096
 #define EEPROM_MANAGER_MAX_NUM_OF_ALLOCATIONS 20
@@ -20,9 +22,9 @@
 (US_CURRENT_SENSING_RESISTOR_VALUE * US_CURRENT_SENSING_AFE_GAIN)
 
 /* Solenoid Driver ---------------------------------------------------------*/
-#define SOLENOID_DRIVER_MAX_SOLENOIDS           8
-#define SOLENOID_DRIVER_DEADZONE_DELAY          0.005
-#define SOLENOID_DRIVER_TRANSITION_TIME         0.05
+#define SOLENOID_DRIVER_MAX_SOLENOIDS               8
+#define SOLENOID_DRIVER_TRANSITION_TIME             0.05
+#define SOLENOID_DRIVER_INITIALIZATION_DELAY_IN_MS  100
 
 /* Pin monitor module configuration ----------------------------------------*/
 #define PIN_MONITOR_MAX_NUMBER_OF_MONITORED_PINS 16
@@ -44,6 +46,10 @@
 /* Timer module ------------------------------------------------------------*/
 #define TIMER_MAX_NUM_DELEGATES  8
 #define TIMER_TICK_FREQUENCY 1000
+
+/* Timer expire module -----------------------------------------------------*/
+#define TIMER_EXPIRE_MAX_NUM_OF_HANDLES 16
+#define TIMER_EXPIRE_TICK_FREQUENCY 1000
 
 /* Ultrasonic Transducer ---------------------------------------------------*/
 #define US_IMPEDANCE_SCANNER_NUM_FREQUENCIES 16

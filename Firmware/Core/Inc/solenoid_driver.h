@@ -7,6 +7,7 @@ extern "C" {
 
 #include "generic.h"
 #include <stdint.h>
+#include "timer_expire.h"
 
 /* Solenoid types  -------------------------------------------*/
 enum
@@ -24,13 +25,14 @@ typedef void (*SolenoidDriver_PositionChangedCallback_t)(void *solenoidHandle,
 
 typedef struct
 {
+    Bool_t transitionCompleted;
     FastIO_Pin_t highPin;
     FastIO_Pin_t lowPin;
     SolenoidDriver_Position_t currentPosition;
     SolenoidDriver_Position_t targetPosition;
     SolenoidDriver_PositionChangedCallback_t callback;
     SolenoidDriver_Position_t initialPosition;
-    uint16_t stopWatch;
+    TimerExpire_Handle_t transitionTimer;
 } SolenoidDriver_Handle_t;
 
 /* Exported functions ----------------------------------------*/
@@ -44,6 +46,7 @@ void SolenoidDriver_Register(SolenoidDriver_Handle_t *handle,
                              SolenoidDriver_PositionChangedCallback_t callback);
 
 void SolenoidDriver_Start(void);
+void SolenoidDriver_Execute(void);
 void SolenoidDriver_Stop(void);
 void SolenoidDriver_SetLowPosition(SolenoidDriver_Handle_t *handle);
 void SolenoidDriver_SetHighPosition(SolenoidDriver_Handle_t *handle);

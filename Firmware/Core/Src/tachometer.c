@@ -2,7 +2,7 @@
 #include "adc_dispatcher.h"  // Our modular ADC dispatcher
 #include "generic.h"
 #include "configuration.h"
-#include "adc2_conversion_orders.h"
+#include "adc_conversion_orders.h"
 
 /* ------------------Private definitions ---------------- */
 #define DOWNSAMPLING_FACTOR (ADC_DISPATCHER_NOTIFICATION_FREQUENCY / TACHOMETER_NOTIFICATION_FREQUENCY)

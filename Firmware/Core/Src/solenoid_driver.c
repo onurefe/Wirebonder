@@ -1,11 +1,10 @@
 #include "solenoid_driver.h"
 #include "fast_io.h"
-#include "timer.h"
+#include "timer_expire.h"
 
 /* Private variables -----------------------------------------*/
 SolenoidDriver_Handle_t *g_solenoidHandles[SOLENOID_DRIVER_MAX_SOLENOIDS];
 uint8_t g_numSolenoids;
-
 State_t g_state = STATE_UNINIT;
 
 /* Exported functions ----------------------------------------*/
@@ -15,91 +14,13 @@ typedef void (*SolenoidDriver_PositionChangedCallback_t)(void *solenoidHandle,
 
 
 /* Private functions -----------------------------------------*/
-void deadzonePeriodCompleted(SolenoidDriver_Handle_t *handle)
+void transitionPeriodCompletedCallback(SolenoidDriver_Handle_t *handle)
 {
-    if (handle->targetPosition == SOLENOID_DRIVER_POSITION_LOW)
-    {
-        FastIO_SetPin(&handle->lowPin);
-    }
-    else if (handle->targetPosition == SOLENOID_DRIVER_POSITION_HIGH)
-    {
-        FastIO_ClearPin(&handle->highPin);
-    }
-}
+    FastIO_Clear(&handle->lowPin);
+    FastIO_Clear(&handle->highPin);
 
-void transitionPeriodCompleted(SolenoidDriver_Handle_t *handle)
-{
-    handle->callback(handle, handle->currentPosition, handle->targetPosition);
     handle->currentPosition = handle->targetPosition;
-
-    FastIO_ClearPin(&handle->lowPin);
-    FastIO_ClearPin(&handle->highPin);
-}
-
-Bool_t isTransiting(SolenoidDriver_Handle_t *handle)
-{
-    if (handle->currentPosition != handle->targetPosition) 
-    {
-        return TRUE;
-    }
-    else
-    {
-        return FALSE;
-    }
-}
-
-Bool_t isElapsed(SolenoidDriver_Handle_t *handle, float time)
-{
-    float tick_frequency = Timer_GetTickFrequency();
-    if (handle->stopWatch > (time * tick_frequency))
-    {
-        return TRUE;
-    }
-    else
-    {
-        return FALSE;
-    }
-}
-
-Bool_t isTransitionCompleted(SolenoidDriver_Handle_t *handle)
-{
-    float tick_frequency = Timer_GetTickFrequency();
-    if (handle->stopWatch > (SOLENOID_DRIVER_TRANSITION_TIME * tick_frequency))
-    {
-        return TRUE;
-    }
-    else
-    {
-        return FALSE;
-    }
-}
-
-void timerTickCallback(void)
-{
-    if (g_state != STATE_OPERATING)
-    {
-        return;
-    }
-
-    for (uint8_t i = 0; i <g_numSolenoids; i++)
-    {
-        SolenoidDriver_Handle_t *handle = g_solenoidHandles[i];
-        if (!isTransiting(handle))
-        {
-            continue;
-        }
-        
-        handle->stopWatch++;
-
-        if (isElapsed(handle, SOLENOID_DRIVER_TRANSITION_TIME))
-        {
-            transitionPeriodCompleted(handle);
-        }
-        else if (isElapsed(handle, SOLENOID_DRIVER_DEADZONE_DELAY))
-        {
-            deadzonePeriodCompleted(handle);
-        }
-    }    
+    handle->transitionCompleted = TRUE;
 }
 
 /* Exported functions ----------------------------------------*/
@@ -131,8 +52,9 @@ void SolenoidDriver_Register(SolenoidDriver_Handle_t *handle,
     handle->currentPosition = SOLENOID_DRIVER_POSITION_UNKNOWN;
     handle->targetPosition = SOLENOID_DRIVER_POSITION_UNKNOWN;
     handle->initialPosition = initalPosition;
-    FastIO_GetPinObject(highGPIOx, highPin, &handle->highPin);
-    FastIO_GetPinObject(lowGPIOx, lowPin, &handle->lowPin);
+
+    FastIO_GetPinObject(highGPIOx, highPin, FALSE, &handle->highPin);
+    FastIO_GetPinObject(lowGPIOx, lowPin, TRUE, &handle->lowPin);
     
     g_solenoidHandles[g_numSolenoids++] = handle;
 }
@@ -150,14 +72,39 @@ void SolenoidDriver_Start(void)
 
         handle->currentPosition = SOLENOID_DRIVER_POSITION_UNKNOWN;
         handle->targetPosition = handle->initialPosition;
-        handle->stopWatch = 0;
+        handle->transitionCompleted = FALSE;
 
-        FastIO_ClearPin(&handle->highPin);
-        FastIO_ClearPin(&handle->lowPin);
+        TimerExpire_Register(&handle->transitionTimer, 
+                             TRUE, 
+                             SOLENOID_DRIVER_TRANSITION_TIME, 
+                             transitionPeriodCompletedCallback);
+
+        FastIO_Clear(&handle->highPin);
+        FastIO_Clear(&handle->lowPin);
     }  
 
-    Timer_Register(timerTickCallback);
+    HAL_Delay(SOLENOID_DRIVER_INITIALIZATION_DELAY_IN_MS);
+
     g_state = STATE_OPERATING;
+}
+
+void SolenoidDriver_Execute(void)
+{
+    if (g_state != STATE_OPERATING)
+    {
+        return;
+    }
+
+    for (uint8_t i = 0; i < g_numSolenoids; i++)
+    {
+        SolenoidDriver_Handle_t *handle = g_solenoidHandles[i];
+
+        if (handle->transitionCompleted) 
+        {
+            handle->callback(handle, handle->currentPosition, handle->targetPosition);
+            handle->transitionCompleted = FALSE;
+        }
+    }  
 }
 
 void SolenoidDriver_Stop(void)
@@ -171,8 +118,8 @@ void SolenoidDriver_Stop(void)
     {
         SolenoidDriver_Handle_t *handle = g_solenoidHandles[i];
 
-        FastIO_ClearPin(&handle->lowPin);
-        FastIO_ClearPin(&handle->highPin);
+        FastIO_Clear(&handle->lowPin);
+        FastIO_Clear(&handle->highPin);
     }  
 
     g_state = STATE_READY;
@@ -195,8 +142,10 @@ void SolenoidDriver_SetLowPosition(SolenoidDriver_Handle_t *handle)
     if (handle->currentPosition != SOLENOID_DRIVER_POSITION_LOW)
     {
         handle->targetPosition = SOLENOID_DRIVER_POSITION_LOW;
-        handle->stopWatch = 0;
-        FastIO_SetPin(&handle->lowPin);   
+        
+        TimerExpire_Activate(&handle->transitionTimer);
+
+        FastIO_Set(&handle->lowPin);   
     }
 }
 
@@ -217,8 +166,9 @@ void SolenoidDriver_SetHighPosition(SolenoidDriver_Handle_t *handle)
     if (handle->currentPosition != SOLENOID_DRIVER_POSITION_HIGH)
     {
         handle->targetPosition = SOLENOID_DRIVER_POSITION_HIGH;
-        handle->stopWatch = 0;
         
+        TimerExpire_Activate(&handle->transitionTimer);
+
         FastIO_SetPin(&handle->highPin);   
     }
 }

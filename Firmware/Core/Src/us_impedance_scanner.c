@@ -1,5 +1,5 @@
 #include "us_impedance_scanner.h"
-#include "ultrasonic_driver.h"
+#include "us_driver.h"
 #include "stm32f4xx_hal.h"
 #include "configuration.h"
 #include "math.h"
@@ -81,7 +81,7 @@ void computeImpedances(complexf *vPhasors, complexf *iPhasors, complexf *impedan
 
 void ultrasonicDriverNotificationCallback(uint16_t eventId, uint16_t *buffer)
 {
-    if (eventId == ULTRASONIC_DRIVER_OPERATION_COMPLETED_EVENT_ID) 
+    if (eventId == US_DRIVER_OPERATION_COMPLETED_EVENT_ID) 
     {
         computePhasors(g_adcBuffer, g_vPhasors, g_iPhasors);
         computeImpedances(g_vPhasors, g_iPhasors, g_impedances);

@@ -231,6 +231,27 @@ void Router_Start(void)
     g_state = STATE_OPERATING;
 }
 
+void Router_Append(Router_Handle_t *handle, 
+                   float displacement)
+{
+    if (g_state != STATE_OPERATING)
+    {
+        return;
+    }
+
+    if (handle->isBusy) {
+        return;
+    }
+   
+    handle->lastRenderedStepperPosition = 0;
+    handle->isBusy = TRUE;
+    
+    formTrapezoidRoute(&handle->routeParams, 
+                       displacement, 
+                       handle->maxVelocity, 
+                       handle->maxAcceleration);
+}
+
 void Router_Execute(void)
 {
     if (g_state != STATE_OPERATING)
