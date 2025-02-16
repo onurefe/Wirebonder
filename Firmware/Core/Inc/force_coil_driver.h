@@ -1,18 +1,21 @@
 #ifndef FORCE_COIL_DRIVER_H
 #define FORCE_COIL_DRIVER_H
 
-#include "stm32f4xx_hal.h"       // Adjust include for your target
-#include <stdint.h>
+#include "configuration.h"
+#include "generic.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define FORCE_COIL_SETPOINT_ACHIEVED_EVENT_ID   0
-#define FORCE_COIL_ERROR_EVENT_ID               1
-
+/* Exported types ------------------------------------------------------*/
 typedef void (*ForceCoil_Callback_t)(uint16_t eventId);
 
+/* Exported constants --------------------------------------------------*/
+#define FORCE_COIL_SETPOINT_ACHIEVED_EVENT_ID           0
+#define FORCE_COIL_UNABLE_TO_SET_CURRENT_EVENT_ID       1
+
+/* Exported functions --------------------------------------------------*/
 void ForceCoilDriver_Init(TIM_HandleTypeDef *htim, uint32_t channel);
 void ForceCoilDriver_Start(void);
 void ForceCoilDriver_Stop(void);

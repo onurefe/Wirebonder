@@ -165,7 +165,9 @@ void ultrasonicDriverNotificationCallback(uint16_t eventId, uint16_t *buffer)
         if (g_bondingEnergy >= g_targetBondingEnergy)
         {
             g_callback(PLL_BONDING_COMPLETED_EVENT_ID);
-            Pll_Stop();
+            
+            UltrasonicDriver_Stop();
+            g_state = STATE_READY;
         }
 
         /* If sufficient energy is transferred withing the given
@@ -173,7 +175,9 @@ void ultrasonicDriverNotificationCallback(uint16_t eventId, uint16_t *buffer)
         if (g_bondingDuration >= g_maxBondingDuration)
         {
             g_callback(PLL_INSUFFICIENT_BONDING_POWER_EVENT_ID);
-            Pll_Stop();
+            
+            UltrasonicDriver_Stop();
+            g_state = STATE_READY;
         }
     }
 

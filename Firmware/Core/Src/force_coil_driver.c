@@ -1,6 +1,7 @@
 #include "force_coil_driver.h"
-#include "adc2_conversion_orders.h"
+#include "adc_conversion_orders.h"
 #include "pid_controller.h"
+#include "timer_expire.h"
 #include "adc_dispatcher.h"
 #include "generic.h"
 #include "configuration.h"
@@ -12,15 +13,17 @@
 /* ----------------- Variables ------------------------------------*/
 static State_t g_state = STATE_UNINIT;
 
-static ForceCoil_Callback_t g_callbacks[ZMOTOR_CONTROL_MAX_NUM_OF_CALLBACKS];
+static ForceCoil_Callback_t g_callbacks[FORCE_COIL_MAX_NUM_OF_CALLBACKS];
 static uint8_t g_numCallbacks;
 
 static TIM_HandleTypeDef *g_htim;
 static uint32_t g_channel;
 
-static PID_Controller g_pid;
+static Pid_Controller g_pid;
 
 static Bool_t g_newSetpoint;
+
+static TimerExpire_Handle_t g_settlingTimer;
 
 static uint16_t g_accumulator;
 static uint16_t g_accumulatedSamples;
@@ -50,7 +53,7 @@ static void setDuty(float duty)
     __HAL_TIM_SET_COMPARE(g_htim, g_channel, pulse);
 }
 
-float computeCurrentFromRawAverage(float raw_average)
+static float computeCurrentFromRawAverage(float raw_average)
 {
     float voltage = ADC_VOLTAGE_RANGE * raw_average / (1 << ADC_BITS);
     float current = voltage * FORCE_COIL_DRIVER_V2I_CONVERSION_FACTOR;
@@ -61,14 +64,19 @@ static void notifySetpointAchieved(void)
 {
     for (uint8_t i = 0; i < g_numCallbacks; i++)
     {
-        if (g_callbacks[i] != NULL)
-        {
-            g_callbacks[i](FORCE_COIL_SETPOINT_ACHIEVED_EVENT_ID);
-        }
+        g_callbacks[i](FORCE_COIL_SETPOINT_ACHIEVED_EVENT_ID);
     }
 }
 
-void controlUpdate(float measuredCurrent)
+static void notifyError(void)
+{
+    for (uint8_t i = 0; i < g_numCallbacks; i++)
+    {
+        g_callbacks[i](FORCE_COIL_UNABLE_TO_SET_CURRENT_EVENT_ID);
+    }
+}
+
+static void controlUpdate(float measuredCurrent)
 {
     float controlOutput = PID_Execute(&g_pid, g_currentSetpoint, measuredCurrent);
     
@@ -82,6 +90,20 @@ void controlUpdate(float measuredCurrent)
     }
 
     setDuty(controlOutput);
+}
+
+static void settlingTimerCallback(void)
+{
+    if (g_newSetpoint)
+    {
+        g_newSetpoint = FALSE;
+
+        setDuty(FORCE_COIL_MIN_DUTY);
+        
+        notifyError();
+
+        ForceCoilDriver_SetCurrentSetpoint(0.);
+    }
 }
 
 static void adcCallback(uint16_t value)
@@ -121,6 +143,11 @@ void ForceCoilDriver_Init(TIM_HandleTypeDef *htim, uint32_t channel)
 
     AdcDispatcher_RegisterChannel(FORCE_COIL_ISENS_ADC2_CONVERSION_ORDER, 
                                   adcCallback);
+
+    TimerExpire_Register(&g_settlingTimer, 
+                         TRUE, 
+                         FORCE_COIL_DRIVER_SETTLING_TIME_WINDOW,
+                         settlingTimerCallback);
 
     g_numCallbacks = 0;
 

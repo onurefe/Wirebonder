@@ -1,5 +1,6 @@
-#include "zmotor_control.h"
-#include "tachometer.h"         
+#include "zmotor_controller.h"
+#include "tachometer.h"
+#include "timer_expire.h"       
 #include "lvdt.h"               
 #include "pid_controller.h"      
 #include "stm32f4xx_hal.h"
@@ -10,19 +11,21 @@
 static State_t g_state = STATE_UNINIT;
 
 static uint8_t g_numCallbacks;
-static ZMotorControl_Callback_t g_callbacks[ZMOTOR_CONTROL_MAX_NUM_OF_CALLBACKS];
+static ZMotorController_Callback_t g_callbacks[ZMOTOR_CONTROLLER_MAX_NUM_OF_CALLBACKS];
 
 static Pid_Controller pidPosition;
 static Pid_Controller pidVelocity;
 
 static float g_positionSetpoint = 0.0f;
 
-static TIM_HandleTypeDef *g_motorDrivePwmHtim;  // PWM timer handle
+static TIM_HandleTypeDef *g_motorDrivePwmHtim;
 static uint32_t g_motorDriverPwmChannel;
 
 static Bool_t g_velocityMeasurementReceived;
 static Bool_t g_positionMeasurementReceived;
 static Bool_t g_newSetpoint;
+
+static TimerExpire_Handle_t g_settlingTimer;
 
 static float g_velocityMeasurement;
 static float g_positionMeasurement;
@@ -44,7 +47,7 @@ static float clip(float value, float minValue, float maxValue)
 
 static void setDuty(float duty)
 {
-    duty = clip(duty, ZMOTOR_CONTROL_MIN_DUTY , ZMOTOR_CONTROL_MAX_DUTY);
+    duty = clip(duty, ZMOTOR_CONTROLLER_MIN_DUTY , ZMOTOR_CONTROLLER_MAX_DUTY);
 
     uint32_t period = g_motorDrivePwmHtim->Init.Period + 1;
     uint32_t pulse = (uint32_t)(duty * period);
@@ -56,10 +59,15 @@ static void notifySetpointAchieved(void)
 {
     for (uint8_t i = 0; i < g_numCallbacks; i++)
     {
-        if (g_callbacks[i] != NULL)
-        {
-            g_callbacks[i](ZMOTOR_CONTROL_SETPOINT_ACHIEVED_EVENT_ID);
-        }
+        g_callbacks[i](ZMOTOR_CONTROLLER_SETPOINT_ACHIEVED_EVENT_ID);
+    }
+}
+
+static void notifySettlingError(void)
+{
+    for (uint8_t i = 0; i < g_numCallbacks; i++)
+    {
+        g_callbacks[i](ZMOTOR_CONTROLLER_UNABLE_SET_POSITION_EVENT_ID);
     }
 }
 
@@ -94,6 +102,18 @@ static void controlUpdate(void)
     float duty = ZMOTOR_ZERO_VELOCITY_DUTY + velocity_control_output;
     
     setDuty(duty);
+}
+
+static void settlingTimerCallback(void *handle)
+{
+    (void)handle;
+
+    if (g_newSetpoint) 
+    {
+        notifySettlingError();
+        setDuty(ZMOTOR_ZERO_VELOCITY_DUTY);
+        g_newSetpoint = FALSE;
+    }
 }
 
 static void tachometerMeasurementCallback(float velocity)
@@ -134,7 +154,7 @@ static void lvdtMeasurementCallback(float position)
     }
 }
 /* ------------------ Public Functions ------------------ */
-void ZMotorControl_Init(DAC_HandleTypeDef *lvdtDac, 
+void ZMotorController_Init(DAC_HandleTypeDef *lvdtDac, 
                         TIM_HandleTypeDef *lvdtHtim, 
                         uint32_t lvdtDacChannel)
 {
@@ -149,6 +169,8 @@ void ZMotorControl_Init(DAC_HandleTypeDef *lvdtDac,
     
     Tachometer_RegisterCallback(tachometerMeasurementCallback);
     LVDT_RegisterCallback(lvdtMeasurementCallback);
+
+    TimerExpire_Register(&g_settlingTimer, TRUE, ZMOTOR_SETTLING_TIME_WINDOW, settlingTimerCallback);
 
     /* Initialize PID controllers. */
     PID_Init(&pidPosition, 
@@ -173,7 +195,7 @@ void ZMotorControl_Init(DAC_HandleTypeDef *lvdtDac,
 }
 
 
-void ZMotorControl_Start(float positionSetpoint)
+void ZMotorController_Start(float positionSetpoint)
 {
     if (g_state != STATE_READY)
     {
@@ -199,7 +221,7 @@ void ZMotorControl_Start(float positionSetpoint)
     g_state = STATE_OPERATING;
 }
 
-void ZMotorControl_Stop(void)
+void ZMotorController_Stop(void)
 {
     if (g_state != STATE_OPERATING)
     {
@@ -214,25 +236,26 @@ void ZMotorControl_Stop(void)
     g_state = STATE_READY;
 }
 
-void ZMotorControl_SetPositionSetpoint(float position)
+void ZMotorController_SetPositionSetpoint(float position)
 {
     if (g_state != STATE_OPERATING) 
     {
         return;
     }
 
+    TimerExpire_Activate(&g_settlingTimer);
     g_positionSetpoint = position;
     g_newSetpoint = TRUE;
 }
 
-void ZMotorControl_RegisterCallback(ZMotorControl_Callback_t callback)
+void ZMotorController_RegisterCallback(ZMotorController_Callback_t callback)
 {
     if (g_state != STATE_READY)
     {
         return;
     }
 
-    if (g_numCallbacks > ZMOTOR_CONTROL_MAX_NUM_OF_CALLBACKS) {
+    if (g_numCallbacks > ZMOTOR_CONTROLLER_MAX_NUM_OF_CALLBACKS) {
         return;
     }
 

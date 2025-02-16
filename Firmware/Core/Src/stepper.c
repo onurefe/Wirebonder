@@ -1,5 +1,4 @@
 #include "stepper.h"
-#include "timer.h"    
 #include "configuration.h"
 #include "fast_io.h"
 #include "delay.h"
@@ -40,8 +39,8 @@ void Stepper_Init(GPIO_TypeDef *enPort,
         return;
     }
 
-    FastIO_GetPinObject(enPort, enPin, &g_enPin);
-    FastIO_GetPinObject(rstPort, rstPin, &g_rstPin);
+    FastIO_GetPinObject(enPort, enPin, TRUE, &g_enPin);
+    FastIO_GetPinObject(rstPort, rstPin, FALSE, &g_rstPin);
 
     g_numSteppers = 0;
 
@@ -59,8 +58,8 @@ void Stepper_Register(Stepper_Handle_t *handle,
         return;
     }
 
-    FastIO_GetPinObject(stepPort, stepPin, &handle->stepPin);
-    FastIO_GetPinObject(dirPort, dirPin, &handle->dirPin);
+    FastIO_GetPinObject(stepPort, stepPin, FALSE, &handle->stepPin);
+    FastIO_GetPinObject(dirPort, dirPin, FALSE, &handle->dirPin);
 
     g_stepperHandles[g_numSteppers++] = handle;
 }

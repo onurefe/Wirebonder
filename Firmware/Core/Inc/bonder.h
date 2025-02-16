@@ -7,22 +7,51 @@
 /* Exported types --------------------------------------------*/
 enum
 {
-    BONDER_STATE_IDLE = 0,
-    BONDER_STATE_MOVING_TO_SEARCH_HEIGHT = 1,
-    BONDER_STATE_SEARCHING = 2,
-    BONDER_STATE_SETTLING = 3,
-    BONDER_STATE_SCANNING_IMPEDANCE = 4,
-    BONDER_STATE_WELDING = 5,
-    BONDER_STATE_COOLING = 6,
-    BONDER_STATE_LEAVING = 7
+    BONDER_OPERATION_STATE_IDLE = 0,
+    BONDER_OPERATION_STATE_MOVING_TO_SEARCH_HEIGHT = 1,
+    BONDER_OPERATION_STATE_SEARCHING = 2,
+    BONDER_OPERATION_STATE_SETTLING = 3,
+    BONDER_OPERATION_STATE_SCANNING_IMPEDANCE = 4,
+    BONDER_OPERATION_STATE_WELDING = 5,
+    BONDER_OPERATION_STATE_COOLING = 6,
+    BONDER_OPERATION_STATE_FORMING_LOOP_T_MOVE = 7,
+    BONDER_OPERATION_STATE_FORMING_LOOP_Y_REVERSE_MOVE = 8,
+    BONDER_OPERATION_STATE_FORMING_LOOP_Z_MOVE = 9,
+    BONDER_OPERATION_STATE_WAITING_SECOND_WELD_TRIGGER = 10,
+    BONDER_OPERATION_STATE_PREPARING_SECOND_WELD_CLOSING_CLAMP = 11,
+    BONDER_OPERATION_STATE_PREPARING_SECOND_WELD_STEPPING_BACK = 12,
+    BONDER_OPERATION_STATE_PREPARING_SECOND_WELD_OPENING_CLAMP = 13,
+    BONDER_OPERATION_STATE_SECOND_WELD_MOVING_TO_SEARCH_HEIGHT = 14,
+    BONDER_OPERATION_STATE_SECOND_WELD_SEARCHING = 15,
+    BONDER_OPERATION_STATE_SECOND_WELD_SETTLING = 16,
+    BONDER_OPERATION_STATE_SECOND_WELD_SCANNING_IMPEDANCE = 17,
+    BONDER_OPERATION_STATE_SECOND_WELD_WELDING = 18,
+    BONDER_OPERATION_STATE_SECOND_WELD_COOLING = 19,
+    BONDER_OPERATION_STATE_SECOND_WELD_TEARING_TMOVE = 20,
+    BONDER_OPERATION_STATE_RESTORING_ZMOVE = 21,
+    BONDER_OPERATION_STATE_RESTORING_ZMOVE_WITH_SCANNING_IMPEDANCE = 22,
+    BONDER_OPERATION_STATE_RESTORING_ZMOVE_AND_TMOVE_WITH_US_DRIVE = 23,
+    BONDER_OPERATION_STATE_RESTORING_ZMOVE_AND_YMOVE = 24,
 };
-typedef uint8_t Bonder_State_t;
+typedef uint8_t Bonder_OperationState_t;
 
-typedef void (*Bonder_StateChangedCallback_t)(Bonder_State_t previousState, 
-                                              Bonder_State_t newState);
+enum
+{   
+    BONDER_ERROR_INSUFFICIENT_BONDING_POWER = 0,
+    BONDER_ERROR_UNABLE_TO_SET_FORCE_COIL_CURRENT = 1,
+    BONDER_ERROR_UNABLE_TO_SET_POSITION = 2
+};
+typedef uint8_t Bonder_Error_t;
+
+typedef void (*Bonder_StateChangedCallback_t)(Bonder_OperationState_t previousState, 
+                                              Bonder_OperationState_t newState);
+
+typedef void (*Bonder_ErrorOccurredCallback_t)(Bonder_Error_t error);
 
 /* Exported functions ----------------------------------------*/
-void Bonder_Init(void);
+void Bonder_Init(Bonder_StateChangedCallback_t stateChangedCb, 
+                 Bonder_ErrorOccurredCallback_t errorOccurredCb);
+
 void Bonder_Start(void);
 void Bonder_Execute(void);
 void Bonder_Stop(void);

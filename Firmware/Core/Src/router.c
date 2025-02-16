@@ -2,7 +2,6 @@
 #include "router.h"
 #include "math.h"
 
-
 /* Private typedefs --------------------------------------------------------*/
 #define SEGMENT_RENDER_PERIOD (1. / BLOCK_EXECUTER_SEGMENT_RENDER_FREQUENCY)
 

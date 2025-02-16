@@ -6,7 +6,7 @@
         "generic.h": "c",
         "lvdt_phase_detection.h": "c",
         "tachometer.h": "c",
-        "zmotor_control.h": "c",
+        "ZMOTOR_CONTROLLER.h": "c",
         "impedance_measurement.h": "c",
         "pll.h": "c",
         "stm32f4xx_hal_conf.h": "c",
