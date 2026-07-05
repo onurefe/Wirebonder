@@ -2,17 +2,39 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "CMake Configure",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-B", "${workspaceFolder}/build",
+                "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/cmake/arm-none-eabi.cmake",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+                "-G", "Unix Makefiles"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "focus": true
+            }
+        },
+        {
             "label": "Build project",
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
             "type": "shell",
-            "command": "/usr/bin/make",
+            "command": "cmake",
             "args": [
-                "GCC_PATH=/Applications/ARM/bin",
-                "-j12"
+                "--build", "${workspaceFolder}/build",
+                "--", "-j12"
             ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": [],
             "problemMatcher": {
                 "pattern": {
                     "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
@@ -28,63 +50,16 @@
             }
         },
         {
-            "label": "Compile current file",
+            "label": "Clean build",
             "type": "shell",
-            "command": "/Applications/ARM/bin/arm-none-eabi-gcc",
+            "command": "cmake",
             "args": [
-                "-c",
-                "-DUSE_HAL_DRIVER",
-                "-DSTM32F446xx",
-                "-ICore/Inc",
-                "-IDrivers/STM32F4xx_HAL_Driver/Inc",
-                "-IDrivers/STM32F4xx_HAL_Driver/Inc/Legacy",
-                "-IDrivers/CMSIS/Device/ST/STM32F4xx/Include",
-                "-IDrivers/CMSIS/Include",
-                "-mcpu=cortex-m4",
-                "-mthumb",
-                "-mfpu=fpv4-sp-d16",
-                "-mfloat-abi=hard",
-                "-DUSE_HAL_DRIVER",
-                "-DSTM32F446xx",
-                "-ICore/Inc",
-                "-IDrivers/STM32F4xx_HAL_Driver/Inc",
-                "-IDrivers/STM32F4xx_HAL_Driver/Inc/Legacy",
-                "-IDrivers/CMSIS/Device/ST/STM32F4xx/Include",
-                "-IDrivers/CMSIS/Include",
-                "-Og",
-                "-Wall",
-                "-fdata-sections",
-                "-ffunction-sections",
-                "-g",
-                "-gdwarf-2",
-                "-MMD",
-                "-MP",
-                "-MF'build/${fileBasenameNoExtension}.d'",
-                "'${relativeFile}'",
-                "-o",
-                "'build/${fileBasenameNoExtension}.o'"
+                "--build", "${workspaceFolder}/build",
+                "--target", "clean"
             ],
-            "problemMatcher": {
-                "pattern": {
-                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
-                    "file": 1,
-                    "line": 2,
-                    "column": 3,
-                    "severity": 4,
-                    "message": 5
-                }
+            "options": {
+                "cwd": "${workspaceFolder}"
             },
-            "presentation": {
-                "focus": true
-            }
-        },
-        {
-            "label": "Delete build folder",
-            "type": "shell",
-            "command": "/usr/bin/make",
-            "args": [
-                "clean"
-            ],
             "problemMatcher": [],
             "presentation": {
                 "focus": false
@@ -95,12 +70,9 @@
             "type": "shell",
             "command": "/opt/homebrew/bin/openocd",
             "args": [
-                "-f",
-                "/opt/homebrew/Cellar/open-ocd/0.12.0_1/share/openocd/scripts/interface/stlink.cfg",
-                "-f",
-                ".vscode/stm32f4x.cfg",
-                "-c",
-                "program build/firmware.elf verify reset exit"
+                "-f", "/opt/homebrew/Cellar/open-ocd/0.12.0_1/share/openocd/scripts/interface/stlink.cfg",
+                "-f", ".vscode/stm32f4x.cfg",
+                "-c", "program build/firmware.elf verify reset exit"
             ],
             "problemMatcher": [],
             "dependsOn": "Build project"
@@ -110,12 +82,9 @@
             "type": "shell",
             "command": "/opt/homebrew/bin/openocd",
             "args": [
-                "-f",
-                "/opt/homebrew/Cellar/open-ocd/0.12.0_1/share/openocd/scripts/interface/stlink.cfg",
-                "-f",
-                ".vscode/stm32f4x.cfg",
-                "-c",
-                "program build/firmware.elf verify reset exit"
+                "-f", "/opt/homebrew/Cellar/open-ocd/0.12.0_1/share/openocd/scripts/interface/stlink.cfg",
+                "-f", ".vscode/stm32f4x.cfg",
+                "-c", "program build/firmware.elf verify reset exit"
             ],
             "problemMatcher": []
         },
@@ -124,43 +93,9 @@
             "type": "shell",
             "command": "/opt/homebrew/bin/openocd",
             "args": [
-                "-f",
-                "/opt/homebrew/Cellar/open-ocd/0.12.0_1/share/openocd/scripts/interface/stlink.cfg",
-                "-f",
-                ".vscode/stm32f4x.cfg",
-                "-c init",
-                "-c reset",
-                "-c exit"
-            ],
-            "problemMatcher": []
-        },
-        {
-            "label": "CPU: Halt",
-            "type": "shell",
-            "command": "/opt/homebrew/bin/openocd",
-            "args": [
-                "-f",
-                "/opt/homebrew/Cellar/open-ocd/0.12.0_1/share/openocd/scripts/interface/stlink.cfg",
-                "-f",
-                ".vscode/stm32f4x.cfg",
-                "-c init",
-                "-c halt",
-                "-c exit"
-            ],
-            "problemMatcher": []
-        },
-        {
-            "label": "CPU: Run",
-            "type": "shell",
-            "command": "/opt/homebrew/bin/openocd",
-            "args": [
-                "-f",
-                "/opt/homebrew/Cellar/open-ocd/0.12.0_1/share/openocd/scripts/interface/stlink.cfg",
-                "-f",
-                ".vscode/stm32f4x.cfg",
-                "-c init",
-                "-c resume",
-                "-c exit"
+                "-f", "/opt/homebrew/Cellar/open-ocd/0.12.0_1/share/openocd/scripts/interface/stlink.cfg",
+                "-f", ".vscode/stm32f4x.cfg",
+                "-c init", "-c reset", "-c exit"
             ],
             "problemMatcher": []
         },
@@ -168,36 +103,16 @@
             "label": "Run Python file",
             "type": "shell",
             "command": "python3",
-            "args": [
-                "${file}"
-            ],
-            "presentation": {
-                "focus": true
-            },
+            "args": [ "${file}" ],
+            "presentation": { "focus": true },
             "problemMatcher": []
         },
         {
             "label": "Open CubeMX project",
             "type": "shell",
             "command": "/Applications/STMicroelectronics/STM32CubeMX.app/Contents/MacOs/STM32CubeMX",
-            "args": [
-                "firmware.ioc"
-            ],
-            "presentation": {
-                "focus": false
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "Update workspace",
-            "type": "shell",
-            "command": "python3",
-            "args": [
-                "${workspaceFolder}/ideScripts/update.py"
-            ],
-            "presentation": {
-                "focus": true
-            },
+            "args": [ "firmware.ioc" ],
+            "presentation": { "focus": false },
             "problemMatcher": []
         }
     ]

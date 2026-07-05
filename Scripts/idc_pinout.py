@@ -1,26 +1,28 @@
 # These are the noted values from my numbering system.
-left_panel = {"tail_plus": [13, 8],
-"tail_minus": [14, 8],
-"step_minus": [2, 8],
-"step_plus": [3, 8],
-"loop_minus": [14, 7],
-"loop_plus": [2, 7],
-"search_minus": [14, 9],
-"search_plus": [2, 9],
-"up": [4, 7],
-"right": [12, 8],
-"down": [13, 7],
-"left": [3, 9],
-"minus": [3, 7],
-"plus": [12, 7],
-"enter": [4, 9],
-"load": [4,8],
-"save": [11, 7],
-"add": [11, 9],
-"esc": [12, 9],
-"manual": [13, 9],
-"led_anode":[10],
-"led_cathode":[1]}
+left_panel = {
+'search_plus': [3, 12], 
+'search_minus': [3, 13], 
+'loop_plus': [2, 12], 
+'loop_minus': [2, 13], 
+'tail_plus': [1, 11], 
+'tail_minus': [1, 13], 
+'step_plus': [1, 10], 
+'step_minus': [1, 12], 
+'up': [2, 8], 
+'left': [3, 10], 
+'down': [2, 11], 
+'right': [1, 9], 
+'minus': [2, 10], 
+'plus': [2, 9], 
+'manual': [3, 11], 
+'enter': [3, 8], 
+'esc': [3, 9], 
+'add': [3, 7], 
+'save': [2, 7], 
+'load': [1, 8], 
+'led_anode': [5], 
+'led_cathode': [14]
+}
 
 right_panel = {
 "test_led": [1, 5],
@@ -37,19 +39,47 @@ right_panel = {
 "test": [4, 7]
 }
 
-remap_dict14 = {1:2, 2:4, 3:6, 4:8, 5:10, 6:12, 7:14, 8:13, 9:11, 10:9, 11:7, 12:5, 13:3, 14:1}
+remap_dict14_idc_to_expander = {1:"IO0_6", 2:"GND", 3:"IO0_5", 4:"IO0_4", 5:"IO0_3", 6:"IO0_2", 7:"IO0_1", 8:"IO0_0", 
+								9:"IO1_7", 10:"NC", 11:"IO1_0", 12:"NC", 13:"IO1_1", 14:"IO1_2"}
 
-remap_dict16 = {1:2, 2:4, 3:6, 4:8, 5:10, 6:12, 7:14, 8:16, 9:15, 10:13, 11:11, 12:9, 13:7, 14:5, 15:3, 16:1}
+remap_dict16_idc_to_expander = {1:"NC", 2:"GND", 3:"IO0_6", 4:"NC", 5:"IO0_5", 6:"IO0_4", 7:"IO0_3", 8:"IO0_2", 
+								9:"NC", 10:"IO1_4", 11:"IO1_6", 12:"IO1_5", 13:"NC", 14:"IO1_3", 15:"NC", 16:"NC"}
 
-def remap(panel, remap_dict):
-	for key in panel.keys():
-		for idx, pin in enumerate(panel[key]):
-			panel[key][idx] = remap_dict[pin]
-	
-	return panel
+def remap_panel(panel, pin_map, inverted=False, connector_num_of_pins=None):
+    """
+    Return a remapped copy of the panel dictionary.
+
+    If inverted=True, converts each remapped IDC pin number using:
+
+        idc_pin_inverted = connector_num_of_pins - idc_pin
+
+    Does not modify the original panel.
+    """
+
+    if inverted and connector_num_of_pins is None:
+        raise ValueError("connector_num_of_pins must be provided when inverted=True")
+
+    remapped_panel = {}
+
+    for name, pins in panel.items():
+        remapped_pins = []
+
+        for pin in pins:
+            if inverted:
+                if (pin % 2) == 0:
+                    idc_pin = pin_map[2 + connector_num_of_pins - pin]
+                else:
+                    idc_pin = pin_map[1 + connector_num_of_pins - pin]
+            else:
+                idc_pin = pin_map[pin]
+
+            remapped_pins.append(idc_pin)
+
+        remapped_panel[name] = remapped_pins
+
+    return remapped_panel
+
+pinout_expander = remap_panel(left_panel, remap_dict14_idc_to_expander, inverted=True, connector_num_of_pins=14)
 
 print("Left panel pinout:")
-print(remap(left_panel, remap_dict14))
-
-print("Right panel pinout:")
-print(remap(right_panel, remap_dict16))
+print(pinout_expander)

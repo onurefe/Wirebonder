@@ -2,3 +2,20 @@
 */*.zip
 
 Hardware/#auto_saved_files#
+
+# Build outputs
+Firmware/build/
+Firmware/build_tests/
+
+# Python cache
+__pycache__/
+
+# Debug captures & logs
+Firmware/captures/
+Firmware/openocd.log
+
+# macOS
+.DS_Store
+
+# VSCode Local History extension
+.history/

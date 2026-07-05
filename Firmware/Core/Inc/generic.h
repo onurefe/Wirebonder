@@ -28,11 +28,6 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-/* Exported macros ---------------------------------------------------------*/
-#define SET_BIT(variable, bit) ((variable) |= (1 << (bit)))
-#define CLEAR_BIT(variable, bit) ((variable) &= ~(1 << (bit)))
-#define READ_BIT(variable, bit) (((variable) & (1 << (bit))) >> (bit))
-
 #define SET_FLAG(flagsRegister, flagBitPosition) ((flagsRegister) |= (1 << (flagBitPosition)))
 #define CLEAR_FLAG(flagsRegister, flagBitPosition) ((flagsRegister) &= ~(1 << (flagBitPosition)))
 #define IS_FLAG_SET(flagsRegister, flagBitPosition) (((flagsRegister) & (1 << (flagBitPosition))) == 0 ? FALSE : TRUE)
@@ -69,5 +64,29 @@ typedef int32_t qint16_15_t;
 typedef int16_t qint7_8_t;
 typedef uint16_t quint8_8_t;
 typedef int32_t qint19_12_t;
+
+enum class ServiceState {
+    UNINIT,
+    READY,
+    OPERATING
+};
+
+class InterruptLock {
+public:
+    // Constructor: Runs immediately when the object is created
+    InterruptLock() {
+        // NOTE: Replace these with your specific microcontroller's commands.
+        // For STM32 / ARM Cortex-M, it's usually __disable_irq();
+        // For Arduino/AVR, it's cli();
+        __disable_irq(); 
+    }
+
+    // Destructor: Runs automatically when the object goes out of scope
+    ~InterruptLock() {
+        // For STM32 / ARM Cortex-M, it's usually __enable_irq();
+        // For Arduino/AVR, it's sei();
+        __enable_irq();
+    }
+};
 
 #endif

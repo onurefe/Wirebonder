@@ -2,21 +2,17 @@
     "files.associations": {
         "main.h": "c",
         "stm32f4xx_hal.h": "c",
-        "pid_controller.h": "c",
-        "generic.h": "c",
-        "lvdt_phase_detection.h": "c",
-        "tachometer.h": "c",
-        "ZMOTOR_CONTROLLER.h": "c",
-        "impedance_measurement.h": "c",
-        "pll.h": "c",
+        "configuration.h": "c",
         "stm32f4xx_hal_conf.h": "c",
         "adc_conversion_orders.h": "c",
-        "us_impedance_scanner.h": "c",
-        "configuration.h": "c",
-        "solenoid_driver.h": "c",
-        "timer.h": "c",
-        "router.h": "c",
-        "adc_dispatcher.h": "c",
-        "bonder.h": "c"
-    }
+        "generic.h": "c",
+        "*.hpp": "cpp"
+    },
+    "cmake.configureArgs": [
+        "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/cmake/arm-none-eabi.cmake",
+        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    ],
+    "cmake.buildDirectory": "${workspaceFolder}/build",
+    "cmake.generator": "Unix Makefiles",
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
 }

@@ -1,7 +1,7 @@
 (kicad_sch
-	(version 20231120)
+	(version 20260306)
 	(generator "eeschema")
-	(generator_version "8.0")
+	(generator_version "10.0")
 	(uuid "f24e74c8-d708-4a5d-9595-a58e65bd17b2")
 	(paper "A4")
 	(lib_symbols)
@@ -408,16 +408,22 @@
 	(sheet
 		(at 73.66 45.085)
 		(size 27.94 13.97)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
 		(stroke
 			(width 0.1524)
 			(type solid)
 		)
 		(fill
-			(color 0 0 0 0.0000)
+			(color 0 0 0 0)
 		)
 		(uuid "1843231f-b455-41d6-ac41-40044a398315")
 		(property "Sheetname" "interface"
 			(at 73.66 47.625 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -427,6 +433,8 @@
 		)
 		(property "Sheetfile" "interface.kicad_sch"
 			(at 60.96 47.625 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -436,33 +444,33 @@
 		)
 		(pin "SCL" input
 			(at 101.6 49.53 0)
+			(uuid "2053c6d5-73e8-4ec1-a434-a9d7943d5581")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "2053c6d5-73e8-4ec1-a434-a9d7943d5581")
 		)
 		(pin "SDA" bidirectional
 			(at 101.6 52.07 0)
+			(uuid "ef387193-b0d5-479f-a9af-56fe2b898b29")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "ef387193-b0d5-479f-a9af-56fe2b898b29")
 		)
 		(pin "INT" output
 			(at 101.6 54.61 0)
+			(uuid "c1fc7898-ed7e-4dbc-b94c-75bb874595c3")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "c1fc7898-ed7e-4dbc-b94c-75bb874595c3")
 		)
 		(instances
 			(project "Wirebonder"
@@ -475,16 +483,22 @@
 	(sheet
 		(at 189.865 113.665)
 		(size 27.94 9.525)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
 		(stroke
 			(width 0.1524)
 			(type solid)
 		)
 		(fill
-			(color 0 0 0 0.0000)
+			(color 0 0 0 0)
 		)
 		(uuid "253a9c01-2549-4ced-b77f-1ec959c9b28d")
 		(property "Sheetname" "ultrasonic"
 			(at 207.645 116.205 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -494,6 +508,8 @@
 		)
 		(property "Sheetfile" "ultrasonic.kicad_sch"
 			(at 207.645 116.205 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -503,33 +519,33 @@
 		)
 		(pin "SIGNAL" input
 			(at 189.865 116.205 180)
+			(uuid "58e7d88a-54fa-42e3-82c9-76edd2189e1b")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "58e7d88a-54fa-42e3-82c9-76edd2189e1b")
 		)
 		(pin "ISENS" output
 			(at 189.865 121.285 180)
+			(uuid "d3c788da-3475-41ad-b567-44a618f69055")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "d3c788da-3475-41ad-b567-44a618f69055")
 		)
 		(pin "VSENS" output
 			(at 189.865 118.745 180)
+			(uuid "3641d8cc-2eff-442e-a33e-a0d48fbe9989")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "3641d8cc-2eff-442e-a33e-a0d48fbe9989")
 		)
 		(instances
 			(project "Wirebonder"
@@ -542,16 +558,22 @@
 	(sheet
 		(at 189.865 45.085)
 		(size 27.94 22.225)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
 		(stroke
 			(width 0.1524)
 			(type solid)
 		)
 		(fill
-			(color 0 0 0 0.0000)
+			(color 0 0 0 0)
 		)
 		(uuid "2699030e-e36f-4cae-bfb6-8e9cb8f487eb")
 		(property "Sheetname" "stepper"
 			(at 210.185 46.99 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -561,6 +583,8 @@
 		)
 		(property "Sheetfile" "stepper.kicad_sch"
 			(at 210.185 47.625 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -570,73 +594,73 @@
 		)
 		(pin "FAULT" output
 			(at 189.865 55.88 180)
+			(uuid "d058780d-efbe-4178-9938-b89020621290")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "d058780d-efbe-4178-9938-b89020621290")
 		)
 		(pin "RESET" input
 			(at 189.865 50.8 180)
+			(uuid "883fbb99-1d87-4fa3-a0a9-8dfbd96a36e6")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "883fbb99-1d87-4fa3-a0a9-8dfbd96a36e6")
 		)
 		(pin "EN" input
 			(at 189.865 53.34 180)
+			(uuid "af9f47e8-a88b-4036-b41e-8794e92d255a")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "af9f47e8-a88b-4036-b41e-8794e92d255a")
 		)
 		(pin "Y_STEP" input
 			(at 189.865 58.42 180)
+			(uuid "606788a9-1dd5-4f0b-9f3f-3e15b01dccf0")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "606788a9-1dd5-4f0b-9f3f-3e15b01dccf0")
 		)
 		(pin "Y_DIR" input
 			(at 189.865 60.96 180)
+			(uuid "5c10fc6f-8f37-475f-be3f-e97701b366ac")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "5c10fc6f-8f37-475f-be3f-e97701b366ac")
 		)
 		(pin "TEAR_STEP" input
 			(at 189.865 63.5 180)
+			(uuid "2c1193c5-af16-40b8-8d93-c6790cef3444")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "2c1193c5-af16-40b8-8d93-c6790cef3444")
 		)
 		(pin "TEAR_DIR" input
 			(at 189.865 66.04 180)
+			(uuid "6f94f2c3-f17f-48e6-823e-af270d2cd3fd")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "6f94f2c3-f17f-48e6-823e-af270d2cd3fd")
 		)
 		(instances
 			(project "Wirebonder"
@@ -649,16 +673,22 @@
 	(sheet
 		(at 189.865 81.28)
 		(size 27.94 8.255)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
 		(stroke
 			(width 0.1524)
 			(type solid)
 		)
 		(fill
-			(color 0 0 0 0.0000)
+			(color 0 0 0 0)
 		)
 		(uuid "4998d200-9d5d-4879-b8c1-88bfe622b52f")
 		(property "Sheetname" "zmotor"
 			(at 210.82 83.185 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -668,6 +698,8 @@
 		)
 		(property "Sheetfile" "zmotor.kicad_sch"
 			(at 210.82 83.82 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -677,33 +709,33 @@
 		)
 		(pin "PWM" input
 			(at 189.865 82.55 180)
+			(uuid "4810df71-10b5-4b76-bfd0-970efe420790")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "4810df71-10b5-4b76-bfd0-970efe420790")
 		)
 		(pin "nPWM" input
 			(at 189.865 85.09 180)
+			(uuid "4fa3b87e-2926-4bf4-ba19-019ffd5cdd03")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "4fa3b87e-2926-4bf4-ba19-019ffd5cdd03")
 		)
 		(pin "TACHOMETER" output
 			(at 189.865 87.63 180)
+			(uuid "7a453b2d-29ba-4cbe-97c5-bfd94ff43209")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "7a453b2d-29ba-4cbe-97c5-bfd94ff43209")
 		)
 		(instances
 			(project "Wirebonder"
@@ -716,16 +748,22 @@
 	(sheet
 		(at 189.865 70.485)
 		(size 27.94 8.255)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
 		(stroke
 			(width 0.1524)
 			(type solid)
 		)
 		(fill
-			(color 0 0 0 0.0000)
+			(color 0 0 0 0)
 		)
 		(uuid "824036e3-c5b8-4c9d-bc3a-55ea2b657404")
 		(property "Sheetname" "force_coil"
 			(at 208.28 73.025 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -735,6 +773,8 @@
 		)
 		(property "Sheetfile" "force_coil.kicad_sch"
 			(at 208.28 73.66 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -744,33 +784,33 @@
 		)
 		(pin "PWM" input
 			(at 189.865 71.755 180)
+			(uuid "165eec82-bf4c-472e-be3a-19ac39021ac3")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "165eec82-bf4c-472e-be3a-19ac39021ac3")
 		)
 		(pin "nPWM" input
 			(at 189.865 74.295 180)
+			(uuid "54cd556e-acaf-483e-bda7-2ffb37a780e2")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "54cd556e-acaf-483e-bda7-2ffb37a780e2")
 		)
 		(pin "ISENS" output
 			(at 189.865 76.835 180)
+			(uuid "0b93d0bc-f56b-4488-be9f-f733b1c8eff0")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "0b93d0bc-f56b-4488-be9f-f733b1c8eff0")
 		)
 		(instances
 			(project "Wirebonder"
@@ -783,16 +823,22 @@
 	(sheet
 		(at 111.125 45.085)
 		(size 69.85 78.105)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
 		(stroke
 			(width 0.1524)
 			(type solid)
 		)
 		(fill
-			(color 0 0 0 0.0000)
+			(color 0 0 0 0)
 		)
 		(uuid "872117e8-20e8-4bc7-949c-41e525c88a1d")
 		(property "Sheetname" "mcu"
 			(at 111.125 44.3734 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -802,6 +848,8 @@
 		)
 		(property "Sheetfile" "mcu.kicad_sch"
 			(at 104.775 45.085 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -811,403 +859,403 @@
 		)
 		(pin "SERIAL_TX" output
 			(at 111.125 117.475 180)
+			(uuid "6250cc40-c8c3-4c89-9995-bc40058d5c87")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "6250cc40-c8c3-4c89-9995-bc40058d5c87")
 		)
 		(pin "STEPPER_Y_STEP" output
 			(at 180.975 58.42 0)
+			(uuid "e8731c0f-8b25-44b6-a500-ab46618b393e")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "e8731c0f-8b25-44b6-a500-ab46618b393e")
 		)
 		(pin "DRIVES_SOL2H" output
 			(at 180.975 97.79 0)
+			(uuid "a562ee40-d629-47f2-aaea-54bd101c927a")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "a562ee40-d629-47f2-aaea-54bd101c927a")
 		)
 		(pin "ZMOTOR_nPWM" output
 			(at 180.975 85.09 0)
+			(uuid "bb246cf6-30db-40b0-9e42-c855d8e66893")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "bb246cf6-30db-40b0-9e42-c855d8e66893")
 		)
 		(pin "STEPPER_Y_DIR" output
 			(at 180.975 60.96 0)
+			(uuid "3e12fbdb-212a-4515-819b-f8302f18cd28")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "3e12fbdb-212a-4515-819b-f8302f18cd28")
 		)
 		(pin "DRIVES_SOL2L" output
 			(at 180.975 100.33 0)
+			(uuid "2b74fe1a-2e8f-4ab9-be39-974aa15de5f5")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "2b74fe1a-2e8f-4ab9-be39-974aa15de5f5")
 		)
 		(pin "DRIVES_SOL1L" output
 			(at 180.975 105.41 0)
+			(uuid "073e289e-2719-4d56-ba1d-807005a249e9")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "073e289e-2719-4d56-ba1d-807005a249e9")
 		)
 		(pin "FORCE_COIL_nPWM" output
 			(at 180.975 74.295 0)
+			(uuid "c28ee172-6135-4cbd-805f-03ba601ae87d")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "c28ee172-6135-4cbd-805f-03ba601ae87d")
 		)
 		(pin "LVDT_A" input
 			(at 111.125 104.775 180)
+			(uuid "4f324f6f-f704-41c6-9e68-2173699dc7f3")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "4f324f6f-f704-41c6-9e68-2173699dc7f3")
 		)
 		(pin "ZMOTOR_PWM" output
 			(at 180.975 82.55 0)
+			(uuid "1cc65477-f3b6-48b1-a218-f7d034738cd3")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "1cc65477-f3b6-48b1-a218-f7d034738cd3")
 		)
 		(pin "LVDT_SIGNAL" output
 			(at 111.125 102.235 180)
+			(uuid "b974b851-a4d7-446a-8819-cc57b4f74eb0")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "b974b851-a4d7-446a-8819-cc57b4f74eb0")
 		)
 		(pin "FORCE_COIL_PWM" output
 			(at 180.975 71.755 0)
+			(uuid "da041a00-1c52-4214-9149-a50567f82489")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "da041a00-1c52-4214-9149-a50567f82489")
 		)
 		(pin "LVDT_B" input
 			(at 111.125 107.315 180)
+			(uuid "1a916a2a-23b4-44be-8fcd-757d9b2d0e77")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "1a916a2a-23b4-44be-8fcd-757d9b2d0e77")
 		)
 		(pin "ULTRASONIC_ISENS" input
 			(at 180.975 121.285 0)
+			(uuid "bcca436b-dedb-48ca-ac7b-165afb584c2a")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "bcca436b-dedb-48ca-ac7b-165afb584c2a")
 		)
 		(pin "FORCE_COIL_ISENS" input
 			(at 180.975 76.835 0)
+			(uuid "8cba023f-01ae-4e47-84e1-c7ee066b384d")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "8cba023f-01ae-4e47-84e1-c7ee066b384d")
 		)
 		(pin "ZMOTOR_TACHOMETER" input
 			(at 180.975 87.63 0)
+			(uuid "7aa59403-e7e9-4efa-aec4-c2c86acad86a")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "7aa59403-e7e9-4efa-aec4-c2c86acad86a")
 		)
 		(pin "ULTRASONIC_SIGNAL" output
 			(at 180.975 116.205 0)
+			(uuid "308c836c-8edc-48b2-8432-ebd2b4331d51")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "308c836c-8edc-48b2-8432-ebd2b4331d51")
 		)
 		(pin "STEPPER_EN" output
 			(at 180.975 53.34 0)
+			(uuid "c9e3e803-979a-4d45-95fb-46a173ebc760")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "c9e3e803-979a-4d45-95fb-46a173ebc760")
 		)
 		(pin "STEPPER_RESET" output
 			(at 180.975 50.8 0)
+			(uuid "db8c7636-7d62-4202-a013-347fa1f2f832")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "db8c7636-7d62-4202-a013-347fa1f2f832")
 		)
 		(pin "STEPPER_FAULT" input
 			(at 180.975 55.88 0)
+			(uuid "a50b6526-7aec-4cba-9957-b79705c477af")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "a50b6526-7aec-4cba-9957-b79705c477af")
 		)
 		(pin "ULTRASONIC_VSENS" input
 			(at 180.975 118.745 0)
+			(uuid "3d4f01a3-1fed-4683-829f-a5c9f9d90832")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "3d4f01a3-1fed-4683-829f-a5c9f9d90832")
 		)
 		(pin "SERIAL_RX" input
 			(at 111.125 114.935 180)
+			(uuid "dc4b87b2-ada0-4e32-b8c9-9a0d6d161b6a")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "dc4b87b2-ada0-4e32-b8c9-9a0d6d161b6a")
 		)
 		(pin "DRIVES_AREALIGHT_nPWM" output
 			(at 180.975 107.95 0)
+			(uuid "b3a4d03a-0ba4-4615-83b3-7d3fd24fdfda")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "b3a4d03a-0ba4-4615-83b3-7d3fd24fdfda")
 		)
 		(pin "DRIVES_SOL1H" output
 			(at 180.975 102.87 0)
+			(uuid "1ef9974e-4f18-4a72-a293-1d8826329780")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "1ef9974e-4f18-4a72-a293-1d8826329780")
 		)
 		(pin "CONTACT_SENSORS_MOUSE_LEFT" input
 			(at 111.125 76.2 180)
+			(uuid "d1e9e146-77e5-4b43-8c52-8b0da17c4a60")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "d1e9e146-77e5-4b43-8c52-8b0da17c4a60")
 		)
 		(pin "CONTACT_SENSORS_MOUSE_RIGHT" input
 			(at 111.125 78.74 180)
+			(uuid "dfb37e97-986f-4028-9d0d-8f7fea24da89")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "dfb37e97-986f-4028-9d0d-8f7fea24da89")
 		)
 		(pin "CONTACT_SENSORS_YLIM" input
 			(at 111.125 71.12 180)
+			(uuid "0079b2ca-91fa-410d-bad4-cfdce9c2ccb8")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "0079b2ca-91fa-410d-bad4-cfdce9c2ccb8")
 		)
 		(pin "CONTACT_SENSORS_TIP" input
 			(at 111.125 73.66 180)
+			(uuid "40eb78e0-aa3b-41d7-a8ab-19238586aad0")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "40eb78e0-aa3b-41d7-a8ab-19238586aad0")
 		)
 		(pin "STEPPER_TEAR_STEP" output
 			(at 180.975 63.5 0)
+			(uuid "6295f8c2-2c3d-48c8-bab1-66c6025d91dc")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "6295f8c2-2c3d-48c8-bab1-66c6025d91dc")
 		)
 		(pin "STEPPER_TEAR_DIR" output
 			(at 180.975 66.04 0)
+			(uuid "51d1ef8c-d3a2-4646-9889-fb824068f725")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "51d1ef8c-d3a2-4646-9889-fb824068f725")
 		)
 		(pin "DRIVES_SPOTLIGHT_nPWM" output
 			(at 180.975 110.49 0)
+			(uuid "c928fc72-36fd-44d1-ba4b-2ebfdc3bbba4")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "c928fc72-36fd-44d1-ba4b-2ebfdc3bbba4")
 		)
 		(pin "INTERFACE_SCL" output
 			(at 111.125 49.53 180)
+			(uuid "d046fc07-8d59-44fc-a16a-a185c0453dc1")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "d046fc07-8d59-44fc-a16a-a185c0453dc1")
 		)
 		(pin "INTERFACE_SDA" bidirectional
 			(at 111.125 52.07 180)
+			(uuid "d527c6bc-04a4-4138-9bc8-f902965d4dfc")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "d527c6bc-04a4-4138-9bc8-f902965d4dfc")
 		)
 		(pin "INTERFACE_INT" input
 			(at 111.125 54.61 180)
+			(uuid "31b6c100-dc65-4fbd-9be8-a0b3383cefc6")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "31b6c100-dc65-4fbd-9be8-a0b3383cefc6")
 		)
 		(pin "CONTACT_SENSORS_RES3" input
 			(at 111.125 90.17 180)
+			(uuid "69b5a9b0-aa4c-432a-8b27-bec45d2e7f3c")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "69b5a9b0-aa4c-432a-8b27-bec45d2e7f3c")
 		)
 		(pin "CONTACT_SENSORS_RES2" input
 			(at 111.125 87.63 180)
+			(uuid "1ea81d2e-85ae-4b60-9d7f-f8c2063e900c")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "1ea81d2e-85ae-4b60-9d7f-f8c2063e900c")
 		)
 		(pin "CONTACT_SENSORS_RES1" input
 			(at 111.125 85.09 180)
+			(uuid "f23ff29b-5796-40b0-9070-f4af165e84a2")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "f23ff29b-5796-40b0-9070-f4af165e84a2")
 		)
 		(pin "DRIVES_SOL3H" output
 			(at 180.975 92.71 0)
+			(uuid "5bbe0200-5360-40b3-a189-7421b1d35736")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "5bbe0200-5360-40b3-a189-7421b1d35736")
 		)
 		(pin "DRIVES_SOL3L" output
 			(at 180.975 95.25 0)
+			(uuid "929418bd-a000-47e2-a8ab-8e7fa2b27664")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "929418bd-a000-47e2-a8ab-8e7fa2b27664")
 		)
 		(pin "CONTACT_SENSORS_RES0" input
 			(at 111.125 82.55 180)
+			(uuid "ac5d685a-9322-42d3-9c7d-6ad09808a480")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "ac5d685a-9322-42d3-9c7d-6ad09808a480")
 		)
 		(instances
 			(project "Wirebonder"
@@ -1220,16 +1268,22 @@
 	(sheet
 		(at 189.865 91.44)
 		(size 27.94 20.955)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
 		(stroke
 			(width 0.1524)
 			(type solid)
 		)
 		(fill
-			(color 0 0 0 0.0000)
+			(color 0 0 0 0)
 		)
 		(uuid "b30d1e87-2d3b-4074-8b6a-e5df87df0c06")
 		(property "Sheetname" "drives"
 			(at 211.455 93.345 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1239,6 +1293,8 @@
 		)
 		(property "Sheetfile" "drives.kicad_sch"
 			(at 211.455 93.345 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1248,83 +1304,83 @@
 		)
 		(pin "SOL2L" input
 			(at 189.865 100.33 180)
+			(uuid "f4e6c92f-c930-4860-b1f7-b7986a0a1ff0")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "f4e6c92f-c930-4860-b1f7-b7986a0a1ff0")
 		)
 		(pin "SOL2H" input
 			(at 189.865 97.79 180)
+			(uuid "9181e040-5bb7-46fd-87e1-1995c69b2c9c")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "9181e040-5bb7-46fd-87e1-1995c69b2c9c")
 		)
 		(pin "SPOTLIGHT_PWM" input
 			(at 189.865 107.95 180)
+			(uuid "12116a4c-db62-4d53-b3b5-a201d4e5af1e")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "12116a4c-db62-4d53-b3b5-a201d4e5af1e")
 		)
 		(pin "SOL1H" input
 			(at 189.865 102.87 180)
+			(uuid "b5642883-74ba-4afb-9c47-c3152d95466c")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "b5642883-74ba-4afb-9c47-c3152d95466c")
 		)
 		(pin "SOL1L" input
 			(at 189.865 105.41 180)
+			(uuid "d573c518-3b76-4ee5-8ab9-82c13c037b44")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "d573c518-3b76-4ee5-8ab9-82c13c037b44")
 		)
 		(pin "AREALIGHT_nPWM" input
 			(at 189.865 110.49 180)
+			(uuid "48836b52-87c3-44cb-aafa-714c6342bf5e")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "48836b52-87c3-44cb-aafa-714c6342bf5e")
 		)
 		(pin "SOL3H" input
 			(at 189.865 92.71 180)
+			(uuid "e9305f6f-14ee-44f2-b207-206b810764b2")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "e9305f6f-14ee-44f2-b207-206b810764b2")
 		)
 		(pin "SOL3L" input
 			(at 189.865 95.25 180)
+			(uuid "b30995ae-91ba-4434-a676-05d6991dce20")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
 			)
-			(uuid "b30995ae-91ba-4434-a676-05d6991dce20")
 		)
 		(instances
 			(project "Wirebonder"
@@ -1337,17 +1393,23 @@
 	(sheet
 		(at 132.715 137.16)
 		(size 27.94 15.24)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
 		(fields_autoplaced yes)
 		(stroke
 			(width 0.1524)
 			(type solid)
 		)
 		(fill
-			(color 0 0 0 0.0000)
+			(color 0 0 0 0)
 		)
 		(uuid "b471d602-86b1-4e8a-b4f1-711c2a5b7996")
 		(property "Sheetname" "regulators"
 			(at 132.715 136.4484 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1357,6 +1419,8 @@
 		)
 		(property "Sheetfile" "regulators.kicad_sch"
 			(at 132.715 152.9846 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1375,16 +1439,22 @@
 	(sheet
 		(at 73.66 113.03)
 		(size 27.94 10.16)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
 		(stroke
 			(width 0.1524)
 			(type solid)
 		)
 		(fill
-			(color 0 0 0 0.0000)
+			(color 0 0 0 0)
 		)
 		(uuid "c9c66003-ebf6-4f69-9677-77fb9ea64edd")
 		(property "Sheetname" "serial"
 			(at 75.565 114.935 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1394,6 +1464,8 @@
 		)
 		(property "Sheetfile" "serial.kicad_sch"
 			(at 69.215 114.935 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1403,23 +1475,23 @@
 		)
 		(pin "RX" output
 			(at 101.6 114.935 0)
+			(uuid "4b46b023-c183-4f13-948e-2f824d3e3275")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "4b46b023-c183-4f13-948e-2f824d3e3275")
 		)
 		(pin "TX" input
 			(at 101.6 117.475 0)
+			(uuid "5cc0ecb6-90a5-4f8e-9f5d-a442abd49cbc")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "5cc0ecb6-90a5-4f8e-9f5d-a442abd49cbc")
 		)
 		(instances
 			(project "Wirebonder"
@@ -1432,16 +1504,22 @@
 	(sheet
 		(at 73.66 100.33)
 		(size 27.94 9.525)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
 		(stroke
 			(width 0.1524)
 			(type solid)
 		)
 		(fill
-			(color 0 0 0 0.0000)
+			(color 0 0 0 0)
 		)
 		(uuid "dad4a552-37be-4271-b7dd-2926b006526c")
 		(property "Sheetname" "lvdt"
 			(at 74.93 102.87 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1451,6 +1529,8 @@
 		)
 		(property "Sheetfile" "lvdt.kicad_sch"
 			(at 69.215 102.87 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1460,33 +1540,33 @@
 		)
 		(pin "A" output
 			(at 101.6 104.775 0)
+			(uuid "07424ae7-9ea9-41ed-b9fb-a4bd1e061024")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "07424ae7-9ea9-41ed-b9fb-a4bd1e061024")
 		)
 		(pin "B" output
 			(at 101.6 107.315 0)
+			(uuid "57755d03-510a-4a65-a46f-ec46710903c3")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "57755d03-510a-4a65-a46f-ec46710903c3")
 		)
 		(pin "SIGNAL" input
 			(at 101.6 102.235 0)
+			(uuid "536eb85f-36f6-43ac-b6d7-f3fc8bee3faf")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "536eb85f-36f6-43ac-b6d7-f3fc8bee3faf")
 		)
 		(instances
 			(project "Wirebonder"
@@ -1499,16 +1579,22 @@
 	(sheet
 		(at 73.66 68.58)
 		(size 27.94 24.765)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
 		(stroke
 			(width 0.1524)
 			(type solid)
 		)
 		(fill
-			(color 0 0 0 0.0000)
+			(color 0 0 0 0)
 		)
 		(uuid "f79385b7-1b7d-40db-bce7-7953e431edb9")
 		(property "Sheetname" "contact_sensors"
 			(at 74.295 70.485 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1518,6 +1604,8 @@
 		)
 		(property "Sheetfile" "contact_sensors.kicad_sch"
 			(at 60.325 70.485 0)
+			(show_name no)
+			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1527,83 +1615,83 @@
 		)
 		(pin "TIP" output
 			(at 101.6 73.66 0)
+			(uuid "6bce3258-08b0-4b98-b6a3-7a70ed554c92")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "6bce3258-08b0-4b98-b6a3-7a70ed554c92")
 		)
 		(pin "MOUSE_LEFT" output
 			(at 101.6 76.2 0)
+			(uuid "b7dff0f5-1f56-4080-95e5-fad002cba87f")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "b7dff0f5-1f56-4080-95e5-fad002cba87f")
 		)
 		(pin "Y_LIM" output
 			(at 101.6 71.12 0)
+			(uuid "e1c62991-52fd-43ea-8a4e-56209f10e9a6")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "e1c62991-52fd-43ea-8a4e-56209f10e9a6")
 		)
 		(pin "MOUSE_RIGHT" output
 			(at 101.6 78.74 0)
+			(uuid "2c56c4e6-4180-46ce-be95-b65aa7ecf55c")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "2c56c4e6-4180-46ce-be95-b65aa7ecf55c")
 		)
 		(pin "RES0" output
 			(at 101.6 82.55 0)
+			(uuid "00ea2ea3-c5d5-465a-87fe-81d3cc1f5529")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "00ea2ea3-c5d5-465a-87fe-81d3cc1f5529")
 		)
 		(pin "RES2" output
 			(at 101.6 87.63 0)
+			(uuid "c7ead360-aaa8-4460-a79c-cf6727855037")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "c7ead360-aaa8-4460-a79c-cf6727855037")
 		)
 		(pin "RES1" output
 			(at 101.6 85.09 0)
+			(uuid "e5909878-c986-4d2b-889e-1f19bc09eca2")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "e5909878-c986-4d2b-889e-1f19bc09eca2")
 		)
 		(pin "RES3" output
 			(at 101.6 90.17 0)
+			(uuid "aa0f7583-6c70-40b5-9741-46d31835e3eb")
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify right)
 			)
-			(uuid "aa0f7583-6c70-40b5-9741-46d31835e3eb")
 		)
 		(instances
 			(project "Wirebonder"
@@ -1618,4 +1706,5 @@
 			(page "1")
 		)
 	)
+	(embedded_fonts no)
 )
