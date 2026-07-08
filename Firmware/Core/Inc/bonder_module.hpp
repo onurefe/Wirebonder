@@ -10,7 +10,7 @@
 #include "fast_io.hpp"
 #include "pin_monitor_service.hpp"
 #include "stepper_router_service.hpp"
-#include "dc_router_module.hpp"
+#include "dc_motor_position_controller_module.hpp"
 #include "force_coil_module.hpp"
 #include "pll_module.hpp"
 #include "us_impedance_scanner_module.hpp"
@@ -30,7 +30,7 @@ public:
     using BonderStateChangedCallback = void (*)(bool isIdle);
     using BonderErrorCallback        = void (*)(Error error);
 
-    BonderModule(DcRouterModule *zMotorController,
+    BonderModule(DcMotorPositionControllerModule *zMotorController,
                  ForceCoilDriverModule *forceCoilDriver,
                  RouterChannel *yAxisRouter,
                  RouterChannel *tAxisRouter,
@@ -110,7 +110,6 @@ private:
     // Hardware event flags  (set by ISR callbacks, polled by step functions)
     // =========================================================================
 
-    bool m_zMoveCompleted;
     bool m_tMoveCompleted;
     bool m_yMoveCompleted;
     bool m_forceCoilCurrentSettled;
@@ -140,7 +139,7 @@ private:
     // Injected dependencies
     // =========================================================================
 
-    DcRouterModule                  *m_zMotorControllerModule;
+    DcMotorPositionControllerModule *m_zMotorControllerModule;
     ForceCoilDriverModule   *m_forceCoilControllerModule;
     RouterChannel            *m_yAxisRouter;
     RouterChannel            *m_tAxisRouter;
@@ -164,6 +163,8 @@ private:
     // =========================================================================
 
     void    clearFlags();
+    void    setZMotorPosition(float position);
+    bool    zMotorPositionReached() const;
     void    computeOperatingPoint();
     float   amplitudeForTargetPower(float realAdmittance) const;
     uint8_t findResonanceIndex() const;
@@ -184,6 +185,9 @@ private:
     static void onTAxisRouterDone(void *context, RouterChannel *channel);
     static void onPllEvent(void *context, PllModule::Event event);
     static void onForceCoilEvent(ForceCoilDriverModule::Event eventId);
-    static void onZMotorEvent(void *context, DcRouterModule::Event event);
+    static bool onZMotorPositionSetpoint(void *context, float *positionSetpoint);
     static void onImpedanceScanned(void *context, complexf *v, complexf *c, complexf *i);
+
+    float m_zMotorPositionSetpoint;
+    bool  m_zMotorSetpointActive;
 };

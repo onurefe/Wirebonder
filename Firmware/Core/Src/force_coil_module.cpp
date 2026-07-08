@@ -37,8 +37,8 @@ void ForceCoilDriverModule::start(void)
     m_newSetpoint = false;
 
     m_pidCtrl.start();
-
     m_state = STATE_OPERATING;
+    m_iDriveChannel->start(FORCE_COIL_MODULE_MIN_DUTY);
 }
 
 void ForceCoilDriverModule::stop(void)
@@ -47,7 +47,12 @@ void ForceCoilDriverModule::stop(void)
         return;
     }
 
+    m_iDriveChannel->stop();
     m_pidCtrl.stop();
+
+    m_currentSetpoint = 0.0f;
+    m_targetDuty = FORCE_COIL_MODULE_MIN_DUTY;
+    m_newSetpoint = false;
     m_state = STATE_READY;
 }
 

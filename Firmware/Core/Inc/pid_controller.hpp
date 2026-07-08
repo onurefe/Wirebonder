@@ -47,6 +47,7 @@ private:
     void updateIntegral();
     float computePidOutput();
     void saturateOutput(float rawOutput);
+    void applyAntiWindup(float rawOutput);
     void updateHistory();
 
     enum ControllerState {

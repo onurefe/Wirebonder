@@ -256,6 +256,7 @@ PA7.Locked=true
 PA7.Signal=ADCx_IN7
 PA8.GPIOParameters=GPIO_Label
 PA8.GPIO_Label=FORCE_COIL_PWM
+PA8.Locked=true
 PA8.Signal=S_TIM1_CH1
 PA9.GPIOParameters=GPIO_Label
 PA9.GPIO_Label=ZMOTOR_PWM

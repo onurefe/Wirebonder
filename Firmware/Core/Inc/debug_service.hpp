@@ -2,6 +2,7 @@
 #define DEBUG_SERVICE_HPP
 
 #include <cstdint>
+#include "configuration.h"
 #include "generic.h"
 
 // -----------------------------------------------------------------------------
@@ -64,7 +65,7 @@ struct DebugServiceBlock {
     volatile uint32_t resultCount;
 
     // Command arguments.
-    volatile float args[4];
+    volatile float args[5];
 
     // Result buffers published by the active channel.
     //
@@ -105,6 +106,7 @@ public:
     virtual ~DebugChannel() = default;
 
     void bindServiceBlock(DebugServiceBlock *serviceBlock);
+    void setTelemetryBufferPtr(void *telemetryBufferPtr);
     void setDependencyCallback(void *context, DependencyCallback callback);
     void setDependencyReleaseCallback(void *context, DependencyReleaseCallback callback);
 
@@ -137,6 +139,7 @@ public:
 protected:
     float arg(uint8_t index) const;
     void setArg(uint8_t index, float value);
+    void *telemetryBufferPtr() const;
 
     uint32_t status() const;
 
@@ -153,6 +156,7 @@ protected:
 
 private:
     DebugServiceBlock *m_serviceBlock = nullptr;
+    void *m_telemetryBufferPtr = nullptr;
     void *m_dependencyCallbackContext = nullptr;
     DependencyCallback m_dependencyCallback = nullptr;
     void *m_dependencyReleaseCallbackContext = nullptr;
@@ -167,7 +171,7 @@ private:
 
 class DebugService {
 public:
-    static constexpr uint8_t MaxChannels = 8;
+    static constexpr uint8_t MaxChannels = 9;
 
     bool addChannel(DebugChannel *channel);
 
@@ -197,6 +201,8 @@ private:
     void dispatchCommand(DebugChannel *channel, uint16_t localCommand);
 
     void setServiceError(uint32_t errorCode);
+
+    static uint8_t s_telemetryBuffer[DEBUG_TELEMETRY_BUFFER_SIZE_BYTES];
 
     DebugServiceBlock m_debugServiceBlock = {};
 

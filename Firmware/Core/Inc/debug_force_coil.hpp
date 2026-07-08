@@ -52,7 +52,7 @@ private:
 
     ForceCoilDriverModule *m_forceCoil = nullptr;
 
-    float m_telemetry[DEBUG_FORCE_COIL_TELEMETRY_DEPTH] = {};
+    float *m_telemetry = nullptr;
     uint32_t m_sampleIdx = 0;
     uint32_t m_sampleLimit = 0;
     bool m_busy = false;

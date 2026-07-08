@@ -5,18 +5,14 @@ DcMotorPositionControllerModule::DcMotorPositionControllerModule(
     DcMotorVelocityControllerModule *velocityController)
     : m_lvdtSensorModule(lvdtSensor)
     , m_velocityController(velocityController)
-    , m_positionPid(PidController::Config{
-        DCMOTOR_POSITION_MODULE_PID_GAIN,
-        DCMOTOR_POSITION_MODULE_PID_INTEGRAL_TC,
-        DCMOTOR_POSITION_MODULE_PID_DERIVATIVE_TC,
-        1.0f / static_cast<float>(DCMOTOR_POSITION_MODULE_CONTROL_FREQUENCY),
-        DCMOTOR_POSITION_MODULE_PID_FILTER_TC,
-        DCMOTOR_POSITION_MODULE_PID_OUTPUT_MIN,
-        DCMOTOR_POSITION_MODULE_PID_OUTPUT_MAX})
     , m_state(ServiceState::READY)
+    , m_bypassEnabled(false)
+    , m_hasPositionMeasurement(false)
     , m_setpointControllerCallbacks{}
     , m_setpointControllerCallbackCount(0)
     , m_positionMeasurement(0.0f)
+    , m_lvdtMagnitudeA(0.0f)
+    , m_lvdtMagnitudeB(0.0f)
 {
     registerPeripheralCallbacks();
 }
@@ -32,11 +28,10 @@ void DcMotorPositionControllerModule::start()
     }
 
     m_state = ServiceState::OPERATING;
+    m_hasPositionMeasurement = false;
 
     m_velocityController->start();
     m_lvdtSensorModule->start();
-
-    m_positionPid.start();
 }
 
 void DcMotorPositionControllerModule::stop()
@@ -48,16 +43,19 @@ void DcMotorPositionControllerModule::stop()
     m_state = ServiceState::READY;
 
     m_lvdtSensorModule->stop();
-    m_positionPid.stop();
     m_velocityController->stop();
+    m_bypassEnabled = false;
+    m_hasPositionMeasurement = false;
 }
 
 void DcMotorPositionControllerModule::restartControlLoop()
 {
-    m_positionPid.start();
+    m_bypassEnabled = false;
 }
 
-bool DcMotorPositionControllerModule::addPositionSetpointControllerCallback(void *context, SetpointCallback callback)
+bool DcMotorPositionControllerModule::addPositionSetpointControllerCallback(
+    void *context,
+    SetpointCallback callback)
 {
     if (callback == nullptr) {
         return false;
@@ -89,13 +87,64 @@ float DcMotorPositionControllerModule::getVelocity() const
     return m_velocityController->getVelocity();
 }
 
+float DcMotorPositionControllerModule::execute(float positionSetpoint)
+{
+    if (!isOperating()) {
+        return 0.0f;
+    }
+
+    if (!m_hasPositionMeasurement) {
+        return 0.0f;
+    }
+
+    if (m_bypassEnabled) {
+        return clampOutput(positionSetpoint);
+    }
+
+    const float positionError = positionSetpoint - m_positionMeasurement;
+    const float targetVelocity =
+        DCMOTOR_POSITION_MODULE_PROPORTIONAL_GAIN * positionError;
+
+    return clampOutput(targetVelocity);
+}
+
+float DcMotorPositionControllerModule::getLvdtMagnitudeA() const
+{
+    return m_lvdtMagnitudeA;
+}
+
+float DcMotorPositionControllerModule::getLvdtMagnitudeB() const
+{
+    return m_lvdtMagnitudeB;
+}
+
+void DcMotorPositionControllerModule::enableBypass()
+{
+    m_bypassEnabled = true;
+}
+
+void DcMotorPositionControllerModule::disableBypass()
+{
+    m_bypassEnabled = false;
+}
+
+void DcMotorPositionControllerModule::enableDriveBypass()
+{
+    m_velocityController->enablePidBypass();
+}
+
+void DcMotorPositionControllerModule::disableDriveBypass()
+{
+    m_velocityController->disablePidBypass();
+}
+
 // ---------------------------------------------------------------------------
 // Peripheral-Bridge-Callbacks
 // ---------------------------------------------------------------------------
 
-void DcMotorPositionControllerModule::lvdtCallback(void *context, float position)
+void DcMotorPositionControllerModule::lvdtCallback(void *context, float position, float magA, float magB)
 {
-    static_cast<DcMotorPositionControllerModule *>(context)->onLvdtMeasured(position);
+    static_cast<DcMotorPositionControllerModule *>(context)->onLvdtMeasured(position, magA, magB);
 }
 
 bool DcMotorPositionControllerModule::controlUpdateCallback(void *context, float *targetVelocity)
@@ -107,21 +156,20 @@ bool DcMotorPositionControllerModule::controlUpdateCallback(void *context, float
 // Peripheral-Event-Handlers
 // ---------------------------------------------------------------------------
 
-void DcMotorPositionControllerModule::onLvdtMeasured(float position)
+void DcMotorPositionControllerModule::onLvdtMeasured(float position, float magA, float magB)
 {
     if (!isOperating()) {
         return;
     }
 
-    // Cache only; the control law runs when the velocity loop pulls a
-    // setpoint (see onControlUpdate).
+    // Cache only; a bonder or debug callback provides the position target at
+    // the moment the velocity loop asks for a setpoint.
     m_positionMeasurement = position;
+    m_lvdtMagnitudeA = magA;
+    m_lvdtMagnitudeB = magB;
+    m_hasPositionMeasurement = true;
 }
 
-// Multiple controllers may register against the same object without conflict:
-// registration is non-exclusive, and each controller reports its activity as a
-// byproduct of the call (the bool return). This module acts as a velocity
-// controller for the inner loop — active only while operating.
 bool DcMotorPositionControllerModule::onControlUpdate(float *targetVelocity)
 {
     if (targetVelocity == nullptr) {
@@ -132,16 +180,19 @@ bool DcMotorPositionControllerModule::onControlUpdate(float *targetVelocity)
         return false;
     }
 
-    // First active setpoint controller wins; otherwise hold current position.
-    float position_setpoint = m_positionMeasurement;
+    if (!m_hasPositionMeasurement) {
+        return false;
+    }
+
+    float positionSetpoint = m_positionMeasurement;
     for (uint8_t i = 0; i < m_setpointControllerCallbackCount; i++) {
         if (m_setpointControllerCallbacks[i].callback(
-                m_setpointControllerCallbacks[i].context, &position_setpoint)) {
+                m_setpointControllerCallbacks[i].context, &positionSetpoint)) {
             break;
         }
     }
 
-    *targetVelocity = m_positionPid.execute(position_setpoint, m_positionMeasurement);
+    *targetVelocity = execute(positionSetpoint);
     return true;
 }
 
@@ -153,7 +204,7 @@ void DcMotorPositionControllerModule::registerPeripheralCallbacks()
 {
     m_lvdtSensorModule->addMeasurementListenerCallback(this, 
         &DcMotorPositionControllerModule::lvdtCallback);
-        
+
     m_velocityController->addVelocityControllerCallback(this,
         &DcMotorPositionControllerModule::controlUpdateCallback);
 }
@@ -166,4 +217,17 @@ bool DcMotorPositionControllerModule::isReady() const
 bool DcMotorPositionControllerModule::isOperating() const
 {
     return m_state == ServiceState::OPERATING;
+}
+
+float DcMotorPositionControllerModule::clampOutput(float rawOutput) const
+{
+    if (rawOutput > DCMOTOR_POSITION_MODULE_OUTPUT_MAX) {
+        return DCMOTOR_POSITION_MODULE_OUTPUT_MAX;
+    }
+
+    if (rawOutput < DCMOTOR_POSITION_MODULE_OUTPUT_MIN) {
+        return DCMOTOR_POSITION_MODULE_OUTPUT_MIN;
+    }
+
+    return rawOutput;
 }

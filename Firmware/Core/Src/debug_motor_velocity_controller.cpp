@@ -40,9 +40,15 @@ void DebugMotorVelocityController::start()
         return;
     }
 
+    m_telemetry = static_cast<float *>(telemetryBufferPtr());
+    if (m_telemetry == nullptr) {
+        setError(ERROR_NOT_INITIALIZED);
+        return;
+    }
+
     const float stepValue = arg(0);
     const float duration = arg(1);
-    const bool bypassPid = arg(2) > 0.0f;
+    const bool bypassController = arg(2) > 0.0f;
 
     if (duration <= 0.0f) {
         setError(ERROR_INVALID_ARGUMENT);
@@ -70,7 +76,7 @@ void DebugMotorVelocityController::start()
     setBusy();
     setResultPointer(0, m_telemetry);
 
-    if (bypassPid) {
+    if (bypassController) {
         m_velocityController->enablePidBypass();
     } else {
         m_velocityController->disablePidBypass();

@@ -42,8 +42,8 @@ uint16_t Robot::m_scannerSynthesisBuffer[SCANNER_SYNTHESIS_BUFFER_SIZE];
 uint16_t Robot::m_scannerVsensBuffer[SCANNER_ADC_CAPTURE_SIZE];
 uint16_t Robot::m_scannerIsensBuffer[SCANNER_ADC_CAPTURE_SIZE];
 
-uint32_t Robot::m_tim1pwmChannel1Buffer[2 * TIM1_PWM_CHANNEL1_SAMPLES];
-uint32_t Robot::m_tim1pwmChannel2Buffer[2 * TIM1_PWM_CHANNEL2_SAMPLES];
+uint16_t Robot::m_tim1pwmChannel1Buffer[2 * TIM1_PWM_CHANNEL1_SAMPLES];
+uint16_t Robot::m_tim1pwmChannel2Buffer[2 * TIM1_PWM_CHANNEL2_SAMPLES];
 
 // -----------------------------------------------------------------------------
 // GPIO  —  bare pin wrappers
@@ -103,8 +103,9 @@ RawAdcChannel Robot::m_scannerIsensChannel(
 AnalogChannel Robot::m_tachometerChannel(
     ADC_CHANNEL_ZMOTOR_TACHOMETER_CONVERSION_ORDER,
     static_cast<uint32_t>(ADC_CHANNEL_ZMOTOR_TACHOMETER_OVERSAMPLING_RATIO),
-    ZMOTOR_MODULE_TACHOMETER_V_TO_RPM,
-    -ZMOTOR_MODULE_TACHOMETER_ZERO_VELOCITY_VOLTAGE * ZMOTOR_MODULE_TACHOMETER_V_TO_RPM);
+    ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC,
+    -ZMOTOR_MODULE_TACHOMETER_ZERO_VELOCITY_VOLTAGE *
+        ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC);
 
 IQDemodulatorChannel Robot::m_lvdtAChannel(
     ADC_CHANNEL_LVDT_A_CONVERSION_ORDER,
@@ -122,7 +123,7 @@ AnalogChannel Robot::m_forceCoilISensChannel(
     ADC_CHANNEL_FORCE_COIL_ISENS_CONVERSION_ORDER,
     static_cast<uint32_t>(ADC_CHANNEL_FORCE_COIL_ISENS_OVERSAMPLING_RATIO),
     FORCE_COIL_MODULE_V2I_CONVERSION_FACTOR,
-    0.0f);
+    -FORCE_COIL_MODULE_V2I_CONVERSION_FACTOR * FORCE_COIL_MODULE_ZERO_CURRENT_VOLTAGE);
 
 // -----------------------------------------------------------------------------
 // Signal channels  —  DAC
@@ -166,7 +167,6 @@ Timer Robot::m_clampSolenoidTimer;
 Timer Robot::m_sol2SolenoidTimer;
 Timer Robot::m_sol3SolenoidTimer;
 Timer Robot::m_bonderTimer;
-Timer Robot::m_zMotorSettlingTimer;
 Timer Robot::m_pinMonitorCriticalTimer;
 Timer Robot::m_pinMonitorNormalTimer;
 Timer Robot::m_controlPanelPollTimer;
@@ -292,12 +292,6 @@ DcMotorPositionControllerModule Robot::m_zMotorPositionControllerModule(
     &Robot::m_lvdtSensorModule,
     &Robot::m_zMotorVelocityControllerModule);
 
-DcRouterModule Robot::m_zMotorRouterModule(
-    &Robot::m_zMotorPositionControllerModule,
-    &Robot::m_zMotorSettlingTimer,
-    ROBOT_ZMOTOR_MAX_VELOCITY,
-    ROBOT_ZMOTOR_MAX_ACCELERATION);
-
 PllModule Robot::m_pllModule(
     &Robot::m_ultrasonicDacChannel,
     &Robot::m_ultrasonicVsensChannel,
@@ -333,7 +327,7 @@ LcdModule Robot::m_lcd(&Robot::m_lcdExpanderChannel, &Robot::m_lcdDelayTimer);
 // Bonder  —  top-level bonding state machine
 // -----------------------------------------------------------------------------
 BonderModule Robot::m_bonder(
-    &Robot::m_zMotorRouterModule,
+    &Robot::m_zMotorPositionControllerModule,
     &Robot::m_forceCoilControllerModule,
     &Robot::m_yAxisRouterChannel,
     &Robot::m_tAxisRouterChannel,
@@ -375,6 +369,7 @@ DebugToneGenerator           Robot::m_debugChannelToneGenerator;
 DebugPll                     Robot::m_debugChannelPll;
 DebugMotorVelocityController Robot::m_debugChannelMotorVelocityController;
 DebugForceCoil               Robot::m_debugChannelForceCoil;
+DebugMotorPositionController Robot::m_debugChannelMotorPositionController;
 #endif
 
 // =============================================================================
@@ -387,7 +382,6 @@ Robot::Robot()
     m_timerExpireService.addTimer(&m_sol2SolenoidTimer,       false);
     m_timerExpireService.addTimer(&m_sol3SolenoidTimer,       false);
     m_timerExpireService.addTimer(&m_bonderTimer,             false);
-    m_timerExpireService.addTimer(&m_zMotorSettlingTimer,     false);
     m_timerExpireService.addTimer(&m_pinMonitorCriticalTimer, true);
     m_timerExpireService.addTimer(&m_pinMonitorNormalTimer,   false);
     m_timerExpireService.addTimer(&m_controlPanelPollTimer,   false);
@@ -510,6 +504,8 @@ Robot::Robot()
     m_debugChannelPll.init(&m_pllModule);
     m_debugChannelMotorVelocityController.init(&m_zMotorVelocityControllerModule);
     m_debugChannelForceCoil.init(&m_forceCoilControllerModule);
+    m_debugChannelMotorPositionController.init(
+        &m_zMotorPositionControllerModule);
 
     m_debugChannelImpedanceScanner.setDependencyCallback(
         this,
@@ -529,6 +525,9 @@ Robot::Robot()
     m_debugChannelForceCoil.setDependencyCallback(
         this,
         &Robot::startForceCoilDebugDependencies);
+    m_debugChannelMotorPositionController.setDependencyCallback(
+        this,
+        &Robot::startMotorPositionDebugDependencies);
 
     m_debugChannelImpedanceScanner.setDependencyReleaseCallback(
         this,
@@ -548,6 +547,9 @@ Robot::Robot()
     m_debugChannelForceCoil.setDependencyReleaseCallback(
         this,
         &Robot::stopForceCoilDebugDependencies);
+    m_debugChannelMotorPositionController.setDependencyReleaseCallback(
+        this,
+        &Robot::stopMotorPositionDebugDependencies);
 
     // Register every channel with the dispatcher so the service block's
     // command word is routed by channel id (see debug_service.hpp).
@@ -557,6 +559,7 @@ Robot::Robot()
     m_debugService.addChannel(&m_debugChannelKeypad);
     m_debugService.addChannel(&m_debugChannelMotorVelocityController);
     m_debugService.addChannel(&m_debugChannelForceCoil);
+    m_debugService.addChannel(&m_debugChannelMotorPositionController);
 #endif
 }
 
@@ -631,6 +634,23 @@ bool Robot::startForceCoilDebugDependencies(void *context, uint16_t localCommand
     Robot *robot = static_cast<Robot *>(context);
     robot->m_startTim1PwmService = true;
     robot->m_startAdc2Service = true;
+    robot->m_startForceCoilControllerModule = true;
+    return true;
+}
+
+bool Robot::startMotorPositionDebugDependencies(void *context, uint16_t localCommand)
+{
+    if (localCommand != DebugMotorPositionController::CMD_START &&
+        localCommand != DebugMotorPositionController::CMD_STALL_SCAN) {
+        return false;
+    }
+
+    Robot *robot = static_cast<Robot *>(context);
+    // Position control adds the LVDT to the velocity cascade: PWM (drive),
+    // ADC2 (tachometer + LVDT sensing), and DAC (LVDT excitation).
+    robot->m_startTim1PwmService = true;
+    robot->m_startAdc2Service = true;
+    robot->m_startDacService = true;
     return true;
 }
 
@@ -685,8 +705,19 @@ void Robot::stopForceCoilDebugDependencies(void *context, uint16_t localCommand)
     (void)localCommand;
 
     Robot *robot = static_cast<Robot *>(context);
+    robot->m_stopForceCoilControllerModule = true;
     robot->m_stopTim1PwmService = true;
     robot->m_stopAdc2Service = true;
+}
+
+void Robot::stopMotorPositionDebugDependencies(void *context, uint16_t localCommand)
+{
+    (void)localCommand;
+
+    Robot *robot = static_cast<Robot *>(context);
+    robot->m_stopTim1PwmService = true;
+    robot->m_stopAdc2Service = true;
+    robot->m_stopDacService = true;
 }
 #endif
 
@@ -707,7 +738,6 @@ void Robot::start()
     m_startForceCoilControllerModule = false;
     m_startZmotorVelocityControllerModule = false;
     m_startZmotorPositionControllerModule = false;
-    m_startZMotorRouterModule = false;
     m_startBonderModule = false;
     m_startControlPanelService = false;
     m_startLcdModule = false;
@@ -726,7 +756,6 @@ void Robot::start()
     m_stopForceCoilControllerModule = false;
     m_stopZmotorVelocityControllerModule = false;
     m_stopZmotorPositionControllerModule = false;
-    m_stopZMotorRouterModule = false;
     m_stopBonderModule = false;
     m_stopControlPanelService = false;
     m_stopLcdModule = false;
@@ -744,9 +773,8 @@ void Robot::start()
     m_startAdc1Service = true;
     m_startAdc2Service = true;
     m_startForceCoilControllerModule = true;
-    m_startZmotorVelocityControllerModule = true;
+    m_startZmotorVelocityControllerModule = false;
     m_startZmotorPositionControllerModule = true;
-    m_startZMotorRouterModule = true;
     m_startBonderModule = true;
     m_startControlPanelService = true;
     m_startLcdModule = true;
@@ -765,7 +793,6 @@ void Robot::start()
     m_stopForceCoilControllerModule = false;
     m_stopZmotorVelocityControllerModule = false;
     m_stopZmotorPositionControllerModule = false;
-    m_stopZMotorRouterModule = false;
     m_stopBonderModule = false;
     m_stopControlPanelService = false;
     m_stopLcdModule = false;
@@ -785,11 +812,6 @@ void Robot::execute()
     if (m_stopBonderModule) {
         m_bonder.stop();
         m_stopBonderModule = false;
-    }
-
-    if (m_stopZMotorRouterModule) {
-        m_zMotorRouterModule.stop();
-        m_stopZMotorRouterModule = false;
     }
 
     if (m_stopZmotorPositionControllerModule) {
@@ -944,11 +966,6 @@ void Robot::execute()
         m_startZmotorPositionControllerModule = false;
     }
 
-    if (m_startZMotorRouterModule) {
-        m_zMotorRouterModule.start(0.0f);
-        m_startZMotorRouterModule = false;
-    }
-
     if (m_startBonderModule) {
         m_eepromEmulator.loadObject(ROBOT_BONDER_CONFIG_OBJECT_ID);
         m_bonder.configure(m_bonderConfig);
@@ -1008,7 +1025,6 @@ void Robot::stop()
     m_startForceCoilControllerModule = false;
     m_startZmotorVelocityControllerModule = false;
     m_startZmotorPositionControllerModule = false;
-    m_startZMotorRouterModule = false;
     m_startBonderModule = false;
     m_startControlPanelService = false;
     m_startLcdModule = false;
@@ -1024,6 +1040,7 @@ void Robot::stop()
     m_stopAdc2Service = true;
     m_stopForceCoilControllerModule = true;
     m_stopZmotorVelocityControllerModule = true;
+    m_stopZmotorPositionControllerModule = true;
     m_stopControlPanelService = true;
 #else
     m_stopDebugService = false;
@@ -1040,7 +1057,6 @@ void Robot::stop()
     m_stopForceCoilControllerModule = true;
     m_stopZmotorVelocityControllerModule = true;
     m_stopZmotorPositionControllerModule = true;
-    m_stopZMotorRouterModule = true;
     m_stopBonderModule = true;
     m_stopControlPanelService = true;
     m_stopLcdModule = true;

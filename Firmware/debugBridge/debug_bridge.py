@@ -14,8 +14,10 @@ Sourced by GDB, or by running ./debug_test.sh from the Firmware directory:
     (gdb) debug-keys
     (gdb) debug-motor-velocity 50 4
     (gdb) debug-motor-velocity 0.1 4 open
-    (gdb) debug-force-coil 0.5 2
-    (gdb) debug-force-coil 0.25 2 open
+    (gdb) debug-motor-position 1.0 4
+    (gdb) debug-motor-position 0.5 4 open
+    (gdb) debug-force-coil 0.5 4
+    (gdb) debug-force-coil 0.25 4 open
     (gdb) debug-status
 """
 

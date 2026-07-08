@@ -3,14 +3,11 @@
 
 #include "configuration.h"
 #include "generic.h"
-#include "lvdt_module.hpp"
-#include "pid_controller.hpp"
 #include "dc_motor_velocity_controller_module.hpp"
+#include "lvdt_module.hpp"
 
 class DcMotorPositionControllerModule {
 public:
-    // Returns true when the controller is active; the position setpoint is
-    // written through the pointer. The first active controller wins.
     using SetpointCallback = bool (*)(void *context, float *positionSetpoint);
 
     DcMotorPositionControllerModule(LvdtSensorModule *lvdtSensor,
@@ -20,28 +17,32 @@ public:
     void stop();
 
     void restartControlLoop();
+    bool addPositionSetpointControllerCallback(void *context,
+        SetpointCallback callback);
 
-    bool addPositionSetpointControllerCallback(void *context, SetpointCallback callback);
+    float execute(float positionSetpoint);
 
     float getPosition() const;
     float getVelocity() const;
+    float getLvdtMagnitudeA() const;
+    float getLvdtMagnitudeB() const;
     bool isOperating() const;
+    void enableBypass();
+    void disableBypass();
+    void enableDriveBypass();
+    void disableDriveBypass();
 
 private:
     // -----------------------------------------------------------------------
     // Peripheral-Bridge-Callbacks
     // -----------------------------------------------------------------------
-    static void lvdtCallback(void *context, float position);
+    static void lvdtCallback(void *context, float position, float magA, float magB);
     static bool controlUpdateCallback(void *context, float *targetVelocity);
 
     // -----------------------------------------------------------------------
     // Peripheral-Event-Handlers
     // -----------------------------------------------------------------------
-    void onLvdtMeasured(float position);
-    // Pulled by the velocity controller once per inner-loop tick; pulls the
-    // position setpoint from the setpoint controllers and runs the position PID
-    // against the latest LVDT sample, writing the velocity setpoint. Returns
-    // true while operating (i.e. this module is an active velocity controller).
+    void onLvdtMeasured(float position, float magA, float magB);
     bool onControlUpdate(float *targetVelocity);
 
     // -----------------------------------------------------------------------
@@ -50,16 +51,6 @@ private:
     void registerPeripheralCallbacks();
     bool isReady() const;
 
-    // -----------------------------------------------------------------------
-    // Members
-    // -----------------------------------------------------------------------
-    LvdtSensorModule                *m_lvdtSensorModule;
-    DcMotorVelocityControllerModule *m_velocityController;
-
-    PidController m_positionPid;
-
-    ServiceState m_state;
-
     struct SetpointControllerRegistration {
         SetpointCallback callback;
         void *context;
@@ -67,10 +58,24 @@ private:
 
     static constexpr uint8_t kMaxSetpointControllerCallbacks = 4U;
 
+    // -----------------------------------------------------------------------
+    // Members
+    // -----------------------------------------------------------------------
+    LvdtSensorModule *m_lvdtSensorModule;
+    DcMotorVelocityControllerModule *m_velocityController;
+
+    ServiceState m_state;
+    bool m_bypassEnabled;
+    bool m_hasPositionMeasurement;
+
     SetpointControllerRegistration m_setpointControllerCallbacks[kMaxSetpointControllerCallbacks];
     uint8_t m_setpointControllerCallbackCount;
 
     float m_positionMeasurement;
+    float m_lvdtMagnitudeA;
+    float m_lvdtMagnitudeB;
+
+    float clampOutput(float rawOutput) const;
 };
 
 #endif

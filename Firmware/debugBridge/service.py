@@ -25,6 +25,7 @@ class Channel:
     KEYPAD = 4
     MOTOR_VELOCITY = 5
     FORCE_COIL = 6
+    MOTOR_POSITION = 7
 
 
 def command_word(channel_id, local_command):
@@ -50,7 +51,8 @@ class TransactionWatchpoint(gdb.Breakpoint):
 
 
 class DebugService:
-    NUM_ARGS = 4
+    NUM_ARGS = 5
+    NUM_RESULT_POINTERS = 4
     TICK_SYMBOL = "DebugService::executeService"
 
     def __init__(self, target, block=BLOCK):

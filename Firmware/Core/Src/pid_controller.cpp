@@ -87,6 +87,10 @@ float PidController::execute(float setpoint, float measuredValue) {
     // 6. Clamp output to safe limits
     saturateOutput(rawOutput);
 
+    // 6b. Anti-windup: freeze the integrator if the (unclamped) output is on a
+    //     limit and this step pushed it further in.
+    applyAntiWindup(rawOutput);
+
     // 7. Store history for next cycle
     updateHistory();
 
@@ -111,6 +115,11 @@ void PidController::calculateDerivative() {
 }
 
 void PidController::updateIntegral() {
+    // Nothing to accumulate when the integral term is disabled (Ti <= 0);
+    // letting it grow would only create windup that needs protecting.
+    if (m_config.integralTc <= 0.0f) {
+        return;
+    }
     m_state.integral += m_state.errorFiltered * m_config.dt;
 }
 
@@ -131,6 +140,33 @@ void PidController::saturateOutput(float rawOutput) {
         m_state.output = m_config.outputMin;
     } else {
         m_state.output = rawOutput;
+    }
+}
+
+void PidController::applyAntiWindup(float rawOutput) {
+    // Conditional integration (integrator clamping): once the unclamped output
+    // has hit a limit, roll back the integral increment just added if it pushed
+    // further into that limit. The integrator stops growing while saturated but
+    // is free to move the instant the error reverses, so the output leaves the
+    // rail promptly with no accumulated backlog to unwind.
+    if (m_config.integralTc <= 0.0f) {
+        return;
+    }
+
+    const bool saturatedHigh = rawOutput > m_config.outputMax;
+    const bool saturatedLow  = rawOutput < m_config.outputMin;
+    if (!saturatedHigh && !saturatedLow) {
+        return;
+    }
+
+    // Sign of this step's contribution to the output through the integral path.
+    const float integralStep = m_state.errorFiltered * m_config.dt;
+    const float outputContribution =
+        m_config.gain * integralStep / m_config.integralTc;
+
+    if ((saturatedHigh && outputContribution > 0.0f) ||
+        (saturatedLow  && outputContribution < 0.0f)) {
+        m_state.integral -= integralStep;
     }
 }
 

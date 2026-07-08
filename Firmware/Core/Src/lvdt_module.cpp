@@ -39,8 +39,8 @@ void LvdtSensorModule::start() {
         }
 
         m_excitation->start(
-            DAC2_VOLTAGE_RANGE / 2.0f,
-            DAC2_VOLTAGE_RANGE / 2.0f,
+            LVDT_MODULE_EXCITATION_AMPLITUDE,
+            LVDT_MODULE_EXCITATION_AVERAGE,
             static_cast<float>(LVDT_MODULE_DRIVING_FREQUENCY) / static_cast<float>(DAC2_SAMPLING_FREQ));
 
         m_state = ServiceState::OPERATING;
@@ -107,7 +107,7 @@ void LvdtSensorModule::handleMeasurement(Secondary secondary, float re, float im
     float positionMm = 0.0f;
 
     if (tryComputePositionMm(magA, magB, positionMm)) {
-        fireCallback(positionMm);
+        fireCallback(positionMm, magA, magB);
     }
 }
 
@@ -138,8 +138,8 @@ bool LvdtSensorModule::tryComputePositionMm(float magA, float magB, float& posit
     return true;
 }
 
-void LvdtSensorModule::fireCallback(float positionMm) const {
+void LvdtSensorModule::fireCallback(float positionMm, float magA, float magB) const {
     if (m_callback != nullptr) {
-        m_callback(m_callbackContext, positionMm);
+        m_callback(m_callbackContext, positionMm, magA, magB);
     }
 }

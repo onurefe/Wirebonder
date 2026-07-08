@@ -20,7 +20,7 @@ public:
 
     virtual TIM_HandleTypeDef *getTimHandle() const = 0;
     virtual uint32_t getTimChannel() const = 0;
-    virtual uint32_t* getDmaBuffer() const = 0;
+    virtual uint16_t* getDmaBuffer() const = 0;
     virtual uint32_t getDmaBufferLength() const = 0;
 
     virtual bool isValid() const = 0;
@@ -34,7 +34,7 @@ public:
     PwmRampChannel(
         TIM_HandleTypeDef *htim,
         uint32_t timChannel,
-        uint32_t* dmaBuffer,
+        uint16_t* dmaBuffer,
         uint32_t dmaBufferLength,
         uint32_t segmentLifetimeInSamples,
         // Advanced-timer (TIM1/TIM8) channels wired as a complementary pair
@@ -56,7 +56,7 @@ public:
     TIM_HandleTypeDef *getTimHandle() const override;
 
     uint32_t getTimChannel() const override;
-    uint32_t* getDmaBuffer() const override;
+    uint16_t* getDmaBuffer() const override;
     uint32_t getDmaBufferLength() const override;
 
     bool isValid() const override;
@@ -65,13 +65,13 @@ public:
 private:
     void beginNextRamp();
 
-    uint32_t dutyToCompareValue(float duty);
+    uint16_t dutyToCompareValue(float duty);
     float clampDuty(float duty);
 private:
     TIM_HandleTypeDef* m_htim;
     uint32_t m_timChannel;
 
-    uint32_t* m_dmaBuffer;
+    uint16_t* m_dmaBuffer;
     uint32_t m_dmaBufferLength;
 
     uint32_t m_segmentLifetimeInSamples;

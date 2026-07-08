@@ -53,8 +53,7 @@ private:
 
     PllModule *m_pll = nullptr;
 
-    PllModule::TelemetrySample
-        m_telemetry[DEBUG_PLL_TELEMETRY_DEPTH] = {};
+    PllModule::TelemetrySample *m_telemetry = nullptr;
 
     bool m_busy = false;
 };

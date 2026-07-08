@@ -53,7 +53,7 @@ private:
 
     DcMotorVelocityControllerModule *m_velocityController = nullptr;
 
-    float m_telemetry[DEBUG_MOTOR_VELOCITY_CONTROLLER_TELEMETRY_DEPTH] = {};
+    float *m_telemetry = nullptr;
     uint32_t m_sampleIdx;
     uint32_t m_sampleLimit;
     bool m_busy = false;

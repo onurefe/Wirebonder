@@ -24,11 +24,13 @@ enable_testing()
 
 add_executable(firmware_tests
     test_pid_controller.cpp
+    test_leaky_integrator_controller.cpp
     test_queue.cpp
     test_iq_demodulator.cpp
     test_transducer_analyzer.cpp
     stubs/hal_stubs.cpp
     ${CMAKE_SOURCE_DIR}/Core/Src/transducer_analyzer.cpp
+    ${CMAKE_SOURCE_DIR}/Core/Src/leaky_integrator_controller.cpp
     ${CMAKE_SOURCE_DIR}/Core/Src/pid_controller.cpp
     ${CMAKE_SOURCE_DIR}/Core/Src/adc_service.cpp
     ${CMAKE_SOURCE_DIR}/Core/Src/dac_service.cpp

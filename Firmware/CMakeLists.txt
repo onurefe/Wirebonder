@@ -83,6 +83,7 @@ set(CPP_SOURCES
     Core/Src/fast_io.cpp
     Core/Src/force_coil_module.cpp
     Core/Src/lvdt_module.cpp
+    Core/Src/leaky_integrator_controller.cpp
     Core/Src/pid_controller.cpp
     Core/Src/pin_monitor_service.cpp
     Core/Src/pll_module.cpp
@@ -95,7 +96,6 @@ set(CPP_SOURCES
     Core/Src/us_impedance_scanner_module.cpp
     Core/Src/dc_motor_velocity_controller_module.cpp
     Core/Src/dc_motor_position_controller_module.cpp
-    Core/Src/dc_router_module.cpp
     Core/Src/io_expander_service.cpp
     Core/Src/lcd_module.cpp
     Core/Src/control_panel_service.cpp
@@ -108,6 +108,7 @@ set(CPP_SOURCES
     Core/Src/debug_impedance_scanner.cpp
     Core/Src/debug_motor_velocity_controller.cpp
     Core/Src/debug_force_coil.cpp
+    Core/Src/debug_motor_position_controller.cpp
 )
 
 set(ASM_SOURCES

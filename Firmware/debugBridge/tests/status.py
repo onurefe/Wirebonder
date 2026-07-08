@@ -23,6 +23,6 @@ class DebugStatus(BridgeCommand):
             print("  args[%d]            : %.6g" %
                   (index, self.svc.arg(index)))
 
-        for index in range(self.svc.NUM_ARGS):
+        for index in range(self.svc.NUM_RESULT_POINTERS):
             print("  resultPointers[%d]  : 0x%08x" %
                   (index, self.svc.result_pointer(index)))

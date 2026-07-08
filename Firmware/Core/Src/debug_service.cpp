@@ -1,5 +1,7 @@
 #include "debug_service.hpp"
 
+alignas(8) uint8_t DebugService::s_telemetryBuffer[DEBUG_TELEMETRY_BUFFER_SIZE_BYTES] = {};
+
 // -----------------------------------------------------------------------------
 // DebugChannel
 // -----------------------------------------------------------------------------
@@ -7,6 +9,11 @@
 void DebugChannel::bindServiceBlock(DebugServiceBlock *serviceBlock)
 {
     m_serviceBlock = serviceBlock;
+}
+
+void DebugChannel::setTelemetryBufferPtr(void *telemetryBufferPtr)
+{
+    m_telemetryBufferPtr = telemetryBufferPtr;
 }
 
 void DebugChannel::setDependencyCallback(void *context, DependencyCallback callback)
@@ -57,6 +64,11 @@ float DebugChannel::arg(uint8_t index) const
 void DebugChannel::setArg(uint8_t index, float value)
 {
     m_serviceBlock->args[index] = value;
+}
+
+void *DebugChannel::telemetryBufferPtr() const
+{
+    return m_telemetryBufferPtr;
 }
 
 uint32_t DebugChannel::status() const
@@ -134,8 +146,11 @@ void DebugService::startService()
     m_debugServiceBlock.resultCode = DEBUG_SERVICE_ERROR_NONE;
     m_debugServiceBlock.resultCount = 0;
 
-    for (uint8_t i = 0; i < 4; i++) {
+    for (uint8_t i = 0; i < 5; i++) {
         m_debugServiceBlock.args[i] = 0.0f;
+    }
+
+    for (uint8_t i = 0; i < 4; i++) {
         m_debugServiceBlock.resultPointers[i] = 0u;
     }
 
@@ -208,6 +223,7 @@ bool DebugService::addChannel(DebugChannel *channel)
     }
 
     channel->bindServiceBlock(&m_debugServiceBlock);
+    channel->setTelemetryBufferPtr(s_telemetryBuffer);
 
     m_channels[m_channelCount] = channel;
     m_channelCount++;

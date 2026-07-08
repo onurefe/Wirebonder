@@ -5,14 +5,14 @@ DcMotorVelocityControllerModule::DcMotorVelocityControllerModule(
     PwmRampChannel *pwmChannel)
     : m_tachometerChannel(tachometerChannel)
     , m_pwmChannel(pwmChannel)
-    , m_velocityPid(PidController::Config{
-        DCMOTOR_VELOCITY_MODULE_PID_GAIN,
-        DCMOTOR_VELOCITY_MODULE_PID_INTEGRAL_TC,
-        DCMOTOR_VELOCITY_MODULE_PID_DERIVATIVE_TC,
+    , m_velocityLeakyIntegrator(LeakyIntegratorController::Config{
+        DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_RI,
+        DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_RF,
+        DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_CF,
+        DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_CLAMP_MIN,
+        DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_CLAMP_MAX,
         1.0f / static_cast<float>(DCMOTOR_VELOCITY_MODULE_CONTROL_FREQUENCY),
-        DCMOTOR_VELOCITY_MODULE_PID_FILTER_TC,
-        DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MIN,
-        DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MAX})
+        DCMOTOR_VELOCITY_MODULE_CONTROLLER_PREAMPLIFIER_GAIN})
     , m_state(ServiceState::READY)
     , m_velocityListenerCallbacks{}
     , m_velocityListenerCallbackCount(0)
@@ -38,7 +38,7 @@ void DcMotorVelocityControllerModule::start()
 
     m_targetDuty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY;
 
-    m_velocityPid.start();
+    m_velocityLeakyIntegrator.start();
     m_pwmChannel->start(DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY);
 }
 
@@ -51,7 +51,7 @@ void DcMotorVelocityControllerModule::stop()
     m_state = ServiceState::READY;
 
     m_pwmChannel->stop();
-    m_velocityPid.stop();
+    m_velocityLeakyIntegrator.stop();
 
     m_targetDuty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY;
 }
@@ -107,12 +107,12 @@ float DcMotorVelocityControllerModule::getVelocity() const
 
 void DcMotorVelocityControllerModule::enablePidBypass()
 {
-    m_velocityPid.enableBypass();
+    m_velocityLeakyIntegrator.enableBypass();
 }
 
 void DcMotorVelocityControllerModule::disablePidBypass()
 {
-    m_velocityPid.disableBypass();
+    m_velocityLeakyIntegrator.disableBypass();
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +157,10 @@ void DcMotorVelocityControllerModule::onTachometerMeasured(float velocity)
         }
     }
 
-    float drive = m_velocityPid.execute(target_velocity, m_velocityMeasurement);
+    float drive = m_velocityLeakyIntegrator.execute(
+        target_velocity,
+        m_velocityMeasurement);
+
     m_targetDuty = computeTargetDuty(drive);
 }
 
@@ -195,8 +198,9 @@ bool DcMotorVelocityControllerModule::isOperating() const
 
 float DcMotorVelocityControllerModule::computeTargetDuty(float velocityControlOutput) const
 {
-    const float duty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY + velocityControlOutput;
-    return clampDuty(duty);
+    float raw_duty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY + velocityControlOutput * DCMOTOR_VELOCITY_MODULE_VOLTAGE_TO_DUTY_SCALE;
+    
+    return clampDuty(raw_duty);
 }
 
 float DcMotorVelocityControllerModule::clampDuty(float duty)

@@ -40,7 +40,7 @@ uint32_t DirectPwmChannel::dutyToCompare(float duty) const
 PwmRampChannel::PwmRampChannel(
     TIM_HandleTypeDef *htim,
     uint32_t timChannel,
-    uint32_t* dmaBuffer,
+    uint16_t* dmaBuffer,
     uint32_t dmaBufferLength,
     uint32_t segmentLifetimeInSamples,
     bool complementaryOutput)
@@ -89,7 +89,7 @@ uint32_t PwmRampChannel::getTimChannel() const {
     return m_timChannel;
 }
 
-uint32_t* PwmRampChannel::getDmaBuffer() const {
+uint16_t* PwmRampChannel::getDmaBuffer() const {
     return m_dmaBuffer;
 }
 
@@ -108,9 +108,12 @@ bool PwmRampChannel::start(float initialDuty)
     m_currentDuty = clampDuty(initialDuty);
     initializeBuffer();
 
+    // HAL takes pData as uint32_t*, but the DMA is configured for HALFWORD
+    // transfers to the 16-bit CCR, so the buffer is uint16_t (see .msp DMA
+    // init). Pass the address through; the DMA moves one 16-bit word per item.
     HAL_StatusTypeDef status = HAL_TIM_PWM_Start_DMA(m_htim,
         m_timChannel,
-        m_dmaBuffer,
+        reinterpret_cast<uint32_t*>(m_dmaBuffer),
         m_dmaBufferLength);
 
     // The DMA start above only enables the main output (CCxE). For a
@@ -135,11 +138,14 @@ void PwmRampChannel::stop(void)
 }
 
 void PwmRampChannel::initializeBuffer() {
-    if (!m_running || !isValid()) {
+    // Called from start() before m_running is set, so it must NOT gate on
+    // m_running (that would skip the pre-fill and leave the DMA playing a
+    // zero/stale buffer until the first refill IRQ).
+    if (!isValid()) {
         return;
     }
 
-    const uint32_t compareValue = dutyToCompareValue(m_currentDuty);
+    const uint16_t compareValue = dutyToCompareValue(m_currentDuty);
 
     for (uint32_t i = 0U; i < m_dmaBufferLength; ++i) {
         m_dmaBuffer[i] = compareValue;
@@ -158,7 +164,7 @@ void PwmRampChannel::refill(bool isSecondHalf) {
 
     const uint32_t halfLength = m_dmaBufferLength / 2U;
 
-    uint32_t* dst = isSecondHalf ? &m_dmaBuffer[halfLength] : m_dmaBuffer;
+    uint16_t* dst = isSecondHalf ? &m_dmaBuffer[halfLength] : m_dmaBuffer;
 
     for (uint32_t i = 0U; i < halfLength; ++i) {
         if (m_samplesIntoRamp >= m_segmentLifetimeInSamples) {
@@ -194,10 +200,10 @@ void PwmRampChannel::beginNextRamp() {
     m_samplesIntoRamp = 0U;
 }
 
-uint32_t PwmRampChannel::dutyToCompareValue(float duty) {
+uint16_t PwmRampChannel::dutyToCompareValue(float duty) {
     uint32_t period = m_htim->Init.Period;
 
-    return static_cast<uint32_t>(
+    return static_cast<uint16_t>(
         clampDuty(duty) * static_cast<float>(period)
     );
 }

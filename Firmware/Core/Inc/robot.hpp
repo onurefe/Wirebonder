@@ -13,7 +13,6 @@
 #include "lvdt_module.hpp"
 #include "dc_motor_velocity_controller_module.hpp"
 #include "dc_motor_position_controller_module.hpp"
-#include "dc_router_module.hpp"
 #include "force_coil_module.hpp"
 #include "stepper_service.hpp"
 #include "stepper_router_service.hpp"
@@ -34,6 +33,7 @@
 #include "debug_tone_generator.hpp"
 #include "debug_motor_velocity_controller.hpp"
 #include "debug_force_coil.hpp"
+#include "debug_motor_position_controller.hpp"
 #endif
 
 class Robot {
@@ -81,8 +81,8 @@ private:
     static uint16_t m_scannerIsensBuffer[SCANNER_ADC_CAPTURE_SIZE];
 
     /* PWM segment buffers (double-buffered). */
-    static uint32_t m_tim1pwmChannel1Buffer[2 * TIM1_PWM_CHANNEL1_SAMPLES];
-    static uint32_t m_tim1pwmChannel2Buffer[2 * TIM1_PWM_CHANNEL2_SAMPLES];
+    static uint16_t m_tim1pwmChannel1Buffer[2 * TIM1_PWM_CHANNEL1_SAMPLES];
+    static uint16_t m_tim1pwmChannel2Buffer[2 * TIM1_PWM_CHANNEL2_SAMPLES];
 
     // =========================================================================
     // GPIO  —  bare pin wrappers
@@ -156,7 +156,6 @@ private:
     static Timer m_sol2SolenoidTimer;
     static Timer m_sol3SolenoidTimer;
     static Timer m_bonderTimer;
-    static Timer m_zMotorSettlingTimer;
     static Timer m_pinMonitorCriticalTimer;
     static Timer m_pinMonitorNormalTimer;
     static Timer m_controlPanelPollTimer;
@@ -244,7 +243,6 @@ private:
     static ForceCoilDriverModule            m_forceCoilControllerModule;
     static DcMotorVelocityControllerModule  m_zMotorVelocityControllerModule;
     static DcMotorPositionControllerModule  m_zMotorPositionControllerModule;
-    static DcRouterModule                   m_zMotorRouterModule;
     static PllModule                        m_pllModule;
     static UsImpedanceScannerModule         m_impedanceScannerModule;
 
@@ -283,12 +281,14 @@ private:
     static bool startKeypadDebugDependencies(void *context, uint16_t localCommand);
     static bool startMotorVelocityDebugDependencies(void *context, uint16_t localCommand);
     static bool startForceCoilDebugDependencies(void *context, uint16_t localCommand);
+    static bool startMotorPositionDebugDependencies(void *context, uint16_t localCommand);
     static void stopImpedanceScannerDebugDependencies(void *context, uint16_t localCommand);
     static void stopPllDebugDependencies(void *context, uint16_t localCommand);
     static void stopToneGeneratorDebugDependencies(void *context, uint16_t localCommand);
     static void stopKeypadDebugDependencies(void *context, uint16_t localCommand);
     static void stopMotorVelocityDebugDependencies(void *context, uint16_t localCommand);
     static void stopForceCoilDebugDependencies(void *context, uint16_t localCommand);
+    static void stopMotorPositionDebugDependencies(void *context, uint16_t localCommand);
 
     static DebugService                 m_debugService;
     static DebugImpedanceScanner        m_debugChannelImpedanceScanner;
@@ -297,6 +297,7 @@ private:
     static DebugPll                     m_debugChannelPll;
     static DebugMotorVelocityController m_debugChannelMotorVelocityController;
     static DebugForceCoil               m_debugChannelForceCoil;
+    static DebugMotorPositionController m_debugChannelMotorPositionController;
 #endif
     bool m_startDebugService;
     bool m_startIoExpanderService;
@@ -312,7 +313,6 @@ private:
     bool m_startForceCoilControllerModule;
     bool m_startZmotorVelocityControllerModule;
     bool m_startZmotorPositionControllerModule;
-    bool m_startZMotorRouterModule;
     bool m_startBonderModule;
     bool m_startControlPanelService;
     bool m_startLcdModule;
@@ -332,7 +332,6 @@ private:
     bool m_stopForceCoilControllerModule;
     bool m_stopZmotorVelocityControllerModule;
     bool m_stopZmotorPositionControllerModule;
-    bool m_stopZMotorRouterModule;
     bool m_stopBonderModule;
     bool m_stopControlPanelService;
     bool m_stopLcdModule;

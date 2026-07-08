@@ -5,7 +5,7 @@
 #include "generic.h"
 #include "pwm_service.hpp"
 #include "adc_service.hpp"
-#include "pid_controller.hpp"
+#include "leaky_integrator_controller.hpp"
 
 class DcMotorVelocityControllerModule {
 public:
@@ -68,7 +68,7 @@ private:
     AnalogChannel  *m_tachometerChannel;
     PwmRampChannel *m_pwmChannel;
 
-    PidController m_velocityPid;
+    LeakyIntegratorController m_velocityLeakyIntegrator;
 
     ServiceState m_state;
 

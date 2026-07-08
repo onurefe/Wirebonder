@@ -10,8 +10,6 @@ void DebugPll::init(PllModule *pll)
 
     if (m_pll != nullptr) {
         m_pll->addEventListenerCallback(this, &DebugPll::onPllEvent);
-        m_pll->setTelemetryBuffer(m_telemetry,
-                                  DEBUG_PLL_TELEMETRY_DEPTH);
     }
 }
 
@@ -35,6 +33,12 @@ void DebugPll::handleCommand(uint16_t localCommand)
 void DebugPll::start()
 {
     if (m_pll == nullptr) {
+        setError(ERROR_NOT_INITIALIZED);
+        return;
+    }
+
+    m_telemetry = static_cast<PllModule::TelemetrySample *>(telemetryBufferPtr());
+    if (m_telemetry == nullptr) {
         setError(ERROR_NOT_INITIALIZED);
         return;
     }
@@ -65,6 +69,9 @@ void DebugPll::start()
 
     setBusy();
     setResultPointer(0, m_telemetry);
+
+    m_pll->setTelemetryBuffer(m_telemetry,
+                              DEBUG_PLL_TELEMETRY_DEPTH);
 
     m_pll->start(centerFrequency,
                  amplitude,

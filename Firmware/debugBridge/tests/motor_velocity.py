@@ -10,35 +10,47 @@ from .base import BridgeCommand
 CMD_START = 1
 # Capture cadence = inner velocity loop rate. Keep in sync with the firmware's
 # DCMOTOR_VELOCITY_MODULE_CONTROL_FREQUENCY (configuration.h).
-SAMPLE_RATE_HZ = 250.0
+SAMPLE_RATE_HZ = 1000.0
 DEFAULT_DURATION_S = 4.0
 CAPTURE_DIR = "captures"
+VOLTAGE_TO_DUTY_SCALE = 1.0 / 30.0
+MAX_OPEN_LOOP_DRIVE = 0.45
 
 
 class DebugMotorVelocity(BridgeCommand):
-    """debug-motor-velocity <velocity | drive[-0.5..0.5]> [duration_s] [open]
+    """debug-motor-velocity <velocity | drive[-0.45..0.45]> [duration_s] [open]
 
-    Closed loop (default): arg 1 is a velocity setpoint in tach units.
-    Open loop ('open'): the PID is bypassed and arg 1 is a raw signed drive in
-    [-0.5, +0.5] (0 = bridge balanced), mapped to duty 0.5 + drive."""
+    Closed loop (default): arg 1 is a velocity setpoint in mm/s.
+    Open loop ('open'): arg 1 is a raw signed duty offset. The debug bridge
+    converts it to controller voltage because firmware bypass happens before
+    voltage-to-duty scaling."""
 
     NAME = "debug-motor-velocity"
 
     def invoke(self, arg, from_tty):
-        target_velocity, duration, bypass_pid = parse_args(arg)
+        target_velocity, duration, bypass_controller = parse_args(arg)
 
         if target_velocity is None:
-            print("usage: debug-motor-velocity <velocity | drive[-0.5..0.5]> "
+            print("usage: debug-motor-velocity <velocity | drive[-0.45..0.45]> "
                   "[duration_s] [open]")
+            return
+
+        if bypass_controller and abs(target_velocity) > MAX_OPEN_LOOP_DRIVE:
+            print("open-loop drive must be in [-%.2f, %.2f]" %
+                  (MAX_OPEN_LOOP_DRIVE, MAX_OPEN_LOOP_DRIVE))
             return
 
         if not self.svc.ensure_booted():
             return
 
+        firmware_setpoint = target_velocity
+        if bypass_controller:
+            firmware_setpoint = target_velocity / VOLTAGE_TO_DUTY_SCALE
+
         if not self.svc.run_request(Channel.MOTOR_VELOCITY, CMD_START,
                                     "capturing motor velocity",
-                                    [target_velocity, duration,
-                                     1.0 if bypass_pid else 0.0]):
+                                    [firmware_setpoint, duration,
+                                     1.0 if bypass_controller else 0.0]):
             print("interrupted; status = %s" % self.svc.status_name())
             return
 
@@ -47,9 +59,9 @@ class DebugMotorVelocity(BridgeCommand):
                   self.svc.status_name())
             return
 
-        self._report(target_velocity, bypass_pid)
+        self._report(target_velocity, bypass_controller)
 
-    def _report(self, target_velocity, bypass_pid):
+    def _report(self, target_velocity, bypass_controller):
         address = self.svc.result_pointer(0)
         if address == 0:
             print("no motor telemetry published - check debug-status")
@@ -59,13 +71,17 @@ class DebugMotorVelocity(BridgeCommand):
         response = self.t.read_floats(address, count)
         dt = 1.0 / SAMPLE_RATE_HZ
 
-        rows = [[i, i * dt, velocity] for i, velocity in enumerate(response)]
+        mode = "open" if bypass_controller else "closed"
+        rows = [
+            [i, i * dt, target_velocity, mode, velocity]
+            for i, velocity in enumerate(response)
+        ]
         path = write_capture("motor_velocity",
-                             ["tick", "time_s", "velocity"],
+                             ["tick", "time_s", "command", "mode", "velocity"],
                              rows)
 
-        if bypass_pid:
-            print("%d velocity samples -> %s (open-loop drive %.4f)" %
+        if bypass_controller:
+            print("%d velocity samples -> %s (open-loop duty offset %.4f)" %
                   (count, path, target_velocity))
             print_metrics(step_response_metrics(response, dt, None))
         else:
@@ -81,9 +97,11 @@ def parse_args(arg):
 
     target_velocity = float(args[0])
     duration = float(args[1]) if len(args) > 1 else DEFAULT_DURATION_S
-    bypass_pid = len(args) > 2 and args[2].lower() in ("open", "bypass", "1")
+    bypass_controller = (
+        len(args) > 2 and args[2].lower() in ("open", "bypass", "1")
+    )
 
-    return target_velocity, duration, bypass_pid
+    return target_velocity, duration, bypass_controller
 
 
 def write_capture(prefix, header, rows):

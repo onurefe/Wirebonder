@@ -10,8 +10,8 @@ from .base import BridgeCommand
 CMD_START = 1
 # Capture cadence = force-coil control loop rate. Keep in sync with the
 # firmware's FORCE_COIL_MODULE_CONTROL_FREQUENCY (configuration.h).
-SAMPLE_RATE_HZ = 250.0
-DEFAULT_DURATION_S = 2.0
+SAMPLE_RATE_HZ = 1000.0
+DEFAULT_DURATION_S = 4.0
 CAPTURE_DIR = "captures"
 
 
@@ -59,9 +59,14 @@ class DebugForceCoil(BridgeCommand):
         response = self.t.read_floats(address, count)
         dt = 1.0 / SAMPLE_RATE_HZ
 
-        rows = [[i, i * dt, current] for i, current in enumerate(response)]
+        mode = "open" if bypass_pid else "closed"
+        rows = [
+            [i, i * dt, current_setpoint, mode, current]
+            for i, current in enumerate(response)
+        ]
         path = write_capture("force_coil_current",
-                             ["tick", "time_s", "current_a"],
+                             ["tick", "time_s", "command", "mode",
+                              "current_a"],
                              rows)
 
         if bypass_pid:

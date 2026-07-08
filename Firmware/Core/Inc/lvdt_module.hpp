@@ -7,7 +7,7 @@
 
 class LvdtSensorModule {
 public:
-    using MeasurementCallback = void (*)(void* context, float positionMm);
+    using MeasurementCallback = void (*)(void* context, float positionMm, float magA, float magB);
 
     LvdtSensorModule(SineGeneratorChannel* excitation, 
         IQDemodulatorChannel* secondaryA, 
@@ -32,7 +32,7 @@ private:
 
     bool readFreshPairIfAvailable(float& magA, float& magB);
     bool tryComputePositionMm(float magA, float magB, float& positionMm) const;
-    void fireCallback(float positionMm) const;
+    void fireCallback(float positionMm, float magA, float magB) const;
 
     SineGeneratorChannel* m_excitation;
     IQDemodulatorChannel* m_secondaryA;

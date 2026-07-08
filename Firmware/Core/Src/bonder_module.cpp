@@ -56,7 +56,7 @@ const uint8_t BonderModule::kSequenceLen =
 // Constructor
 // =============================================================================
 
-BonderModule::BonderModule(DcRouterModule *zMotorController,
+BonderModule::BonderModule(DcMotorPositionControllerModule *zMotorController,
                            ForceCoilDriverModule *forceCoilDriver,
                            RouterChannel *yAxisRouter,
                            RouterChannel *tAxisRouter,
@@ -84,6 +84,8 @@ BonderModule::BonderModule(DcRouterModule *zMotorController,
     , m_contactSensorMonitor(contactSensorMonitor)
     , m_mouseRightButtonMonitor(mouseRightButtonMonitor)
     , m_timer(timer)
+    , m_zMotorPositionSetpoint(0.0f)
+    , m_zMotorSetpointActive(false)
 {
     s_instance = this;
     clearFlags();
@@ -134,7 +136,9 @@ void BonderModule::init()
     m_tAxisRouter->addMoveCompleteListenerCallback(this, &BonderModule::onTAxisRouterDone);
     m_pllModule->addEventListenerCallback(this, &BonderModule::onPllEvent);
     m_impedanceScannerModule->addScanCompleteListenerCallback(this, &BonderModule::onImpedanceScanned);
-    m_zMotorControllerModule->addEventListenerCallback(&BonderModule::onZMotorEvent, this);
+    m_zMotorControllerModule->addPositionSetpointControllerCallback(
+        this,
+        &BonderModule::onZMotorPositionSetpoint);
     m_forceCoilControllerModule->addEventListenerCallback(&BonderModule::onForceCoilEvent);
 
     m_systemState = State::Ready;
@@ -144,9 +148,10 @@ void BonderModule::start()
 {
     if (m_systemState != State::Ready) return;
     clearFlags();
-    m_stepIndex   = 0U;
-    m_stepStarted = false;
-    m_systemState = State::Operating;
+    m_zMotorSetpointActive = false;
+    m_stepIndex            = 0U;
+    m_stepStarted          = false;
+    m_systemState          = State::Operating;
 }
 
 void BonderModule::stop()
@@ -183,7 +188,7 @@ void BonderModule::execute()
 
 void BonderModule::emergencyStop()
 {
-    m_zMotorControllerModule->beginMove(m_config.resetHeight);
+    setZMotorPosition(m_config.resetHeight);
     m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilIdleCurrent);
     m_clampSolenoid->close();
     m_impedanceScannerModule->stop();
@@ -197,7 +202,6 @@ void BonderModule::emergencyStop()
 
 void BonderModule::clearFlags()
 {
-    m_zMoveCompleted             = false;
     m_tMoveCompleted             = false;
     m_yMoveCompleted             = false;
     m_forceCoilCurrentSettled    = false;
@@ -213,6 +217,27 @@ void BonderModule::clearFlags()
     m_positionError              = false;
     m_forceCoilError             = false;
     m_usPowerError               = false;
+}
+
+void BonderModule::setZMotorPosition(float position)
+{
+    m_zMotorPositionSetpoint = position;
+    m_zMotorSetpointActive = true;
+    m_zMotorControllerModule->restartControlLoop();
+}
+
+bool BonderModule::zMotorPositionReached() const
+{
+    if (!m_zMotorSetpointActive || !m_zMotorControllerModule->isOperating()) {
+        return false;
+    }
+
+    const float positionError = fabsf(m_zMotorPositionSetpoint -
+                                      m_zMotorControllerModule->getPosition());
+    const float velocity = fabsf(m_zMotorControllerModule->getVelocity());
+
+    return (positionError < DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR) &&
+           (velocity < DCMOTOR_POSITION_MODULE_MAX_VELOCITY_ERROR);
 }
 
 void BonderModule::computeOperatingPoint()
@@ -310,12 +335,12 @@ BonderModule::StepStatus BonderModule::stepMoveToSearchHeight()
 {
     if (!m_stepStarted) {
         m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilIdleCurrent);
-        m_zMotorControllerModule->beginMove(m_config.searchHeight);
+        setZMotorPosition(m_config.searchHeight);
         m_stepStarted = true;
     }
     if (m_positionError)  return StepStatus::Error;
     if (m_forceCoilError) return StepStatus::Error;
-    if (m_zMoveCompleted && m_forceCoilCurrentSettled && m_rightButtonReleased)
+    if (zMotorPositionReached() && m_forceCoilCurrentSettled && m_rightButtonReleased)
         return StepStatus::Done;
     return StepStatus::Running;
 }
@@ -324,7 +349,7 @@ BonderModule::StepStatus BonderModule::stepSearch()
 {
     if (!m_stepStarted) {
         m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilSearchingCurrent);
-        m_zMotorControllerModule->beginMove(m_config.lowestOvertravel);
+        setZMotorPosition(m_config.lowestOvertravel);
         m_stepStarted = true;
     }
     if (m_positionError)  return StepStatus::Error;
@@ -391,12 +416,12 @@ BonderModule::StepStatus BonderModule::stepFirstBondCool()
 BonderModule::StepStatus BonderModule::stepFormLoopTAndZ()
 {
     if (!m_stepStarted) {
-        m_zMotorControllerModule->beginMove(m_config.kinkHeight);
+        setZMotorPosition(m_config.kinkHeight);
         m_tAxisRouter->append(m_config.tailDisplacement);
         m_stepStarted = true;
     }
     if (m_positionError) return StepStatus::Error;
-    if (m_zMoveCompleted && m_tMoveCompleted) return StepStatus::Done;
+    if (zMotorPositionReached() && m_tMoveCompleted) return StepStatus::Done;
     return StepStatus::Running;
 }
 
@@ -413,11 +438,11 @@ BonderModule::StepStatus BonderModule::stepFormLoopYReverse()
 BonderModule::StepStatus BonderModule::stepFormLoopZ()
 {
     if (!m_stepStarted) {
-        m_zMotorControllerModule->beginMove(m_config.loopHeight);
+        setZMotorPosition(m_config.loopHeight);
         m_stepStarted = true;
     }
     if (m_positionError)  return StepStatus::Error;
-    if (m_zMoveCompleted) return StepStatus::Done;
+    if (zMotorPositionReached()) return StepStatus::Done;
     return StepStatus::Running;
 }
 
@@ -484,7 +509,7 @@ BonderModule::StepStatus BonderModule::stepTearTMove()
 BonderModule::StepStatus BonderModule::stepRestoreZWaitContact()
 {
     if (!m_stepStarted) {
-        m_zMotorControllerModule->beginMove(m_config.resetHeight);
+        setZMotorPosition(m_config.resetHeight);
         m_timer->start(true, m_config.tailRestoreDelay);
         m_stepStarted = true;
     }
@@ -529,7 +554,7 @@ BonderModule::StepStatus BonderModule::stepRestoreTMoveWithUs()
 
 BonderModule::StepStatus BonderModule::stepRestoreYMove()
 {
-    if (m_tMoveCompleted && m_yMoveCompleted && m_zMoveCompleted && m_usPowerTransferred) {
+    if (m_tMoveCompleted && m_yMoveCompleted && zMotorPositionReached() && m_usPowerTransferred) {
         m_clampSolenoid->close();
         return StepStatus::Done;
     }
@@ -593,13 +618,18 @@ void BonderModule::onForceCoilEvent(ForceCoilDriverModule::Event eventId)
         s_instance->m_forceCoilError = true;
 }
 
-void BonderModule::onZMotorEvent(void *context, DcRouterModule::Event event)
+bool BonderModule::onZMotorPositionSetpoint(void *context, float *positionSetpoint)
 {
     auto *self = static_cast<BonderModule*>(context);
-    if (event == DcRouterModule::Event::SETPOINT_ACHIEVED)
-        self->m_zMoveCompleted = true;
-    else if (event == DcRouterModule::Event::UNABLE_TO_REACH_SETPOINT)
-        self->m_positionError = true;
+
+    if (positionSetpoint == nullptr ||
+        self->m_systemState != State::Operating ||
+        !self->m_zMotorSetpointActive) {
+        return false;
+    }
+
+    *positionSetpoint = self->m_zMotorPositionSetpoint;
+    return true;
 }
 
 void BonderModule::onImpedanceScanned(void *context, complexf *v, complexf *c, complexf *i)

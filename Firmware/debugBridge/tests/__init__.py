@@ -2,6 +2,7 @@
 
 from .keypad import DebugKeys
 from .force_coil import DebugForceCoil
+from .motor_position import DebugMotorPosition, DebugMotorPositionStall
 from .motor_velocity import DebugMotorVelocity
 from .pll import DebugPll, DebugStop
 from .scan import DebugScan
@@ -17,6 +18,8 @@ COMMAND_CLASSES = [
     DebugToneStop,
     DebugKeys,
     DebugMotorVelocity,
+    DebugMotorPosition,
+    DebugMotorPositionStall,
     DebugForceCoil,
 ]
 

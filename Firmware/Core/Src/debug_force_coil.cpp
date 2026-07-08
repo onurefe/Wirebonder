@@ -39,6 +39,12 @@ void DebugForceCoil::start()
         return;
     }
 
+    m_telemetry = static_cast<float *>(telemetryBufferPtr());
+    if (m_telemetry == nullptr) {
+        setError(ERROR_NOT_INITIALIZED);
+        return;
+    }
+
     const float currentSetpoint = arg(0);
     const float duration = arg(1);
     const bool bypassPid = arg(2) > 0.0f;
