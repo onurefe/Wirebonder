@@ -13,37 +13,40 @@ static void fmtFloat(char *buffer, size_t bufferSize, float value);
 
 // clang-format off
 const char *UiModule::kGroupNames[UiModule::kNumGroups] = {
-    "Force", "Heights", "Displac.", "Bonding", "Timing", "Scan"
+    "Force", "Heights", "Positions", "Bonding", "Timing", "Scan"
 };
 
 const UiModule::ParamDescriptor UiModule::kParams[UiModule::kParamCount] = {
     //  name              unit    offset                                                          scale    min                              max                              grp  int?
-    // Group 0: Force coil currents
-    {"Idle Current", "A", offsetof(BonderConfig, forceCoilIdleCurrent), 1.0f, UI_MODULE_FORCE_CURRENT_MIN, UI_MODULE_FORCE_CURRENT_MAX, 0, false},
-    {"Search Current", "A", offsetof(BonderConfig, forceCoilSearchingCurrent), 1.0f, UI_MODULE_FORCE_CURRENT_MIN, UI_MODULE_FORCE_CURRENT_MAX, 0, false},
-    {"Settle Current", "A", offsetof(BonderConfig, forceCoilSettlingCurrent), 1.0f, UI_MODULE_FORCE_CURRENT_MIN, UI_MODULE_FORCE_CURRENT_MAX, 0, false},
-    {"Weld Current", "A", offsetof(BonderConfig, forceCoilWeldingCurrent), 1.0f, UI_MODULE_FORCE_CURRENT_MIN, UI_MODULE_FORCE_CURRENT_MAX, 0, false},
+    // Group 0: Force-coil currents
+    {"Constant I", "A", offsetof(BonderConfig, forceCoilConstantCurrent), 1.0f, UI_MODULE_FORCE_CURRENT_MIN, UI_MODULE_FORCE_CURRENT_MAX, 0, false},
+    {"Tracking I", "A", offsetof(BonderConfig, forceCoilTrackingCurrent), 1.0f, UI_MODULE_FORCE_CURRENT_MIN, UI_MODULE_FORCE_CURRENT_MAX, 0, false},
+    {"Bond 1 I", "A", offsetof(BonderConfig, forceCoilFirstBondCurrent), 1.0f, UI_MODULE_FORCE_CURRENT_MIN, UI_MODULE_FORCE_CURRENT_MAX, 0, false},
+    {"Bond 2 I", "A", offsetof(BonderConfig, forceCoilSecondBondCurrent), 1.0f, UI_MODULE_FORCE_CURRENT_MIN, UI_MODULE_FORCE_CURRENT_MAX, 0, false},
 
     // Group 1: Z-axis heights
     {"Reset Height", "mm", offsetof(BonderConfig, resetHeight), 1.0f, UI_MODULE_HEIGHT_MIN, UI_MODULE_HEIGHT_MAX, 1, false},
     {"Loop Height", "mm", offsetof(BonderConfig, loopHeight), 1.0f, UI_MODULE_HEIGHT_MIN, UI_MODULE_HEIGHT_MAX, 1, false},
-    {"Search Height", "mm", offsetof(BonderConfig, searchHeight), 1.0f, UI_MODULE_HEIGHT_MIN, UI_MODULE_HEIGHT_MAX, 1, false},
+    {"Search 1", "mm", offsetof(BonderConfig, firstSearchHeight), 1.0f, UI_MODULE_HEIGHT_MIN, UI_MODULE_HEIGHT_MAX, 1, false},
+    {"Search 2", "mm", offsetof(BonderConfig, secondSearchHeight), 1.0f, UI_MODULE_HEIGHT_MIN, UI_MODULE_HEIGHT_MAX, 1, false},
     {"Kink Height", "mm", offsetof(BonderConfig, kinkHeight), 1.0f, UI_MODULE_KINK_HEIGHT_MIN, UI_MODULE_KINK_HEIGHT_MAX, 1, false},
     {"Overtravel", "mm", offsetof(BonderConfig, lowestOvertravel), 1.0f, UI_MODULE_OVERTRAVEL_MIN, UI_MODULE_OVERTRAVEL_MAX, 1, false},
 
-    // Group 2: XY-axis displacements
-    {"Tail Displace", "mm", offsetof(BonderConfig, tailDisplacement), 1.0f, UI_MODULE_LARGE_DISPLACEMENT_MIN, UI_MODULE_LARGE_DISPLACEMENT_MAX, 2, false},
-    {"Tear Displace", "mm", offsetof(BonderConfig, tearDisplacement), 1.0f, UI_MODULE_LARGE_DISPLACEMENT_MIN, UI_MODULE_LARGE_DISPLACEMENT_MAX, 2, false},
-    {"Y Reverse", "mm", offsetof(BonderConfig, yReverseDisplacement), 1.0f, UI_MODULE_SMALL_DISPLACEMENT_MIN, UI_MODULE_SMALL_DISPLACEMENT_MAX, 2, false},
-    {"Y Stepback", "mm", offsetof(BonderConfig, yStepbackDisplacement), 1.0f, UI_MODULE_SMALL_DISPLACEMENT_MIN, UI_MODULE_SMALL_DISPLACEMENT_MAX, 2, false},
+    // Group 2: Y/T logical positions
+    {"Tail Position", "mm", offsetof(BonderConfig, tailPosition), 1.0f, UI_MODULE_LARGE_DISPLACEMENT_MIN, UI_MODULE_LARGE_DISPLACEMENT_MAX, 2, false},
+    {"Tear Position", "mm", offsetof(BonderConfig, tearPosition), 1.0f, UI_MODULE_LARGE_DISPLACEMENT_MIN, UI_MODULE_LARGE_DISPLACEMENT_MAX, 2, false},
+    {"Y Reverse Pos", "mm", offsetof(BonderConfig, yReversePosition), 1.0f, UI_MODULE_SMALL_DISPLACEMENT_MIN, UI_MODULE_SMALL_DISPLACEMENT_MAX, 2, false},
+    {"Y Stepback Pos", "mm", offsetof(BonderConfig, yStepbackPosition), 1.0f, UI_MODULE_SMALL_DISPLACEMENT_MIN, UI_MODULE_SMALL_DISPLACEMENT_MAX, 2, false},
 
     // Group 3: Ultrasonic bonding
-    { "Target Power", "", offsetof(BonderConfig, targetPower), 1.0f, UI_MODULE_TARGET_POWER_MIN, UI_MODULE_TARGET_POWER_MAX, 3, false},
-    { "Bond Energy", "J", offsetof(BonderConfig, bondingEnergy), 1.0f, UI_MODULE_BONDING_ENERGY_MIN, UI_MODULE_BONDING_ENERGY_MAX, 3, false},
+    { "Bond 1 Power", "", offsetof(BonderConfig, firstBondingPower), 1.0f, UI_MODULE_TARGET_POWER_MIN, UI_MODULE_TARGET_POWER_MAX, 3, false},
+    { "Bond 2 Power", "", offsetof(BonderConfig, secondBondingPower), 1.0f, UI_MODULE_TARGET_POWER_MIN, UI_MODULE_TARGET_POWER_MAX, 3, false},
+    { "Bond 1 Energy", "J", offsetof(BonderConfig, firstBondingEnergy), 1.0f, UI_MODULE_BONDING_ENERGY_MIN, UI_MODULE_BONDING_ENERGY_MAX, 3, false},
+    { "Bond 2 Energy", "J", offsetof(BonderConfig, secondBondingEnergy), 1.0f, UI_MODULE_BONDING_ENERGY_MIN, UI_MODULE_BONDING_ENERGY_MAX, 3, false},
     { "Max Duration", "s", offsetof(BonderConfig, maxBondingDuration), 1.0f, UI_MODULE_MAX_BONDING_DURATION_MIN, UI_MODULE_MAX_BONDING_DURATION_MAX, 3, false},
 
     // Group 4: Timing
-    { "Settling Time", "s", offsetof(BonderConfig, settlingTime), 1.0f, UI_MODULE_TIMING_MIN, UI_MODULE_TIMING_MAX, 4, false},
+    { "Contact Settle", "s", offsetof(BonderConfig, contactSettlingTime), 1.0f, UI_MODULE_TIMING_MIN, UI_MODULE_TIMING_MAX, 4, false},
     { "Cooling Time", "s", offsetof(BonderConfig, coolingTime), 1.0f, UI_MODULE_TIMING_MIN, UI_MODULE_TIMING_MAX, 4, false},
     { "Tail Delay", "s", offsetof(BonderConfig, tailRestoreDelay), 1.0f, UI_MODULE_TIMING_MIN, UI_MODULE_TIMING_MAX, 4, false},
     { "Y Delay", "s", offsetof(BonderConfig, yRestoreDelay), 1.0f, UI_MODULE_TIMING_MIN, UI_MODULE_TIMING_MAX, 4, false},
@@ -416,9 +419,9 @@ void UiModule::onSave_(void *ctx)  { static_cast<UiModule*>(ctx)->doSave(); }
 void UiModule::onLoad_(void *ctx)  { static_cast<UiModule*>(ctx)->doLoad(); }
 
 void UiModule::onTailPlus_(void *ctx)
-{ static_cast<UiModule*>(ctx)->adjustHotkey(offsetof(BonderConfig, tailDisplacement), +1.0f); }
+{ static_cast<UiModule*>(ctx)->adjustHotkey(offsetof(BonderConfig, tailPosition), +1.0f); }
 void UiModule::onTailMinus_(void *ctx)
-{ static_cast<UiModule*>(ctx)->adjustHotkey(offsetof(BonderConfig, tailDisplacement), -1.0f); }
+{ static_cast<UiModule*>(ctx)->adjustHotkey(offsetof(BonderConfig, tailPosition), -1.0f); }
 
 void UiModule::onLoopPlus_(void *ctx)
 { static_cast<UiModule*>(ctx)->adjustHotkey(offsetof(BonderConfig, loopHeight), +1.0f); }
@@ -426,9 +429,9 @@ void UiModule::onLoopMinus_(void *ctx)
 { static_cast<UiModule*>(ctx)->adjustHotkey(offsetof(BonderConfig, loopHeight), -1.0f); }
 
 void UiModule::onSearchPlus_(void *ctx)
-{ static_cast<UiModule*>(ctx)->adjustHotkey(offsetof(BonderConfig, searchHeight), +1.0f); }
+{ static_cast<UiModule*>(ctx)->adjustHotkey(offsetof(BonderConfig, firstSearchHeight), +1.0f); }
 void UiModule::onSearchMinus_(void *ctx)
-{ static_cast<UiModule*>(ctx)->adjustHotkey(offsetof(BonderConfig, searchHeight), -1.0f); }
+{ static_cast<UiModule*>(ctx)->adjustHotkey(offsetof(BonderConfig, firstSearchHeight), -1.0f); }
 
 void UiModule::onStepPlus_(void *ctx)
 {

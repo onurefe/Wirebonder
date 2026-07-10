@@ -109,6 +109,7 @@ set(CPP_SOURCES
     Core/Src/debug_motor_velocity_controller.cpp
     Core/Src/debug_force_coil.cpp
     Core/Src/debug_motor_position_controller.cpp
+    Core/Src/debug_stepper_router.cpp
 )
 
 set(ASM_SOURCES

@@ -370,6 +370,7 @@ DebugPll                     Robot::m_debugChannelPll;
 DebugMotorVelocityController Robot::m_debugChannelMotorVelocityController;
 DebugForceCoil               Robot::m_debugChannelForceCoil;
 DebugMotorPositionController Robot::m_debugChannelMotorPositionController;
+DebugStepperRouter           Robot::m_debugChannelStepperRouter;
 #endif
 
 // =============================================================================
@@ -506,6 +507,9 @@ Robot::Robot()
     m_debugChannelForceCoil.init(&m_forceCoilControllerModule);
     m_debugChannelMotorPositionController.init(
         &m_zMotorPositionControllerModule);
+    m_debugChannelStepperRouter.init(
+        &m_yAxisRouterChannel,
+        &m_tAxisRouterChannel);
 
     m_debugChannelImpedanceScanner.setDependencyCallback(
         this,
@@ -528,6 +532,9 @@ Robot::Robot()
     m_debugChannelMotorPositionController.setDependencyCallback(
         this,
         &Robot::startMotorPositionDebugDependencies);
+    m_debugChannelStepperRouter.setDependencyCallback(
+        this,
+        &Robot::startStepperRouterDebugDependencies);
 
     m_debugChannelImpedanceScanner.setDependencyReleaseCallback(
         this,
@@ -550,6 +557,9 @@ Robot::Robot()
     m_debugChannelMotorPositionController.setDependencyReleaseCallback(
         this,
         &Robot::stopMotorPositionDebugDependencies);
+    m_debugChannelStepperRouter.setDependencyReleaseCallback(
+        this,
+        &Robot::stopStepperRouterDebugDependencies);
 
     // Register every channel with the dispatcher so the service block's
     // command word is routed by channel id (see debug_service.hpp).
@@ -560,6 +570,7 @@ Robot::Robot()
     m_debugService.addChannel(&m_debugChannelMotorVelocityController);
     m_debugService.addChannel(&m_debugChannelForceCoil);
     m_debugService.addChannel(&m_debugChannelMotorPositionController);
+    m_debugService.addChannel(&m_debugChannelStepperRouter);
 #endif
 }
 
@@ -654,6 +665,18 @@ bool Robot::startMotorPositionDebugDependencies(void *context, uint16_t localCom
     return true;
 }
 
+bool Robot::startStepperRouterDebugDependencies(void *context, uint16_t localCommand)
+{
+    if (localCommand != DebugStepperRouter::CMD_MOVE) {
+        return false;
+    }
+
+    Robot *robot = static_cast<Robot *>(context);
+    robot->m_startStepperService = true;
+    robot->m_startRouterService = true;
+    return true;
+}
+
 void Robot::stopImpedanceScannerDebugDependencies(void *context, uint16_t localCommand)
 {
     (void)localCommand;
@@ -718,6 +741,15 @@ void Robot::stopMotorPositionDebugDependencies(void *context, uint16_t localComm
     robot->m_stopTim1PwmService = true;
     robot->m_stopAdc2Service = true;
     robot->m_stopDacService = true;
+}
+
+void Robot::stopStepperRouterDebugDependencies(void *context, uint16_t localCommand)
+{
+    (void)localCommand;
+
+    Robot *robot = static_cast<Robot *>(context);
+    robot->m_stopRouterService = true;
+    robot->m_stopStepperService = true;
 }
 #endif
 

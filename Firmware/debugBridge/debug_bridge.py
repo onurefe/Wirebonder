@@ -18,6 +18,9 @@ Sourced by GDB, or by running ./debug_test.sh from the Firmware directory:
     (gdb) debug-motor-position 0.5 4 open
     (gdb) debug-force-coil 0.5 4
     (gdb) debug-force-coil 0.25 4 open
+    (gdb) debug-stepper-router y 10
+    (gdb) debug-stepper-router t 2.5
+    (gdb) debug-stepper-stop
     (gdb) debug-status
 """
 

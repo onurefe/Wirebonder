@@ -11,6 +11,8 @@ RouterChannel::RouterChannel(StepperChannel *stepper, float maxVel, float maxAcc
     , m_callbackContext(nullptr)
     , m_routeParams{}
     , m_isBusy(false)
+    , m_position(0.0f)
+    , m_targetPosition(0.0f)
     , m_numOfRenderedSegments(0)
     , m_lastRenderedStepperServicePosition(0)
 {
@@ -24,15 +26,26 @@ void RouterChannel::addMoveCompleteListenerCallback(void *context, Callback cb)
 
 void RouterChannel::append(float displacement)
 {
+    moveTo(m_position + displacement);
+}
+
+void RouterChannel::moveTo(float position)
+{
     if (m_isBusy || m_stepper == nullptr) {
         return;
     }
 
+    m_targetPosition = position;
     m_lastRenderedStepperServicePosition = 0;
     m_numOfRenderedSegments              = 0;
     m_isBusy                             = true;
 
-    formTrapezoidRoute(displacement);
+    formTrapezoidRoute(m_targetPosition - m_position);
+}
+
+float RouterChannel::getPosition() const
+{
+    return m_position;
 }
 
 bool RouterChannel::isBusy() const
@@ -40,10 +53,10 @@ bool RouterChannel::isBusy() const
     return m_isBusy;
 }
 
-float RouterChannel::stepsToMeters(int32_t positionInSteps)
+float RouterChannel::stepsToMillimeters(int32_t positionInSteps)
 {
     return static_cast<float>(positionInSteps) /
-           (1000.0f * ROUTER_MODULE_STEP_PER_MM);
+           ROUTER_MODULE_STEP_PER_MM;
 }
 
 void RouterChannel::start()
@@ -51,6 +64,8 @@ void RouterChannel::start()
     m_lastRenderedStepperServicePosition = 0;
     m_numOfRenderedSegments              = 0;
     m_isBusy                             = false;
+    m_position                           = 0.0f;
+    m_targetPosition                     = 0.0f;
     m_routeParams                        = {};
 }
 
@@ -70,20 +85,24 @@ void RouterChannel::execute()
     }
 
     bool endOfRoute         = false;
-    const float position    = getPosition(endOfRoute);
+    const float position    = getRoutePosition(endOfRoute);
     const qint7_8_t segment = getStepperServiceSegment(position);
     const bool noNewSegment = endOfRoute && (segment == 0);
 
-    if (m_stepper->getPendingSegmentCount() == 0 && noNewSegment) {
-        m_isBusy = false;
+    if (noNewSegment) {
+        if (m_stepper->isIdle()) {
+            m_isBusy = false;
+            m_position = m_targetPosition;
 
-        if (m_callback != nullptr) {
-            m_callback(m_callbackContext, this);
+            if (m_callback != nullptr) {
+                m_callback(m_callbackContext, this);
+            }
         }
-    } else {
-        m_stepper->enqueueSegment(segment);
-        m_numOfRenderedSegments++;
+        return;
     }
+
+    m_stepper->enqueueSegment(segment);
+    m_numOfRenderedSegments++;
 }
 
 // -------------------------------------------------------------------------
@@ -141,7 +160,7 @@ float RouterChannel::getPositionDecelerating(float t) const
     return x0 + m_routeParams.vMax * tDelta - 0.5f * m_routeParams.aMax * tDelta * tDelta;
 }
 
-float RouterChannel::getPosition(bool &endOfRoute) const
+float RouterChannel::getRoutePosition(bool &endOfRoute) const
 {
     const float t = static_cast<float>(m_numOfRenderedSegments) /
                     static_cast<float>(ROUTER_MODULE_SEGMENT_RENDER_FREQUENCY);
@@ -167,7 +186,7 @@ float RouterChannel::getPosition(bool &endOfRoute) const
 qint55_8_t RouterChannel::convertToStepperServicePosition(float position) const
 {
     return static_cast<qint55_8_t>(
-        position * 256.0f * 1000.0f * ROUTER_MODULE_STEP_PER_MM
+        position * 256.0f * ROUTER_MODULE_STEP_PER_MM
     );
 }
 

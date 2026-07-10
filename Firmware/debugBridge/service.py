@@ -26,6 +26,7 @@ class Channel:
     MOTOR_VELOCITY = 5
     FORCE_COIL = 6
     MOTOR_POSITION = 7
+    STEPPER_ROUTER = 8
 
 
 def command_word(channel_id, local_command):

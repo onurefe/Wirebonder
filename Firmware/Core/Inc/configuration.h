@@ -60,6 +60,7 @@
 #define DEBUG_CHANNEL_ID_MOTOR_VELOCITY_CONTROLLER                   5
 #define DEBUG_CHANNEL_ID_FORCE_COIL                                  6
 #define DEBUG_CHANNEL_ID_MOTOR_POSITION_CONTROLLER                   7
+#define DEBUG_CHANNEL_ID_STEPPER_ROUTER                              8
 
 #define DEBUG_TELEMETRY_DEPTH                                        4000
 #define DEBUG_TELEMETRY_BUFFER_SIZE_BYTES                            (DEBUG_TELEMETRY_DEPTH * 16)
@@ -138,28 +139,31 @@
 
 /* BonderModule --------------------------------------------------------------*/
 /* Force coil currents (A) */
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_IDLE_CURRENT                0.1
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_SEARCHING_CURRENT           0.1
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_SETTLING_CURRENT            0.15
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_WELDING_CURRENT             0.5
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_CONSTANT_CURRENT            0.15
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_TRACKING_CURRENT            0.1
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_FIRST_BOND_CURRENT          0.5
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_SECOND_BOND_CURRENT         0.5
 
 /* Z-axis heights (mm) — Z increases upward, bond pad contact at z≈0 */
 #define BONDER_MODULE_DEFAULT_RESET_HEIGHT                           8.0    /* retracted home position              */
 #define BONDER_MODULE_DEFAULT_LOOP_HEIGHT                            3.0    /* apex of the wire loop                */
-#define BONDER_MODULE_DEFAULT_SEARCH_HEIGHT                          1.5    /* start of controlled descent          */
+#define BONDER_MODULE_DEFAULT_FIRST_SEARCH_HEIGHT                    1.5    /* first-bond controlled descent        */
+#define BONDER_MODULE_DEFAULT_SECOND_SEARCH_HEIGHT                   1.5    /* second-bond controlled descent       */
 #define BONDER_MODULE_DEFAULT_KINK_HEIGHT                            0.3    /* wire kink point, just above pad      */
 #define BONDER_MODULE_DEFAULT_LOWEST_OVERTRAVEL                      (-0.3) /* maximum overtravel below pad surface */
 
-/* XY-axis displacements (mm) */
-#define BONDER_MODULE_DEFAULT_TAIL_DISPLACEMENT                      2.0  /* T-axis extension for tail formation  */
-#define BONDER_MODULE_DEFAULT_TEAR_DISPLACEMENT                      1.5  /* T-axis pull for wire tear            */
-#define BONDER_MODULE_DEFAULT_Y_REVERSE_DISPLACEMENT                 0.5  /* Y reverse move during loop forming   */
-#define BONDER_MODULE_DEFAULT_Y_STEPBACK_DISPLACEMENT                0.3  /* Y stepback during 2nd-weld prep      */
+/* Y/T logical positions (mm), relative to the router origin at startup */
+#define BONDER_MODULE_DEFAULT_TAIL_POSITION                          2.0  /* T position while forming the tail    */
+#define BONDER_MODULE_DEFAULT_TEAR_POSITION                          3.5  /* T position for the wire tear         */
+#define BONDER_MODULE_DEFAULT_Y_REVERSE_POSITION                     0.5  /* Y position during loop formation     */
+#define BONDER_MODULE_DEFAULT_Y_STEPBACK_POSITION                    0.8  /* Y position during second-bond prep   */
 
 /* Ultrasonic bonding */
-#define BONDER_MODULE_DEFAULT_TARGET_POWER                           0.3    /* normalised power setpoint (0–1)      */
+#define BONDER_MODULE_DEFAULT_FIRST_BONDING_POWER                    0.3    /* first-bond normalised power          */
+#define BONDER_MODULE_DEFAULT_SECOND_BONDING_POWER                   0.3    /* second-bond normalised power         */
 #define BONDER_MODULE_MAX_DRIVE_AMPLITUDE                            1.0    /* upper bound for computed US amplitude */
-#define BONDER_MODULE_DEFAULT_BONDING_ENERGY                         0.01   /* bonding energy (J)                   */
+#define BONDER_MODULE_DEFAULT_FIRST_BONDING_ENERGY                   0.01   /* first-bond energy (J)                */
+#define BONDER_MODULE_DEFAULT_SECOND_BONDING_ENERGY                  0.01   /* second-bond energy (J)               */
 #define BONDER_MODULE_DEFAULT_MAX_BONDING_DURATION                   0.5    /* safety timeout (s)                   */
 
 /* Timing (s) */
@@ -178,10 +182,10 @@
       BONDER_MODULE_DEFAULT_SCAN_NUM_FREQUENCIES)
 
 /* Robot module --------------------------------------------------------------*/
-#define ROBOT_Y_AXIS_MAX_VELOCITY                           0.05
-#define ROBOT_Y_AXIS_MAX_ACCELERATION                       0.05
-#define ROBOT_T_AXIS_MAX_VELOCITY                           0.05
-#define ROBOT_T_AXIS_MAX_ACCELERATION                       0.05
+#define ROBOT_Y_AXIS_MAX_VELOCITY                           50.0
+#define ROBOT_Y_AXIS_MAX_ACCELERATION                       50.0
+#define ROBOT_T_AXIS_MAX_VELOCITY                           50.0
+#define ROBOT_T_AXIS_MAX_ACCELERATION                       50.0
 
 #define ROBOT_BONDER_CONFIG_OBJECT_ID                       1
 

@@ -48,6 +48,12 @@ uint16_t StepperChannel::getPendingSegmentCount()
     return m_segmentQueue.getElementCount();
 }
 
+bool StepperChannel::isIdle()
+{
+    InterruptLock lock;
+    return !m_hasActiveSegment && m_segmentQueue.isEmpty();
+}
+
 void StepperChannel::clearSegmentQueue()
 {
     InterruptLock lock;

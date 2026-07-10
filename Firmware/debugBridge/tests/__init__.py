@@ -7,6 +7,7 @@ from .motor_velocity import DebugMotorVelocity
 from .pll import DebugPll, DebugStop
 from .scan import DebugScan
 from .status import DebugStatus
+from .stepper_router import DebugStepperRouter, DebugStepperRouterStop
 from .tone import DebugTone, DebugToneStop
 
 COMMAND_CLASSES = [
@@ -21,6 +22,8 @@ COMMAND_CLASSES = [
     DebugMotorPosition,
     DebugMotorPositionStall,
     DebugForceCoil,
+    DebugStepperRouter,
+    DebugStepperRouterStop,
 ]
 
 

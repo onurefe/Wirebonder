@@ -20,8 +20,11 @@ public:
     enum class State { Uninit, Ready, Operating };
 
     enum class Error {
+        // PLL reached its duration limit before delivering the requested energy.
         InsufficientBondingPower,
+        // Force-coil current control could not reach its requested setpoint.
         UnableToSetForceCoilCurrent,
+        // Z-axis position control is unavailable while a move is required.
         UnableToSetPosition
     };
 
@@ -43,6 +46,7 @@ public:
 
     void configure(const Config& config);
     const Config& getConfig() const;
+    // True when the VM is at its first sequence step.
     bool isIdle() const { return m_stepIndex == 0U; }
 
     void addEventListenerCallbacks(BonderStateChangedCallback stateCb, BonderErrorCallback errorCb);
@@ -53,49 +57,125 @@ public:
 
 private:
     // =========================================================================
-    // Step-sequence VM
+    // Bonding-sequence VM
     // =========================================================================
 
     enum class StepStatus { Running, Done, Error };
-    using StepFn = StepStatus (BonderModule::*)();
+    enum class BondingPhase { Phase1, Phase2 };
+    using StepFn = StepStatus (BonderModule::*)(BondingPhase phase);
+    struct Step {
+        StepFn fn;
+        BondingPhase phase;
+    };
 
-    static const StepFn  kBondSequence[];
+    static const Step  kBondSequence[];
     static const uint8_t kSequenceLen;
 
-    // Steps — first bond
-    StepStatus stepWaitForTrigger();
-    StepStatus stepMoveToSearchHeight();
-    StepStatus stepSearch();
-    StepStatus stepSettle();
-    StepStatus stepScanImpedance();
-    StepStatus stepWeld();
-    StepStatus stepFirstBondCool();
+    // Shared first- and second-bond steps.
 
-    // Steps — loop formation
-    StepStatus stepFormLoopTAndZ();
-    StepStatus stepFormLoopYReverse();
-    StepStatus stepFormLoopZ();
+    /*
+     * Entry: no action.
+     * Complete when: the semi-automatic button is pressed.
+     */
+    StepStatus stepWaitForSemiAutoButton(BondingPhase phase);
 
-    // Steps — second bond preparation
-    StepStatus stepWaitSecondTrigger();
-    StepStatus stepPrepCloseClamp();
-    StepStatus stepPrepStepBack();
-    StepStatus stepPrepOpenClamp();
+    /*
+     * Entry: apply tracking current and command the phase search height.
+     *        Phase 2 also commands Y stepback and closes the clamp.
+     * While waiting: phase 2 opens the clamp after Y stepback completes.
+     * Complete when: Z and, for phase 2, Y are settled; tracking current is
+     *                settled; and the operator has released the button.
+     */
+    StepStatus stepMovingToSearchHeight(BondingPhase phase);
 
-    // Steps — second bond cooling (search/settle/scan/weld reuse steps above)
-    StepStatus stepSecondBondCool();
+    /*
+     * Entry: apply constant current and command the lowest overtravel height.
+     * Complete when: Z is settled, the contact pin is disconnected, and the
+     *                force-coil current is settled.
+     */
+    StepStatus stepMovingToLowestOvertravel(BondingPhase phase);
 
-    // Steps — tail restore
-    StepStatus stepTearTMove();
-    StepStatus stepRestoreZWaitContact();
-    StepStatus stepRestoreScanImpedance();
-    StepStatus stepRestoreTMoveWithUs();
-    StepStatus stepRestoreYMove();
+    /*
+     * Entry: start the position-settling timer.
+     * Complete when: the timer expires.
+     */
+    StepStatus stepWaitForZMotorPositionSettlement(BondingPhase phase);
+
+    /*
+     * Entry: apply the phase bonding current and start the force-settling
+     *        timer.
+     * Complete when: the timer expires and the force-coil current is settled.
+     */
+    StepStatus stepWaitForBondingForceSettlement(BondingPhase phase);
+
+    /*
+     * Entry: start the impedance scan.
+     * Complete when: the scan completes and its operating point is calculated
+     *                for the phase bonding power.
+     */
+    StepStatus stepScanImpedance(BondingPhase phase);
+
+    /*
+     * Entry: start PLL-controlled ultrasonic bonding with the phase energy.
+     * Complete when: the PLL reports that the requested energy was delivered.
+     */
+    StepStatus stepBond(BondingPhase phase);
+
+    /*
+     * Entry: apply constant current and start the cooling timer.
+     * Complete when: the timer expires and the force-coil current is settled.
+     */
+    StepStatus stepCool(BondingPhase phase);
+
+    // First-bond loop-formation steps.
+
+    /*
+     * Entry: open the clamp and command Z to kink height.
+     * While waiting: after the contact pin connects, command the T-axis tail
+     *                move once.
+     * Complete when: Z and T are settled and the contact pin is connected.
+     */
+    StepStatus stepMoveToKinkHeight(BondingPhase phase);
+
+    /*
+     * Entry: command the Y-axis reverse displacement.
+     * Complete when: the Y-axis move completes.
+     */
+    StepStatus stepYReverse(BondingPhase phase);
+
+    /*
+     * Entry: command Z to loop height.
+     * Complete when: Z is settled.
+     */
+    StepStatus stepMoveToLoopHeight(BondingPhase phase);
+
+    // Second-bond completion and tail restoration.
+
+    /*
+     * Entry: command the T-axis tear displacement and close the clamp.
+     * Complete when: the T-axis move completes.
+     */
+    StepStatus stepTearTMove(BondingPhase phase);
+
+    /*
+     * Entry: command Z to reset height and start the tail-restore delay.
+     * While waiting: after the delay, return T to its initial position and
+     *                start ultrasonic power using the last scan result.
+     * Complete when: Z and T are settled, ultrasonic power completes, and the
+     *                contact pin is connected.
+     */
+    StepStatus stepMoveToResetHeight(BondingPhase phase);
+
+    /*
+     * Entry: return Y to its initial position.
+     * Complete when: the Y-axis move completes.
+     */
+    StepStatus stepRestoreYMove(BondingPhase phase);
 
     void emergencyStop();
 
     // =========================================================================
-    // Configuration & runtime state
+    // Configuration and VM runtime state
     // =========================================================================
 
     Config  m_config;
@@ -107,7 +187,7 @@ private:
     bool    m_stepStarted;  // one-shot init guard per step
 
     // =========================================================================
-    // Hardware event flags  (set by ISR callbacks, polled by step functions)
+    // Hardware event flags (set by callback bridges, polled by VM steps)
     // =========================================================================
 
     bool m_tMoveCompleted;
@@ -123,13 +203,17 @@ private:
     bool m_rightButtonPressed;
     bool m_rightButtonReleased;
 
-    // Error flags (checked inside steps → StepStatus::Error)
+    // Errors reported by dependencies and consumed by the VM.
     bool m_positionError;
     bool m_forceCoilError;
     bool m_usPowerError;
 
+    // Deferred step actions, issued once after their triggering event.
+    bool m_tailMoveStarted;
+    bool m_resetRestoreStarted;
+
     // =========================================================================
-    // Callbacks
+    // External notifications
     // =========================================================================
 
     BonderStateChangedCallback m_stateChangedCallback;
@@ -159,20 +243,20 @@ private:
     complexf m_impedances[BONDER_MODULE_SCAN_MAX_FREQUENCIES];
 
     // =========================================================================
-    // Helpers
+    // VM utilities
     // =========================================================================
 
     void    clearFlags();
     void    setZMotorPosition(float position);
-    bool    zMotorPositionReached() const;
-    void    computeOperatingPoint();
-    float   amplitudeForTargetPower(float realAdmittance) const;
-    uint8_t findResonanceIndex() const;
-    float   calculateCenterFrequency(uint8_t resonanceIndex) const;
-    float   calculateDriveAmplitude(uint8_t resonanceIndex) const;
+    bool    zMotorPositionReached();
+    void    computeOperatingPoint(float targetPower);
+    float   amplitudeForTargetPower(float realAdmittance, float targetPower);
+    uint8_t findResonanceIndex();
+    float   calculateCenterFrequency(uint8_t resonanceIndex);
+    float   calculateDriveAmplitude(uint8_t resonanceIndex, float targetPower);
 
     // =========================================================================
-    // Static ISR callbacks
+    // Peripheral callback bridges
     // =========================================================================
 
     static BonderModule *s_instance;

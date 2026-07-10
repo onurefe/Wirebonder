@@ -1,59 +1,43 @@
 #include "bonder_module.hpp"
 #include "transducer_analyzer.hpp"
-#include "main.h"
 #include <cmath>
+
+// =============================================================================
+// Static VM definition
+// =============================================================================
 
 BonderModule *BonderModule::s_instance = nullptr;
 
-// =============================================================================
-// Step sequence table
-// =============================================================================
-
-const BonderModule::StepFn BonderModule::kBondSequence[] = {
-    // 1. Idle — wait for operator trigger
-    &BonderModule::stepWaitForTrigger,
-
-    // 2. First bond
-    &BonderModule::stepMoveToSearchHeight,
-    &BonderModule::stepSearch,
-    &BonderModule::stepSettle,
-    &BonderModule::stepScanImpedance,
-    &BonderModule::stepWeld,
-    &BonderModule::stepFirstBondCool,
-
-    // 3. Wire loop formation
-    &BonderModule::stepFormLoopTAndZ,
-    &BonderModule::stepFormLoopYReverse,
-    &BonderModule::stepFormLoopZ,
-
-    // 4. Second bond preparation
-    &BonderModule::stepWaitSecondTrigger,
-    &BonderModule::stepPrepCloseClamp,
-    &BonderModule::stepPrepStepBack,
-    &BonderModule::stepPrepOpenClamp,
-
-    // 5. Second bond (search/settle/scan/weld steps reused from above)
-    &BonderModule::stepMoveToSearchHeight,
-    &BonderModule::stepSearch,
-    &BonderModule::stepSettle,
-    &BonderModule::stepScanImpedance,
-    &BonderModule::stepWeld,
-    &BonderModule::stepSecondBondCool,
-
-    // 6. Tail restore
-    &BonderModule::stepTearTMove,
-    &BonderModule::stepRestoreZWaitContact,
-    &BonderModule::stepRestoreScanImpedance,
-    &BonderModule::stepRestoreTMoveWithUs,
-    &BonderModule::stepRestoreYMove,
+const BonderModule::Step BonderModule::kBondSequence[] = {
+    {&BonderModule::stepWaitForSemiAutoButton, BondingPhase::Phase1},
+    {&BonderModule::stepMovingToSearchHeight, BondingPhase::Phase1},
+    {&BonderModule::stepMovingToLowestOvertravel, BondingPhase::Phase1},
+    {&BonderModule::stepWaitForZMotorPositionSettlement, BondingPhase::Phase1},
+    {&BonderModule::stepWaitForBondingForceSettlement, BondingPhase::Phase1},
+    {&BonderModule::stepScanImpedance, BondingPhase::Phase1},
+    {&BonderModule::stepBond, BondingPhase::Phase1},
+    {&BonderModule::stepCool, BondingPhase::Phase1},
+    {&BonderModule::stepMoveToKinkHeight, BondingPhase::Phase1},
+    {&BonderModule::stepYReverse, BondingPhase::Phase1},
+    {&BonderModule::stepMoveToLoopHeight, BondingPhase::Phase1},
+    {&BonderModule::stepWaitForSemiAutoButton, BondingPhase::Phase2},
+    {&BonderModule::stepMovingToSearchHeight, BondingPhase::Phase2},
+    {&BonderModule::stepMovingToLowestOvertravel, BondingPhase::Phase2},
+    {&BonderModule::stepWaitForZMotorPositionSettlement, BondingPhase::Phase2},
+    {&BonderModule::stepWaitForBondingForceSettlement, BondingPhase::Phase2},
+    {&BonderModule::stepScanImpedance, BondingPhase::Phase2},
+    {&BonderModule::stepBond, BondingPhase::Phase2},
+    {&BonderModule::stepCool, BondingPhase::Phase2},
+    {&BonderModule::stepTearTMove, BondingPhase::Phase2},
+    {&BonderModule::stepMoveToResetHeight, BondingPhase::Phase2},
+    {&BonderModule::stepRestoreYMove, BondingPhase::Phase2},
 };
 
 const uint8_t BonderModule::kSequenceLen =
-    static_cast<uint8_t>(sizeof(BonderModule::kBondSequence) /
-                         sizeof(BonderModule::kBondSequence[0]));
+    static_cast<uint8_t>(sizeof(kBondSequence) / sizeof(kBondSequence[0]));
 
 // =============================================================================
-// Constructor
+// Public interface
 // =============================================================================
 
 BonderModule::BonderModule(DcMotorPositionControllerModule *zMotorController,
@@ -69,11 +53,36 @@ BonderModule::BonderModule(DcMotorPositionControllerModule *zMotorController,
     : m_config{}
     , m_centerFrequency(0.0f)
     , m_driveAmplitude(0.0f)
+
+    // VM runtime state
     , m_systemState(State::Uninit)
     , m_stepIndex(0U)
     , m_stepStarted(false)
+
+    // Hardware event and error flags
+    , m_tMoveCompleted(false)
+    , m_yMoveCompleted(false)
+    , m_forceCoilCurrentSettled(false)
+    , m_contactPinConnected(false)
+    , m_contactPinDisconnected(false)
+    , m_timerExpired(false)
+    , m_impedanceScanningCompleted(false)
+    , m_usPowerTransferred(false)
+    , m_clampOpened(false)
+    , m_clampClosed(false)
+    , m_rightButtonPressed(false)
+    , m_rightButtonReleased(false)
+    , m_positionError(false)
+    , m_forceCoilError(false)
+    , m_usPowerError(false)
+    , m_tailMoveStarted(false)
+    , m_resetRestoreStarted(false)
+
+    // External notifications
     , m_stateChangedCallback(nullptr)
     , m_errorCallback(nullptr)
+
+    // Injected hardware dependencies
     , m_zMotorControllerModule(zMotorController)
     , m_forceCoilControllerModule(forceCoilDriver)
     , m_yAxisRouter(yAxisRouter)
@@ -84,27 +93,37 @@ BonderModule::BonderModule(DcMotorPositionControllerModule *zMotorController,
     , m_contactSensorMonitor(contactSensorMonitor)
     , m_mouseRightButtonMonitor(mouseRightButtonMonitor)
     , m_timer(timer)
+
+    // Impedance scan data
+    , m_voltagePhasors{}
+    , m_currentPhasors{}
+    , m_impedances{}
+
+    // Z-controller setpoint supplied by the VM
     , m_zMotorPositionSetpoint(0.0f)
     , m_zMotorSetpointActive(false)
 {
     s_instance = this;
-    clearFlags();
 }
-
-// =============================================================================
-// Configuration
-// =============================================================================
 
 void BonderModule::configure(const Config& config)
 {
     m_config = config;
 
-    float frequencyStep = (config.scanStopFrequency - config.scanStartFrequency) /
-                          static_cast<float>(config.numOfScannedFrequencies);
+    if (m_config.numOfScannedFrequencies == 0U) {
+        m_config.numOfScannedFrequencies = 1U;
+    }
+    if (m_config.numOfScannedFrequencies > BONDER_MODULE_SCAN_MAX_FREQUENCIES) {
+        m_config.numOfScannedFrequencies = BONDER_MODULE_SCAN_MAX_FREQUENCIES;
+    }
+
+    const float frequencyStep =
+        (m_config.scanStopFrequency - m_config.scanStartFrequency) /
+        static_cast<float>(m_config.numOfScannedFrequencies);
 
     m_impedanceScannerModule->setScanParameters(
-        config.numOfScannedFrequencies,
-        config.scanStartFrequency,
+        m_config.numOfScannedFrequencies,
+        m_config.scanStartFrequency,
         frequencyStep);
 }
 
@@ -113,32 +132,32 @@ const BonderModule::Config& BonderModule::getConfig() const
     return m_config;
 }
 
-// =============================================================================
-// Lifecycle
-// =============================================================================
-
 void BonderModule::addEventListenerCallbacks(BonderStateChangedCallback stateCb,
                                              BonderErrorCallback errorCb)
 {
     m_stateChangedCallback = stateCb;
-    m_errorCallback        = errorCb;
+    m_errorCallback = errorCb;
 }
 
 void BonderModule::init()
 {
-    if (m_systemState != State::Uninit) return;
+    if (m_systemState != State::Uninit) {
+        return;
+    }
 
     m_clampSolenoid->addStateListenerCallback(this, &BonderModule::onSolenoidChanged);
-    m_contactSensorMonitor->addTransitionListenerCallback(this, &BonderModule::onContactSensorTransition);
-    m_mouseRightButtonMonitor->addTransitionListenerCallback(this, &BonderModule::onMouseRightButtonTransition);
+    m_contactSensorMonitor->addTransitionListenerCallback(
+        this, &BonderModule::onContactSensorTransition);
+    m_mouseRightButtonMonitor->addTransitionListenerCallback(
+        this, &BonderModule::onMouseRightButtonTransition);
     m_timer->setExpirationListenerCallback(this, &BonderModule::onTimerDone);
     m_yAxisRouter->addMoveCompleteListenerCallback(this, &BonderModule::onYAxisRouterDone);
     m_tAxisRouter->addMoveCompleteListenerCallback(this, &BonderModule::onTAxisRouterDone);
     m_pllModule->addEventListenerCallback(this, &BonderModule::onPllEvent);
-    m_impedanceScannerModule->addScanCompleteListenerCallback(this, &BonderModule::onImpedanceScanned);
+    m_impedanceScannerModule->addScanCompleteListenerCallback(
+        this, &BonderModule::onImpedanceScanned);
     m_zMotorControllerModule->addPositionSetpointControllerCallback(
-        this,
-        &BonderModule::onZMotorPositionSetpoint);
+        this, &BonderModule::onZMotorPositionSetpoint);
     m_forceCoilControllerModule->addEventListenerCallback(&BonderModule::onForceCoilEvent);
 
     m_systemState = State::Ready;
@@ -146,77 +165,399 @@ void BonderModule::init()
 
 void BonderModule::start()
 {
-    if (m_systemState != State::Ready) return;
+    if (m_systemState != State::Ready) {
+        return;
+    }
+
     clearFlags();
+    m_stepIndex = 0U;
+    m_stepStarted = false;
     m_zMotorSetpointActive = false;
-    m_stepIndex            = 0U;
-    m_stepStarted          = false;
-    m_systemState          = State::Operating;
+    m_systemState = State::Operating;
+
+    m_forceCoilControllerModule->setCurrentSetpoint(0.0f);
+    m_clampSolenoid->close();
+    setZMotorPosition(m_config.resetHeight);
+
+    if (m_stateChangedCallback != nullptr) {
+        m_stateChangedCallback(false);
+    }
 }
 
 void BonderModule::stop()
 {
-    if (m_systemState != State::Operating) return;
+    if (m_systemState != State::Operating) {
+        return;
+    }
+
     emergencyStop();
     m_systemState = State::Ready;
+    m_stepIndex = 0U;
+    m_stepStarted = false;
+    m_zMotorSetpointActive = false;
+
+    if (m_stateChangedCallback != nullptr) {
+        m_stateChangedCallback(true);
+    }
 }
 
 void BonderModule::execute()
 {
-    if (m_systemState != State::Operating) return;
+    if (m_systemState != State::Operating) {
+        return;
+    }
 
     m_impedanceScannerModule->execute();
 
-    StepStatus s = (this->*kBondSequence[m_stepIndex])();
+    const Step& step = kBondSequence[m_stepIndex];
+    const StepStatus status = (this->*step.fn)(step.phase);
 
-    if (s == StepStatus::Done) {
-        m_stepStarted = false;
-        clearFlags();
-        m_stepIndex = static_cast<uint8_t>(m_stepIndex + 1U);
-
-        if (m_stepIndex >= kSequenceLen) {
-            m_stepIndex = 0U;
-            if (m_stateChangedCallback) m_stateChangedCallback(true);
+    if (status == StepStatus::Error || m_positionError ||
+        m_forceCoilError || m_usPowerError) {
+        Error error = Error::UnableToSetPosition;
+        if (m_forceCoilError) {
+            error = Error::UnableToSetForceCoilCurrent;
+        } else if (m_usPowerError) {
+            error = Error::InsufficientBondingPower;
         }
-    } else if (s == StepStatus::Error) {
+
         emergencyStop();
-        m_stepIndex   = 0U;
+        m_systemState = State::Ready;
+        m_stepIndex = 0U;
         m_stepStarted = false;
-        if (m_stateChangedCallback) m_stateChangedCallback(true);
+        m_zMotorSetpointActive = false;
+
+        if (m_errorCallback != nullptr) {
+            m_errorCallback(error);
+        }
+        if (m_stateChangedCallback != nullptr) {
+            m_stateChangedCallback(true);
+        }
+        return;
+    }
+
+    if (status != StepStatus::Done) {
+        return;
+    }
+
+    clearFlags();
+    m_stepStarted = false;
+    m_stepIndex = static_cast<uint8_t>(m_stepIndex + 1U);
+
+    if (m_stepIndex < kSequenceLen) {
+        return;
+    }
+
+    m_stepIndex = 0U;
+    m_zMotorSetpointActive = false;
+
+    if (m_stateChangedCallback != nullptr) {
+        m_stateChangedCallback(true);
     }
 }
 
+// =============================================================================
+// VM control
+// =============================================================================
+
 void BonderModule::emergencyStop()
 {
-    setZMotorPosition(m_config.resetHeight);
-    m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilIdleCurrent);
-    m_clampSolenoid->close();
+    m_timer->stop();
     m_impedanceScannerModule->stop();
     m_pllModule->stop();
-    m_timer->stop();
+    m_yAxisRouter->stop();
+    m_tAxisRouter->stop();
+    m_forceCoilControllerModule->setCurrentSetpoint(0.0f);
+    m_clampSolenoid->close();
 }
 
 // =============================================================================
-// Helpers
+// VM steps
+// =============================================================================
+
+BonderModule::StepStatus BonderModule::stepWaitForSemiAutoButton(BondingPhase phase)
+{
+    (void)phase;
+    return m_rightButtonPressed ? StepStatus::Done : StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepMovingToSearchHeight(BondingPhase phase)
+{
+    if (!m_stepStarted) {
+        m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilTrackingCurrent);
+        setZMotorPosition(phase == BondingPhase::Phase1
+                              ? m_config.firstSearchHeight
+                              : m_config.secondSearchHeight);
+
+        if (phase == BondingPhase::Phase2) {
+            m_yAxisRouter->moveTo(m_config.yStepbackPosition);
+            m_clampSolenoid->close();
+        }
+
+        m_stepStarted = true;
+    }
+
+    if (m_forceCoilError) {
+        return StepStatus::Error;
+    }
+
+    if (phase == BondingPhase::Phase2 && m_yMoveCompleted) {
+        m_clampSolenoid->open();
+    }
+
+    const bool yPositionReached =
+        phase == BondingPhase::Phase1 || m_yMoveCompleted;
+    if (yPositionReached && zMotorPositionReached() &&
+        m_rightButtonReleased && m_forceCoilCurrentSettled) {
+        return StepStatus::Done;
+    }
+
+    return StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepMovingToLowestOvertravel(BondingPhase phase)
+{
+    (void)phase;
+
+    if (!m_stepStarted) {
+        m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilConstantCurrent);
+        setZMotorPosition(m_config.lowestOvertravel);
+        m_stepStarted = true;
+    }
+
+    if (m_forceCoilError) {
+        return StepStatus::Error;
+    }
+
+    if (zMotorPositionReached() && m_contactPinDisconnected &&
+        m_forceCoilCurrentSettled) {
+        return StepStatus::Done;
+    }
+
+    return StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepWaitForZMotorPositionSettlement(BondingPhase phase)
+{
+    (void)phase;
+
+    if (!m_stepStarted) {
+        m_timer->start(true, m_config.contactSettlingTime);
+        m_stepStarted = true;
+    }
+
+    return m_timerExpired ? StepStatus::Done : StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepWaitForBondingForceSettlement(BondingPhase phase)
+{
+    if (!m_stepStarted) {
+        const float bondCurrent = phase == BondingPhase::Phase1
+                                      ? m_config.forceCoilFirstBondCurrent
+                                      : m_config.forceCoilSecondBondCurrent;
+        m_forceCoilControllerModule->setCurrentSetpoint(bondCurrent);
+        m_timer->start(true, m_config.contactSettlingTime);
+        m_stepStarted = true;
+    }
+
+    if (m_forceCoilError) {
+        return StepStatus::Error;
+    }
+
+    return m_timerExpired && m_forceCoilCurrentSettled
+               ? StepStatus::Done
+               : StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepScanImpedance(BondingPhase phase)
+{
+    if (!m_stepStarted) {
+        m_impedanceScannerModule->start(
+            m_voltagePhasors, m_currentPhasors, m_impedances);
+        m_stepStarted = true;
+    }
+
+    if (!m_impedanceScanningCompleted) {
+        return StepStatus::Running;
+    }
+
+    const float targetPower = phase == BondingPhase::Phase1
+                                  ? m_config.firstBondingPower
+                                  : m_config.secondBondingPower;
+    computeOperatingPoint(targetPower);
+    return StepStatus::Done;
+}
+
+BonderModule::StepStatus BonderModule::stepBond(BondingPhase phase)
+{
+    if (!m_stepStarted) {
+        const float bondingEnergy = phase == BondingPhase::Phase1
+                                        ? m_config.firstBondingEnergy
+                                        : m_config.secondBondingEnergy;
+        m_pllModule->start(
+            m_centerFrequency,
+            m_driveAmplitude,
+            bondingEnergy,
+            m_config.maxBondingDuration);
+        m_stepStarted = true;
+    }
+
+    if (m_usPowerError) {
+        return StepStatus::Error;
+    }
+
+    return m_usPowerTransferred ? StepStatus::Done : StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepCool(BondingPhase phase)
+{
+    (void)phase;
+
+    if (!m_stepStarted) {
+        m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilConstantCurrent);
+        m_timer->start(true, m_config.coolingTime);
+        m_stepStarted = true;
+    }
+
+    if (m_forceCoilError) {
+        return StepStatus::Error;
+    }
+
+    return m_timerExpired && m_forceCoilCurrentSettled
+               ? StepStatus::Done
+               : StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepMoveToKinkHeight(BondingPhase phase)
+{
+    (void)phase;
+
+    if (!m_stepStarted) {
+        m_clampSolenoid->open();
+        setZMotorPosition(m_config.kinkHeight);
+        m_tailMoveStarted = false;
+        m_stepStarted = true;
+    }
+
+    if (m_contactPinConnected && !m_tailMoveStarted) {
+        m_tAxisRouter->moveTo(m_config.tailPosition);
+        m_tailMoveStarted = true;
+    }
+
+    if (zMotorPositionReached() && m_tMoveCompleted &&
+        m_contactPinConnected) {
+        return StepStatus::Done;
+    }
+
+    return StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepYReverse(BondingPhase phase)
+{
+    (void)phase;
+
+    if (!m_stepStarted) {
+        m_yAxisRouter->moveTo(m_config.yReversePosition);
+        m_stepStarted = true;
+    }
+
+    return m_yMoveCompleted ? StepStatus::Done : StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepMoveToLoopHeight(BondingPhase phase)
+{
+    (void)phase;
+
+    if (!m_stepStarted) {
+        setZMotorPosition(m_config.loopHeight);
+        m_stepStarted = true;
+    }
+
+    return zMotorPositionReached() ? StepStatus::Done : StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepTearTMove(BondingPhase phase)
+{
+    (void)phase;
+
+    if (!m_stepStarted) {
+        m_tAxisRouter->moveTo(m_config.tearPosition);
+        m_clampSolenoid->close();
+        m_stepStarted = true;
+    }
+
+    return m_tMoveCompleted ? StepStatus::Done : StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepMoveToResetHeight(BondingPhase phase)
+{
+    (void)phase;
+
+    if (!m_stepStarted) {
+        setZMotorPosition(m_config.resetHeight);
+        m_timer->start(true, m_config.tailRestoreDelay);
+        m_resetRestoreStarted = false;
+        m_stepStarted = true;
+    }
+
+    if (m_timerExpired && !m_resetRestoreStarted) {
+        m_tAxisRouter->moveTo(0.0f);
+        m_pllModule->start(
+            m_centerFrequency,
+            m_driveAmplitude,
+            m_config.secondBondingEnergy,
+            m_config.maxBondingDuration);
+        m_resetRestoreStarted = true;
+    }
+
+    if (m_usPowerError) {
+        return StepStatus::Error;
+    }
+
+    if (m_resetRestoreStarted && zMotorPositionReached() &&
+        m_tMoveCompleted && m_usPowerTransferred &&
+        m_contactPinConnected) {
+        return StepStatus::Done;
+    }
+
+    return StepStatus::Running;
+}
+
+BonderModule::StepStatus BonderModule::stepRestoreYMove(BondingPhase phase)
+{
+    (void)phase;
+
+    if (!m_stepStarted) {
+        m_yAxisRouter->moveTo(0.0f);
+        m_stepStarted = true;
+    }
+
+    return m_yMoveCompleted ? StepStatus::Done : StepStatus::Running;
+}
+
+// =============================================================================
+// Utilities
 // =============================================================================
 
 void BonderModule::clearFlags()
 {
-    m_tMoveCompleted             = false;
-    m_yMoveCompleted             = false;
-    m_forceCoilCurrentSettled    = false;
-    m_contactPinConnected        = false;
-    m_contactPinDisconnected     = false;
-    m_timerExpired               = false;
+    m_tMoveCompleted = false;
+    m_yMoveCompleted = false;
+    m_forceCoilCurrentSettled = false;
+    m_contactPinConnected = false;
+    m_contactPinDisconnected = false;
+    m_timerExpired = false;
     m_impedanceScanningCompleted = false;
-    m_usPowerTransferred         = false;
-    m_clampOpened                = false;
-    m_clampClosed                = false;
-    m_rightButtonPressed         = false;
-    m_rightButtonReleased        = false;
-    m_positionError              = false;
-    m_forceCoilError             = false;
-    m_usPowerError               = false;
+    m_usPowerTransferred = false;
+    m_clampOpened = false;
+    m_clampClosed = false;
+    m_rightButtonPressed = false;
+    m_rightButtonReleased = false;
+    m_positionError = false;
+    m_forceCoilError = false;
+    m_usPowerError = false;
+    m_tailMoveStarted = false;
+    m_resetRestoreStarted = false;
 }
 
 void BonderModule::setZMotorPosition(float position)
@@ -226,402 +567,183 @@ void BonderModule::setZMotorPosition(float position)
     m_zMotorControllerModule->restartControlLoop();
 }
 
-bool BonderModule::zMotorPositionReached() const
+bool BonderModule::zMotorPositionReached()
 {
-    if (!m_zMotorSetpointActive || !m_zMotorControllerModule->isOperating()) {
+    if (!m_zMotorSetpointActive) {
         return false;
     }
 
-    const float positionError = fabsf(m_zMotorPositionSetpoint -
-                                      m_zMotorControllerModule->getPosition());
+    if (!m_zMotorControllerModule->isOperating()) {
+        m_positionError = true;
+        return false;
+    }
+
+    const float positionError = fabsf(
+        m_zMotorPositionSetpoint - m_zMotorControllerModule->getPosition());
     const float velocity = fabsf(m_zMotorControllerModule->getVelocity());
 
-    return (positionError < DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR) &&
-           (velocity < DCMOTOR_POSITION_MODULE_MAX_VELOCITY_ERROR);
+    return positionError < DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR &&
+           velocity < DCMOTOR_POSITION_MODULE_MAX_VELOCITY_ERROR;
 }
 
-void BonderModule::computeOperatingPoint()
+void BonderModule::computeOperatingPoint(float targetPower)
 {
-    float fstep = (m_config.scanStopFrequency - m_config.scanStartFrequency) /
-                  static_cast<float>(m_config.numOfScannedFrequencies);
+    const float frequencyStep =
+        (m_config.scanStopFrequency - m_config.scanStartFrequency) /
+        static_cast<float>(m_config.numOfScannedFrequencies);
 
-    TransducerAnalyzer::Parameters params;
-    bool fitted = TransducerAnalyzer::fit(m_impedances,
-                                    m_config.numOfScannedFrequencies,
-                                    m_config.scanStartFrequency,
-                                    fstep,
-                                    params);
+    TransducerAnalyzer::Parameters parameters;
+    const bool fitted = TransducerAnalyzer::fit(
+        m_impedances,
+        m_config.numOfScannedFrequencies,
+        m_config.scanStartFrequency,
+        frequencyStep,
+        parameters);
 
-    // Reject fits whose resonance falls outside the scanned window; the
-    // extrapolation is not trustworthy there.
     if (fitted &&
-        params.seriesResonance >= m_config.scanStartFrequency &&
-        params.seriesResonance <= m_config.scanStopFrequency) {
-        m_centerFrequency = params.seriesResonance;
-
-        complexf y = TransducerAnalyzer::admittance(params, m_centerFrequency);
-        m_driveAmplitude = amplitudeForTargetPower(y.re);
+        parameters.seriesResonance >= m_config.scanStartFrequency &&
+        parameters.seriesResonance <= m_config.scanStopFrequency) {
+        m_centerFrequency = parameters.seriesResonance;
+        const complexf admittance =
+            TransducerAnalyzer::admittance(parameters, m_centerFrequency);
+        m_driveAmplitude = amplitudeForTargetPower(admittance.re, targetPower);
         return;
     }
 
-    // Fallback: nearest grid point to the impedance minimum.
-    uint8_t resonance_index = findResonanceIndex();
-    m_centerFrequency = calculateCenterFrequency(resonance_index);
-    m_driveAmplitude = calculateDriveAmplitude(resonance_index);
+    const uint8_t resonanceIndex = findResonanceIndex();
+    m_centerFrequency = calculateCenterFrequency(resonanceIndex);
+    m_driveAmplitude = calculateDriveAmplitude(resonanceIndex, targetPower);
 }
 
-float BonderModule::amplitudeForTargetPower(float realAdmittance) const
+float BonderModule::amplitudeForTargetPower(float realAdmittance, float targetPower)
 {
-    if (realAdmittance <= 0.0f) {
+    if (realAdmittance <= 0.0f || targetPower <= 0.0f) {
         return 0.0f;
     }
 
-    // P = A^2 * Re(Y)  =>  A = sqrt(P / Re(Y))
-    float amplitude = sqrtf(m_config.targetPower / realAdmittance);
-
+    float amplitude = sqrtf(targetPower / realAdmittance);
     if (amplitude > BONDER_MODULE_MAX_DRIVE_AMPLITUDE) {
         amplitude = BONDER_MODULE_MAX_DRIVE_AMPLITUDE;
     }
-
     return amplitude;
 }
 
-uint8_t BonderModule::findResonanceIndex() const
+uint8_t BonderModule::findResonanceIndex()
 {
-    uint8_t bestIndex     = 0U;
-    float   bestMagnitude = complexf_abs(m_impedances[0]);
+    uint8_t bestIndex = 0U;
+    float bestMagnitude = complexf_abs(m_impedances[0]);
 
     for (uint8_t i = 1U; i < m_config.numOfScannedFrequencies; ++i) {
-        float mag = complexf_abs(m_impedances[i]);
-        if (mag < bestMagnitude) {
-            bestMagnitude = mag;
-            bestIndex     = i;
+        const float magnitude = complexf_abs(m_impedances[i]);
+        if (magnitude < bestMagnitude) {
+            bestMagnitude = magnitude;
+            bestIndex = i;
         }
     }
 
     return bestIndex;
 }
 
-float BonderModule::calculateCenterFrequency(uint8_t resonanceIndex) const
+float BonderModule::calculateCenterFrequency(uint8_t resonanceIndex)
 {
-    float fstep = (m_config.scanStopFrequency - m_config.scanStartFrequency) /
-                  static_cast<float>(m_config.numOfScannedFrequencies);
-    return m_config.scanStartFrequency + resonanceIndex * fstep;
+    const float frequencyStep =
+        (m_config.scanStopFrequency - m_config.scanStartFrequency) /
+        static_cast<float>(m_config.numOfScannedFrequencies);
+    return m_config.scanStartFrequency +
+           static_cast<float>(resonanceIndex) * frequencyStep;
 }
 
-float BonderModule::calculateDriveAmplitude(uint8_t resonanceIndex) const
+float BonderModule::calculateDriveAmplitude(uint8_t resonanceIndex, float targetPower)
 {
-    const complexf z = m_impedances[resonanceIndex];
-    const float z_abs2 = complexf_abs2(z);
-
-    if (z_abs2 <= 0.0f) {
+    const complexf impedance = m_impedances[resonanceIndex];
+    const float magnitudeSquared = complexf_abs2(impedance);
+    if (magnitudeSquared <= 0.0f) {
         return 0.0f;
     }
 
-    return amplitudeForTargetPower(z.re / z_abs2);
+    return amplitudeForTargetPower(impedance.re / magnitudeSquared, targetPower);
 }
 
 // =============================================================================
-// Step functions
-// =============================================================================
-
-BonderModule::StepStatus BonderModule::stepWaitForTrigger()
-{
-    if (m_rightButtonPressed) return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepMoveToSearchHeight()
-{
-    if (!m_stepStarted) {
-        m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilIdleCurrent);
-        setZMotorPosition(m_config.searchHeight);
-        m_stepStarted = true;
-    }
-    if (m_positionError)  return StepStatus::Error;
-    if (m_forceCoilError) return StepStatus::Error;
-    if (zMotorPositionReached() && m_forceCoilCurrentSettled && m_rightButtonReleased)
-        return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepSearch()
-{
-    if (!m_stepStarted) {
-        m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilSearchingCurrent);
-        setZMotorPosition(m_config.lowestOvertravel);
-        m_stepStarted = true;
-    }
-    if (m_positionError)  return StepStatus::Error;
-    if (m_forceCoilError) return StepStatus::Error;
-    if (m_contactPinDisconnected && m_forceCoilCurrentSettled)
-        return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepSettle()
-{
-    if (!m_stepStarted) {
-        m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilSettlingCurrent);
-        m_timer->start(true, m_config.settlingTime);
-        m_stepStarted = true;
-    }
-    if (m_forceCoilError) return StepStatus::Error;
-    if (m_timerExpired && m_forceCoilCurrentSettled)
-        return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepScanImpedance()
-{
-    if (!m_stepStarted) {
-        m_impedanceScannerModule->start(m_voltagePhasors, m_currentPhasors, m_impedances);
-        m_stepStarted = true;
-    }
-    if (m_impedanceScanningCompleted) {
-        computeOperatingPoint();
-        return StepStatus::Done;
-    }
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepWeld()
-{
-    if (!m_stepStarted) {
-        m_pllModule->start(m_centerFrequency,
-                     m_driveAmplitude,
-                     m_config.bondingEnergy,
-                     m_config.maxBondingDuration);
-        m_stepStarted = true;
-    }
-    if (m_usPowerError)       return StepStatus::Error;
-    if (m_usPowerTransferred) return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepFirstBondCool()
-{
-    if (!m_stepStarted) {
-        m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilIdleCurrent);
-        m_clampSolenoid->close();
-        m_timer->start(true, m_config.coolingTime);
-        m_stepStarted = true;
-    }
-    if (m_forceCoilError) return StepStatus::Error;
-    if (m_timerExpired && m_forceCoilCurrentSettled && m_clampOpened)
-        return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepFormLoopTAndZ()
-{
-    if (!m_stepStarted) {
-        setZMotorPosition(m_config.kinkHeight);
-        m_tAxisRouter->append(m_config.tailDisplacement);
-        m_stepStarted = true;
-    }
-    if (m_positionError) return StepStatus::Error;
-    if (zMotorPositionReached() && m_tMoveCompleted) return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepFormLoopYReverse()
-{
-    if (!m_stepStarted) {
-        m_yAxisRouter->append(m_config.yReverseDisplacement);
-        m_stepStarted = true;
-    }
-    if (m_yMoveCompleted) return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepFormLoopZ()
-{
-    if (!m_stepStarted) {
-        setZMotorPosition(m_config.loopHeight);
-        m_stepStarted = true;
-    }
-    if (m_positionError)  return StepStatus::Error;
-    if (zMotorPositionReached()) return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepWaitSecondTrigger()
-{
-    if (m_rightButtonPressed) return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepPrepCloseClamp()
-{
-    if (!m_stepStarted) {
-        m_clampSolenoid->open();    // open solenoid → closes clamp mechanically
-        m_stepStarted = true;
-    }
-    if (m_clampClosed) return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepPrepStepBack()
-{
-    if (!m_stepStarted) {
-        m_yAxisRouter->append(m_config.yStepbackDisplacement);
-        m_stepStarted = true;
-    }
-    if (m_yMoveCompleted) return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepPrepOpenClamp()
-{
-    if (!m_stepStarted) {
-        m_clampSolenoid->close();   // close solenoid → opens clamp mechanically
-        m_stepStarted = true;
-    }
-    if (m_clampOpened) return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepSecondBondCool()
-{
-    if (!m_stepStarted) {
-        m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilIdleCurrent);
-        m_clampSolenoid->open();    // open solenoid → closes clamp mechanically
-        m_timer->start(true, m_config.coolingTime);
-        m_stepStarted = true;
-    }
-    if (m_forceCoilError) return StepStatus::Error;
-    if (m_timerExpired && m_forceCoilCurrentSettled && m_clampClosed)
-        return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepTearTMove()
-{
-    if (!m_stepStarted) {
-        m_tAxisRouter->append(m_config.tearDisplacement);
-        m_stepStarted = true;
-    }
-    if (m_tMoveCompleted) return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepRestoreZWaitContact()
-{
-    if (!m_stepStarted) {
-        setZMotorPosition(m_config.resetHeight);
-        m_timer->start(true, m_config.tailRestoreDelay);
-        m_stepStarted = true;
-    }
-    if (m_positionError) return StepStatus::Error;
-    if (m_contactPinConnected && m_timerExpired)
-        return StepStatus::Done;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepRestoreScanImpedance()
-{
-    if (!m_stepStarted) {
-        m_impedanceScannerModule->start(m_voltagePhasors, m_currentPhasors, m_impedances);
-        m_stepStarted = true;
-    }
-    if (m_impedanceScanningCompleted) {
-        computeOperatingPoint();
-        return StepStatus::Done;
-    }
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepRestoreTMoveWithUs()
-{
-    if (!m_stepStarted) {
-        m_pllModule->start(m_centerFrequency,
-                     m_driveAmplitude,
-                     m_config.bondingEnergy,
-                     m_config.maxBondingDuration);
-        m_tAxisRouter->append(m_config.tailDisplacement);
-        m_timer->start(true, m_config.yRestoreDelay);
-        m_stepStarted = true;
-    }
-    // Once the Y-restore delay fires, kick off the Y move (only once).
-    if (m_timerExpired) {
-        m_timerExpired = false;
-        m_yAxisRouter->append(m_config.yStepbackDisplacement);
-    }
-    if (m_usPowerError) return StepStatus::Error;
-    return StepStatus::Running;
-}
-
-BonderModule::StepStatus BonderModule::stepRestoreYMove()
-{
-    if (m_tMoveCompleted && m_yMoveCompleted && zMotorPositionReached() && m_usPowerTransferred) {
-        m_clampSolenoid->close();
-        return StepStatus::Done;
-    }
-    return StepStatus::Running;
-}
-
-// =============================================================================
-// Static ISR callbacks
+// Callbacks
 // =============================================================================
 
 void BonderModule::onSolenoidChanged(void *context, SolenoidChannel::State state)
 {
-    auto *self = static_cast<BonderModule*>(context);
-    // Solenoid CLOSED (energised) → spring opens clamp
-    // Solenoid OPENED (de-energised) → spring closes clamp
-    if (state == SolenoidChannel::State::CLOSED) self->m_clampOpened = true;
-    if (state == SolenoidChannel::State::OPENED) self->m_clampClosed = true;
+    BonderModule *self = static_cast<BonderModule *>(context);
+    if (state == SolenoidChannel::State::OPENED) {
+        self->m_clampOpened = true;
+    } else if (state == SolenoidChannel::State::CLOSED) {
+        self->m_clampClosed = true;
+    }
 }
 
-void BonderModule::onContactSensorTransition(void *context,
-                                              PinMonitorChannel::Transition transition)
+void BonderModule::onContactSensorTransition(
+    void *context, PinMonitorChannel::Transition transition)
 {
-    auto *self = static_cast<BonderModule*>(context);
-    if (transition == PinMonitorChannel::Transition::LOW_TO_HIGH)
+    BonderModule *self = static_cast<BonderModule *>(context);
+    if (transition == PinMonitorChannel::Transition::LOW_TO_HIGH) {
         self->m_contactPinDisconnected = true;
-    if (transition == PinMonitorChannel::Transition::HIGH_TO_LOW)
+    } else if (transition == PinMonitorChannel::Transition::HIGH_TO_LOW) {
         self->m_contactPinConnected = true;
+    }
 }
 
-void BonderModule::onMouseRightButtonTransition(void *context,
-                                                 PinMonitorChannel::Transition transition)
+void BonderModule::onMouseRightButtonTransition(
+    void *context, PinMonitorChannel::Transition transition)
 {
-    auto *self = static_cast<BonderModule*>(context);
-    if (transition == PinMonitorChannel::Transition::LOW_TO_HIGH)
+    BonderModule *self = static_cast<BonderModule *>(context);
+    if (transition == PinMonitorChannel::Transition::LOW_TO_HIGH) {
         self->m_rightButtonPressed = true;
-    else if (transition == PinMonitorChannel::Transition::HIGH_TO_LOW)
+    } else if (transition == PinMonitorChannel::Transition::HIGH_TO_LOW) {
         self->m_rightButtonReleased = true;
+    }
 }
 
-void BonderModule::onTimerDone(void *context, Timer *t)
+void BonderModule::onTimerDone(void *context, Timer *timer)
 {
-    (void)t;
-    static_cast<BonderModule*>(context)->m_timerExpired = true;
+    (void)timer;
+    static_cast<BonderModule *>(context)->m_timerExpired = true;
+}
+
+void BonderModule::onYAxisRouterDone(void *context, RouterChannel *channel)
+{
+    (void)channel;
+    static_cast<BonderModule *>(context)->m_yMoveCompleted = true;
+}
+
+void BonderModule::onTAxisRouterDone(void *context, RouterChannel *channel)
+{
+    (void)channel;
+    static_cast<BonderModule *>(context)->m_tMoveCompleted = true;
 }
 
 void BonderModule::onPllEvent(void *context, PllModule::Event event)
 {
-    auto *self = static_cast<BonderModule*>(context);
-    if (event == PllModule::Event::BondingCompleted)
+    BonderModule *self = static_cast<BonderModule *>(context);
+    if (event == PllModule::Event::BondingCompleted) {
         self->m_usPowerTransferred = true;
-    else if (event == PllModule::Event::InsufficientBondingPower)
+    } else if (event == PllModule::Event::InsufficientBondingPower) {
         self->m_usPowerError = true;
+    }
 }
 
-void BonderModule::onForceCoilEvent(ForceCoilDriverModule::Event eventId)
+void BonderModule::onForceCoilEvent(ForceCoilDriverModule::Event event)
 {
-    if (!s_instance) return;
-    if (eventId == ForceCoilDriverModule::Event::SetpointAchieved)
+    if (s_instance == nullptr) {
+        return;
+    }
+
+    if (event == ForceCoilDriverModule::Event::SetpointAchieved) {
         s_instance->m_forceCoilCurrentSettled = true;
-    else if (eventId == ForceCoilDriverModule::Event::UnableToSetCurrent)
+    } else if (event == ForceCoilDriverModule::Event::UnableToSetCurrent) {
         s_instance->m_forceCoilError = true;
+    }
 }
 
 bool BonderModule::onZMotorPositionSetpoint(void *context, float *positionSetpoint)
 {
-    auto *self = static_cast<BonderModule*>(context);
-
+    BonderModule *self = static_cast<BonderModule *>(context);
     if (positionSetpoint == nullptr ||
         self->m_systemState != State::Operating ||
         !self->m_zMotorSetpointActive) {
@@ -632,20 +754,11 @@ bool BonderModule::onZMotorPositionSetpoint(void *context, float *positionSetpoi
     return true;
 }
 
-void BonderModule::onImpedanceScanned(void *context, complexf *v, complexf *c, complexf *i)
+void BonderModule::onImpedanceScanned(
+    void *context, complexf *voltage, complexf *current, complexf *impedances)
 {
-    (void)v; (void)c; (void)i;
-    static_cast<BonderModule*>(context)->m_impedanceScanningCompleted = true;
-}
-
-void BonderModule::onYAxisRouterDone(void *context, RouterChannel *channel)
-{
-    (void)channel;
-    static_cast<BonderModule*>(context)->m_yMoveCompleted = true;
-}
-
-void BonderModule::onTAxisRouterDone(void *context, RouterChannel *channel)
-{
-    (void)channel;
-    static_cast<BonderModule*>(context)->m_tMoveCompleted = true;
+    (void)voltage;
+    (void)current;
+    (void)impedances;
+    static_cast<BonderModule *>(context)->m_impedanceScanningCompleted = true;
 }

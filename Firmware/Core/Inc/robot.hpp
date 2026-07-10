@@ -34,6 +34,7 @@
 #include "debug_motor_velocity_controller.hpp"
 #include "debug_force_coil.hpp"
 #include "debug_motor_position_controller.hpp"
+#include "debug_stepper_router.hpp"
 #endif
 
 class Robot {
@@ -282,6 +283,7 @@ private:
     static bool startMotorVelocityDebugDependencies(void *context, uint16_t localCommand);
     static bool startForceCoilDebugDependencies(void *context, uint16_t localCommand);
     static bool startMotorPositionDebugDependencies(void *context, uint16_t localCommand);
+    static bool startStepperRouterDebugDependencies(void *context, uint16_t localCommand);
     static void stopImpedanceScannerDebugDependencies(void *context, uint16_t localCommand);
     static void stopPllDebugDependencies(void *context, uint16_t localCommand);
     static void stopToneGeneratorDebugDependencies(void *context, uint16_t localCommand);
@@ -289,6 +291,7 @@ private:
     static void stopMotorVelocityDebugDependencies(void *context, uint16_t localCommand);
     static void stopForceCoilDebugDependencies(void *context, uint16_t localCommand);
     static void stopMotorPositionDebugDependencies(void *context, uint16_t localCommand);
+    static void stopStepperRouterDebugDependencies(void *context, uint16_t localCommand);
 
     static DebugService                 m_debugService;
     static DebugImpedanceScanner        m_debugChannelImpedanceScanner;
@@ -298,6 +301,7 @@ private:
     static DebugMotorVelocityController m_debugChannelMotorVelocityController;
     static DebugForceCoil               m_debugChannelForceCoil;
     static DebugMotorPositionController m_debugChannelMotorPositionController;
+    static DebugStepperRouter           m_debugChannelStepperRouter;
 #endif
     bool m_startDebugService;
     bool m_startIoExpanderService;

@@ -18,6 +18,7 @@ public:
     bool     enqueueSegment(qint7_8_t segment);
     bool     segmentQueueIsAvailable();
     uint16_t getPendingSegmentCount();
+    bool     isIdle();
     void     clearSegmentQueue();
 
     int32_t getMotorPosition();

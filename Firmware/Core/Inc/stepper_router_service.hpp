@@ -20,10 +20,14 @@ public:
 
     void addMoveCompleteListenerCallback(void *context, Callback cb);
 
+    // Move relative to the last completed logical position.
     void append(float displacement);
+    // Move to an absolute logical position. The origin is zero at start().
+    void moveTo(float position);
+    float getPosition() const;
     bool isBusy() const;
 
-    static float stepsToMeters(int32_t positionInSteps);
+    static float stepsToMillimeters(int32_t positionInSteps);
 
     void start();    // called by StepperRouterService on startService
     void stop();     // called by StepperRouterService on stopService
@@ -41,7 +45,7 @@ private:
     };
 
     void      formTrapezoidRoute(float displacement);
-    float     getPosition(bool &endOfRoute) const;
+    float     getRoutePosition(bool &endOfRoute) const;
     float     getPositionAccelerating(float t) const;
     float     getPositionConstantVelocity(float t) const;
     float     getPositionDecelerating(float t) const;
@@ -55,6 +59,8 @@ private:
     void           *m_callbackContext;
     RouteParams     m_routeParams;
     bool            m_isBusy;
+    float           m_position;       // last completed logical position (mm)
+    float           m_targetPosition; // active move target (mm)
     uint32_t        m_numOfRenderedSegments;
     qint55_8_t      m_lastRenderedStepperServicePosition;
 };

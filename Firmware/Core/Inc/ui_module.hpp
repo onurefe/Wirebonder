@@ -27,9 +27,9 @@
 //   up/down      scroll parameter within group
 //   plus/minus   adjust selected parameter ± step
 //   step_±       cycle step size  0.01→0.05→0.1→0.5→1.0
-//   tail_±       directly nudge tailDisplacement (+ jump cursor)
+//   tail_±       directly nudge tailPosition     (+ jump cursor)
 //   loop_±       directly nudge loopHeight       (+ jump cursor)
-//   search_±     directly nudge searchHeight     (+ jump cursor)
+//   search_±     directly nudge firstSearchHeight (+ jump cursor)
 //   save/load    fire registered persistence callbacks
 // ---------------------------------------------------------------------------
 class UiModule {
@@ -89,7 +89,7 @@ private:
     };
 
     static constexpr uint8_t kNumGroups  = 6U;
-    static constexpr uint8_t kParamCount = 23U;
+    static constexpr uint8_t kParamCount = 26U;
     static const ParamDescriptor kParams[kParamCount];
     static const char *kGroupNames[kNumGroups];
 
