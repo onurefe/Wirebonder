@@ -32,6 +32,7 @@
 #include "debug_leds.hpp"
 #include "debug_lcd.hpp"
 #include "debug_io.hpp"
+#include "debug_solenoids.hpp"
 #include "debug_pll.hpp"
 #include "debug_tone_generator.hpp"
 #include "debug_motor_velocity_controller.hpp"
@@ -107,10 +108,10 @@ private:
     /* Solenoid drive lines. */
     static FastIO m_clampLowPin;
     static FastIO m_clampHighPin;
+    static FastIO m_sol1LowPin;
+    static FastIO m_sol1HighPin;
     static FastIO m_sol2LowPin;
     static FastIO m_sol2HighPin;
-    static FastIO m_sol3LowPin;
-    static FastIO m_sol3HighPin;
 
     /* Digital inputs / contact sensors. */
     static FastIO m_contactSensorPin;
@@ -158,8 +159,8 @@ private:
     static TimerExpireService m_timerExpireService;
 
     static Timer m_clampSolenoidTimer;
+    static Timer m_sol1SolenoidTimer;
     static Timer m_sol2SolenoidTimer;
-    static Timer m_sol3SolenoidTimer;
     static Timer m_bonderTimer;
     static Timer m_pinMonitorCriticalTimer;
     static Timer m_pinMonitorNormalTimer;
@@ -228,8 +229,8 @@ private:
     // =========================================================================
     
     static DirectSolenoidChannel m_clampSolenoidChannel;
+    static DirectSolenoidChannel m_sol1SolenoidChannel;
     static DirectSolenoidChannel m_sol2SolenoidChannel;
-    static DirectSolenoidChannel m_sol3SolenoidChannel;
     static SolenoidService m_solenoidService;
 
     // =========================================================================
@@ -289,6 +290,7 @@ private:
     static bool startLedDebugDependencies(void *context, uint16_t localCommand);
     static bool startLcdDebugDependencies(void *context, uint16_t localCommand);
     static bool startIoDebugDependencies(void *context, uint16_t localCommand);
+    static bool startSolenoidDebugDependencies(void *context, uint16_t localCommand);
     static bool startMotorVelocityDebugDependencies(void *context, uint16_t localCommand);
     static bool startForceCoilDebugDependencies(void *context, uint16_t localCommand);
     static bool startMotorPositionDebugDependencies(void *context, uint16_t localCommand);
@@ -307,6 +309,7 @@ private:
     static DebugLeds                    m_debugChannelLeds;
     static DebugLcd                     m_debugChannelLcd;
     static DebugIo                      m_debugChannelIo;
+    static DebugSolenoids               m_debugChannelSolenoids;
     static DebugToneGenerator           m_debugChannelToneGenerator;
     static DebugPll                     m_debugChannelPll;
     static DebugMotorVelocityController m_debugChannelMotorVelocityController;

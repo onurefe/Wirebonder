@@ -64,6 +64,7 @@
 #define DEBUG_CHANNEL_ID_LEDS                                        9
 #define DEBUG_CHANNEL_ID_LCD                                         10
 #define DEBUG_CHANNEL_ID_IO                                          11
+#define DEBUG_CHANNEL_ID_SOLENOIDS                                   12
 
 #define DEBUG_TELEMETRY_DEPTH                                        4000
 #define DEBUG_TELEMETRY_BUFFER_SIZE_BYTES                            (DEBUG_TELEMETRY_DEPTH * 16)
@@ -138,7 +139,9 @@
 /* RouterModule --------------------------------------------------------------*/
 #define ROUTER_MODULE_SEGMENT_RENDER_FREQUENCY                       100.
 #define ROUTER_MODULE_MAX_NUM_OF_ROUTERS                             4
-#define ROUTER_MODULE_STEP_PER_MM                                    400
+
+#define ROUTER_MODULE_Y_AXIS_STEPS_PER_MM                            1800.0f
+#define ROUTER_MODULE_T_AXIS_STEPS_PER_MM                            400.0f
 
 /* BonderModule --------------------------------------------------------------*/
 /* Force coil currents (A) */
@@ -187,8 +190,8 @@
 /* Robot module --------------------------------------------------------------*/
 #define ROBOT_Y_AXIS_MAX_VELOCITY                           50.0
 #define ROBOT_Y_AXIS_MAX_ACCELERATION                       50.0
-#define ROBOT_T_AXIS_MAX_VELOCITY                           50.0
-#define ROBOT_T_AXIS_MAX_ACCELERATION                       50.0
+#define ROBOT_T_AXIS_MAX_VELOCITY                           2.5
+#define ROBOT_T_AXIS_MAX_ACCELERATION                       10.0
 
 #define ROBOT_BONDER_CONFIG_OBJECT_ID                       1
 
@@ -282,10 +285,10 @@
 #define CLAMP_SOLENOID_DEENERGIZE_TIME                      0.05
 
 /* Auxiliary non-latching solenoids: mechanical transition times in seconds. */
+#define SOL1_SOLENOID_ENERGIZE_TIME                         0.05
+#define SOL1_SOLENOID_DEENERGIZE_TIME                       0.05
 #define SOL2_SOLENOID_ENERGIZE_TIME                         0.05
 #define SOL2_SOLENOID_DEENERGIZE_TIME                       0.05
-#define SOL3_SOLENOID_ENERGIZE_TIME                         0.05
-#define SOL3_SOLENOID_DEENERGIZE_TIME                       0.05
 
 /* StepperService ------------------------------------------------------------*/
 #define STEPPER_SERVICE_DIR_PIN_INVERT                      false

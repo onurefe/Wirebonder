@@ -234,7 +234,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T2_TRGO;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.NbrOfConversion = 2;
-  hadc1.Init.DMAContinuousRequests = ENABLE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
@@ -295,7 +295,7 @@ static void MX_ADC2_Init(void)
   hadc2.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T3_TRGO;
   hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc2.Init.NbrOfConversion = 4;
-  hadc2.Init.DMAContinuousRequests = ENABLE;
+  hadc2.Init.DMAContinuousRequests = DISABLE;
   hadc2.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   if (HAL_ADC_Init(&hadc2) != HAL_OK)
   {
@@ -888,8 +888,10 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOC, DRIVES_SOL1H_Pin|STEPPER_TEAR_STEP_Pin|STEPPER_TEAR_DIR_Pin|STEPPER_RESET_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, DRIVES_SOL1L_Pin|DRIVES_SOL2H_Pin|DRIVES_SOL2L_Pin|DRIVES_SOL3L_Pin
-                          |DRIVES_SOL3H_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, DRIVES_SOL1L_Pin|DRIVES_SOL2L_Pin|DRIVES_SOL3L_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, DRIVES_SOL2H_Pin|DRIVES_SOL3H_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, STEPPER_Y_STEP_Pin|STEPPER_Y_DIR_Pin|STEPPER_EN_Pin, GPIO_PIN_RESET);

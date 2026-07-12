@@ -56,12 +56,14 @@ FastIO Robot::m_yAxisDirPin (STEPPER_Y_DIR_GPIO_Port,     STEPPER_Y_DIR_Pin,    
 FastIO Robot::m_tAxisStepPin(STEPPER_TEAR_STEP_GPIO_Port, STEPPER_TEAR_STEP_Pin, FALSE);
 FastIO Robot::m_tAxisDirPin (STEPPER_TEAR_DIR_GPIO_Port,  STEPPER_TEAR_DIR_Pin,  FALSE);
 
-FastIO Robot::m_clampLowPin (DRIVES_SOL1L_GPIO_Port, DRIVES_SOL1L_Pin, FALSE);
-FastIO Robot::m_clampHighPin(DRIVES_SOL1H_GPIO_Port, DRIVES_SOL1H_Pin, FALSE);
-FastIO Robot::m_sol2LowPin  (DRIVES_SOL2L_GPIO_Port, DRIVES_SOL2L_Pin, FALSE);
+// Sol1 and Sol2 drivers are unavailable. The clamp coil is connected to the
+// working Sol3 driver, so keep the logical clamp names mapped to Sol3.
+FastIO Robot::m_clampLowPin (DRIVES_SOL3L_GPIO_Port, DRIVES_SOL3L_Pin, TRUE);
+FastIO Robot::m_clampHighPin(DRIVES_SOL3H_GPIO_Port, DRIVES_SOL3H_Pin, FALSE);
+FastIO Robot::m_sol1LowPin  (DRIVES_SOL1L_GPIO_Port, DRIVES_SOL1L_Pin, TRUE);
+FastIO Robot::m_sol1HighPin (DRIVES_SOL1H_GPIO_Port, DRIVES_SOL1H_Pin, FALSE);
+FastIO Robot::m_sol2LowPin  (DRIVES_SOL2L_GPIO_Port, DRIVES_SOL2L_Pin, TRUE);
 FastIO Robot::m_sol2HighPin (DRIVES_SOL2H_GPIO_Port, DRIVES_SOL2H_Pin, FALSE);
-FastIO Robot::m_sol3LowPin  (DRIVES_SOL3L_GPIO_Port, DRIVES_SOL3L_Pin, FALSE);
-FastIO Robot::m_sol3HighPin (DRIVES_SOL3H_GPIO_Port, DRIVES_SOL3H_Pin, FALSE);
 
 FastIO Robot::m_contactSensorPin    (CONTACT_SENSORS_TIP_GPIO_Port,         CONTACT_SENSORS_TIP_Pin,         FALSE);
 FastIO Robot::m_mouseRightButtonPin (CONTACT_SENSORS_MOUSE_RIGHT_GPIO_Port, CONTACT_SENSORS_MOUSE_RIGHT_Pin, FALSE);
@@ -165,8 +167,8 @@ PwmRampChannel Robot::m_zMotorPwmChannel(
 TimerExpireService Robot::m_timerExpireService;
 
 Timer Robot::m_clampSolenoidTimer;
+Timer Robot::m_sol1SolenoidTimer;
 Timer Robot::m_sol2SolenoidTimer;
-Timer Robot::m_sol3SolenoidTimer;
 Timer Robot::m_bonderTimer;
 Timer Robot::m_pinMonitorCriticalTimer;
 Timer Robot::m_pinMonitorNormalTimer;
@@ -246,19 +248,19 @@ DirectSolenoidChannel Robot::m_clampSolenoidChannel(
     CLAMP_SOLENOID_ENERGIZE_TIME,
     CLAMP_SOLENOID_DEENERGIZE_TIME);
 
+DirectSolenoidChannel Robot::m_sol1SolenoidChannel(
+    &Robot::m_sol1HighPin,
+    &Robot::m_sol1LowPin,
+    &Robot::m_sol1SolenoidTimer,
+    SOL1_SOLENOID_ENERGIZE_TIME,
+    SOL1_SOLENOID_DEENERGIZE_TIME);
+
 DirectSolenoidChannel Robot::m_sol2SolenoidChannel(
     &Robot::m_sol2HighPin,
     &Robot::m_sol2LowPin,
     &Robot::m_sol2SolenoidTimer,
     SOL2_SOLENOID_ENERGIZE_TIME,
     SOL2_SOLENOID_DEENERGIZE_TIME);
-
-DirectSolenoidChannel Robot::m_sol3SolenoidChannel(
-    &Robot::m_sol3HighPin,
-    &Robot::m_sol3LowPin,
-    &Robot::m_sol3SolenoidTimer,
-    SOL3_SOLENOID_ENERGIZE_TIME,
-    SOL3_SOLENOID_DEENERGIZE_TIME);
 
 SolenoidService Robot::m_solenoidService;
 
@@ -271,12 +273,14 @@ StepperChannel Robot::m_tAxisStepperChannel(&Robot::m_tAxisStepPin, &Robot::m_tA
 RouterChannel Robot::m_yAxisRouterChannel(
     &Robot::m_yAxisStepperChannel,
     ROBOT_Y_AXIS_MAX_VELOCITY,
-    ROBOT_Y_AXIS_MAX_ACCELERATION);
+    ROBOT_Y_AXIS_MAX_ACCELERATION,
+    ROUTER_MODULE_Y_AXIS_STEPS_PER_MM);
 
 RouterChannel Robot::m_tAxisRouterChannel(
     &Robot::m_tAxisStepperChannel,
     ROBOT_T_AXIS_MAX_VELOCITY,
-    ROBOT_T_AXIS_MAX_ACCELERATION);
+    ROBOT_T_AXIS_MAX_ACCELERATION,
+    ROUTER_MODULE_T_AXIS_STEPS_PER_MM);
 
 StepperRouterService Robot::m_routerService;
 
@@ -377,6 +381,7 @@ DebugKeypad                  Robot::m_debugChannelKeypad;
 DebugLeds                    Robot::m_debugChannelLeds;
 DebugLcd                     Robot::m_debugChannelLcd;
 DebugIo                      Robot::m_debugChannelIo;
+DebugSolenoids               Robot::m_debugChannelSolenoids;
 DebugToneGenerator           Robot::m_debugChannelToneGenerator;
 DebugPll                     Robot::m_debugChannelPll;
 DebugMotorVelocityController Robot::m_debugChannelMotorVelocityController;
@@ -392,8 +397,8 @@ Robot::Robot()
 {
     // Timers.
     m_timerExpireService.addTimer(&m_clampSolenoidTimer,      false);
+    m_timerExpireService.addTimer(&m_sol1SolenoidTimer,       false);
     m_timerExpireService.addTimer(&m_sol2SolenoidTimer,       false);
-    m_timerExpireService.addTimer(&m_sol3SolenoidTimer,       false);
     m_timerExpireService.addTimer(&m_bonderTimer,             false);
     m_timerExpireService.addTimer(&m_pinMonitorCriticalTimer, true);
     m_timerExpireService.addTimer(&m_pinMonitorNormalTimer,   false);
@@ -471,8 +476,8 @@ Robot::Robot()
 
     // Solenoid channels.
     m_solenoidService.addChannel(&m_clampSolenoidChannel);
+    m_solenoidService.addChannel(&m_sol1SolenoidChannel);
     m_solenoidService.addChannel(&m_sol2SolenoidChannel);
-    m_solenoidService.addChannel(&m_sol3SolenoidChannel);
 
     // Router channels.
     m_routerService.addChannel(&m_yAxisRouterChannel);
@@ -537,6 +542,14 @@ Robot::Robot()
     };
     m_debugChannelIo.init(kBridgeIoPins,
                           sizeof(kBridgeIoPins) / sizeof(kBridgeIoPins[0]));
+    static DirectSolenoidChannel *const kBridgeSolenoids[] = {
+        &m_clampSolenoidChannel,
+        &m_sol1SolenoidChannel,
+        &m_sol2SolenoidChannel
+    };
+    m_debugChannelSolenoids.init(
+        kBridgeSolenoids,
+        sizeof(kBridgeSolenoids) / sizeof(kBridgeSolenoids[0]));
     m_debugChannelPll.init(&m_pllModule);
     m_debugChannelMotorVelocityController.init(&m_zMotorVelocityControllerModule);
     m_debugChannelForceCoil.init(&m_forceCoilControllerModule);
@@ -567,6 +580,9 @@ Robot::Robot()
     m_debugChannelIo.setDependencyCallback(
         this,
         &Robot::startIoDebugDependencies);
+    m_debugChannelSolenoids.setDependencyCallback(
+        this,
+        &Robot::startSolenoidDebugDependencies);
     m_debugChannelMotorVelocityController.setDependencyCallback(
         this,
         &Robot::startMotorVelocityDebugDependencies);
@@ -616,6 +632,7 @@ Robot::Robot()
     m_debugService.addChannel(&m_debugChannelLeds);
     m_debugService.addChannel(&m_debugChannelLcd);
     m_debugService.addChannel(&m_debugChannelIo);
+    m_debugService.addChannel(&m_debugChannelSolenoids);
     m_debugService.addChannel(&m_debugChannelMotorVelocityController);
     m_debugService.addChannel(&m_debugChannelForceCoil);
     m_debugService.addChannel(&m_debugChannelMotorPositionController);
@@ -713,6 +730,18 @@ bool Robot::startIoDebugDependencies(void *context, uint16_t localCommand)
     Robot *robot = static_cast<Robot *>(context);
     robot->m_startTimerExpireService = true;
     robot->m_startPinMonitorService = true;
+    return true;
+}
+
+bool Robot::startSolenoidDebugDependencies(void *context, uint16_t localCommand)
+{
+    if (localCommand != DebugSolenoids::CMD_SET) {
+        return false;
+    }
+
+    Robot *robot = static_cast<Robot *>(context);
+    robot->m_startTimerExpireService = true;
+    robot->m_startSolenoidService = true;
     return true;
 }
 
@@ -1149,6 +1178,7 @@ void Robot::stop()
     m_stopDebugService = true;
     m_stopIoExpanderService = true;
     m_stopTimerExpireService = true;
+    m_stopSolenoidService = true;
     m_stopTim1PwmService = true;
     m_stopDacService = true;
     m_stopAdc1Service = true;

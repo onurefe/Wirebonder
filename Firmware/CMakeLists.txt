@@ -106,6 +106,7 @@ set(CPP_SOURCES
     Core/Src/debug_leds.cpp
     Core/Src/debug_lcd.cpp
     Core/Src/debug_io.cpp
+    Core/Src/debug_solenoids.cpp
     Core/Src/debug_pll.cpp
     Core/Src/debug_tone_generator.cpp
     Core/Src/debug_impedance_scanner.cpp

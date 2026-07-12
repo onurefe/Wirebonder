@@ -17,6 +17,9 @@ Sourced by GDB, or by running ./debug_test.sh from the Firmware directory:
     (gdb) debug-lcd 0 Hello, world!
     (gdb) debug-lcd clear
     (gdb) debug-io
+    (gdb) debug-solenoid clamp energize
+    (gdb) debug-solenoid clamp deenergize
+    (gdb) debug-solenoid all deenergize
     (gdb) debug-motor-velocity 50 4
     (gdb) debug-motor-velocity 0.1 4 open
     (gdb) debug-motor-position 1.0 4

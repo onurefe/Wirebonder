@@ -30,6 +30,7 @@ class Channel:
     LEDS = 9
     LCD = 10
     IO = 11
+    SOLENOIDS = 12
 
 
 def command_word(channel_id, local_command):

@@ -10,6 +10,7 @@ from .motor_velocity import DebugMotorVelocity
 from .pll import DebugPll, DebugStop
 from .scan import DebugScan
 from .status import DebugStatus
+from .solenoids import DebugSolenoids
 from .stepper_router import DebugStepperRouter, DebugStepperRouterStop
 from .tone import DebugTone, DebugToneStop
 
@@ -24,6 +25,7 @@ COMMAND_CLASSES = [
     DebugLeds,
     DebugLcd,
     DebugIoPins,
+    DebugSolenoids,
     DebugMotorVelocity,
     DebugMotorPosition,
     DebugMotorPositionStall,

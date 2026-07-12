@@ -16,7 +16,10 @@ class RouterChannel {
 public:
     using Callback = void (*)(void *context, RouterChannel *channel);
 
-    RouterChannel(StepperChannel *stepper, float maxVel, float maxAcc);
+    RouterChannel(StepperChannel *stepper,
+                  float maxVel,
+                  float maxAcc,
+                  float stepPerMm);
 
     void addMoveCompleteListenerCallback(void *context, Callback cb);
 
@@ -27,7 +30,7 @@ public:
     float getPosition() const;
     bool isBusy() const;
 
-    static float stepsToMillimeters(int32_t positionInSteps);
+    float stepsToMillimeters(int32_t positionInSteps) const;
 
     void start();    // called by StepperRouterService on startService
     void stop();     // called by StepperRouterService on stopService
@@ -55,6 +58,7 @@ private:
     StepperChannel *m_stepper;
     float           m_maxVelocity;
     float           m_maxAcceleration;
+    float           m_stepPerMm;
     Callback        m_callback;
     void           *m_callbackContext;
     RouteParams     m_routeParams;

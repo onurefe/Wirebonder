@@ -3,10 +3,14 @@
 // =======================================================================
 // RouterChannel
 // =======================================================================
-RouterChannel::RouterChannel(StepperChannel *stepper, float maxVel, float maxAcc)
+RouterChannel::RouterChannel(StepperChannel *stepper,
+                             float maxVel,
+                             float maxAcc,
+                             float stepPerMm)
     : m_stepper(stepper)
     , m_maxVelocity(maxVel)
     , m_maxAcceleration(maxAcc)
+    , m_stepPerMm(stepPerMm)
     , m_callback(nullptr)
     , m_callbackContext(nullptr)
     , m_routeParams{}
@@ -53,10 +57,14 @@ bool RouterChannel::isBusy() const
     return m_isBusy;
 }
 
-float RouterChannel::stepsToMillimeters(int32_t positionInSteps)
+float RouterChannel::stepsToMillimeters(int32_t positionInSteps) const
 {
+    if (m_stepPerMm <= 0.0f) {
+        return 0.0f;
+    }
+
     return static_cast<float>(positionInSteps) /
-           ROUTER_MODULE_STEP_PER_MM;
+           m_stepPerMm;
 }
 
 void RouterChannel::start()
@@ -186,7 +194,7 @@ float RouterChannel::getRoutePosition(bool &endOfRoute) const
 qint55_8_t RouterChannel::convertToStepperServicePosition(float position) const
 {
     return static_cast<qint55_8_t>(
-        position * 256.0f * ROUTER_MODULE_STEP_PER_MM
+        position * 256.0f * m_stepPerMm
     );
 }
 
