@@ -27,6 +27,9 @@ class Channel:
     FORCE_COIL = 6
     MOTOR_POSITION = 7
     STEPPER_ROUTER = 8
+    LEDS = 9
+    LCD = 10
+    IO = 11
 
 
 def command_word(channel_id, local_command):

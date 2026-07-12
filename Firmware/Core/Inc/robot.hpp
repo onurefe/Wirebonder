@@ -29,6 +29,9 @@
 #include "debug_service.hpp"
 #include "debug_impedance_scanner.hpp"
 #include "debug_keypad.hpp"
+#include "debug_leds.hpp"
+#include "debug_lcd.hpp"
+#include "debug_io.hpp"
 #include "debug_pll.hpp"
 #include "debug_tone_generator.hpp"
 #include "debug_motor_velocity_controller.hpp"
@@ -50,7 +53,7 @@ private:
     // Callbacks
     // =========================================================================
 
-    static void onYAxisLimitSwitchTransition(void *context, PinMonitorChannel::Transition transition);
+    static void onYAxisLimitSwitchStateChanged(void *context, PinMonitorChannel::PinState state);
     static void onBonderModuleStateChanged(bool isIdle);
     static void onBonderModuleErrorOccurred(BonderModule::Error error);
 
@@ -112,6 +115,7 @@ private:
     /* Digital inputs / contact sensors. */
     static FastIO m_contactSensorPin;
     static FastIO m_mouseRightButtonPin;
+    static FastIO m_mouseLeftButtonPin;
     static FastIO m_yAxisLimitSwitchPin;
 
     // =========================================================================
@@ -181,6 +185,7 @@ private:
 
     static PinMonitorChannel  m_contactSensorChannel;
     static PinMonitorChannel  m_mouseRightButtonChannel;
+    static PinMonitorChannel  m_mouseLeftButtonChannel;
     static PinMonitorChannel  m_yAxisLimitSwitchChannel;
 
     /* Panel buttons — two DPST pins each (TODO: verify IDC assignments). */
@@ -216,14 +221,15 @@ private:
     static LedChannel     m_ledTest;
     static LedChannel     m_ledSetup;
     static LedChannel     m_ledClampOpen;
+    static LedChannel     m_ledManual;
 
     // =========================================================================
     // Output actuators
     // =========================================================================
     
-    static SolenoidChannel m_clampSolenoidChannel;
-    static SolenoidChannel m_sol2SolenoidChannel;
-    static SolenoidChannel m_sol3SolenoidChannel;
+    static DirectSolenoidChannel m_clampSolenoidChannel;
+    static DirectSolenoidChannel m_sol2SolenoidChannel;
+    static DirectSolenoidChannel m_sol3SolenoidChannel;
     static SolenoidService m_solenoidService;
 
     // =========================================================================
@@ -280,6 +286,9 @@ private:
     static bool startPllDebugDependencies(void *context, uint16_t localCommand);
     static bool startToneGeneratorDebugDependencies(void *context, uint16_t localCommand);
     static bool startKeypadDebugDependencies(void *context, uint16_t localCommand);
+    static bool startLedDebugDependencies(void *context, uint16_t localCommand);
+    static bool startLcdDebugDependencies(void *context, uint16_t localCommand);
+    static bool startIoDebugDependencies(void *context, uint16_t localCommand);
     static bool startMotorVelocityDebugDependencies(void *context, uint16_t localCommand);
     static bool startForceCoilDebugDependencies(void *context, uint16_t localCommand);
     static bool startMotorPositionDebugDependencies(void *context, uint16_t localCommand);
@@ -287,7 +296,6 @@ private:
     static void stopImpedanceScannerDebugDependencies(void *context, uint16_t localCommand);
     static void stopPllDebugDependencies(void *context, uint16_t localCommand);
     static void stopToneGeneratorDebugDependencies(void *context, uint16_t localCommand);
-    static void stopKeypadDebugDependencies(void *context, uint16_t localCommand);
     static void stopMotorVelocityDebugDependencies(void *context, uint16_t localCommand);
     static void stopForceCoilDebugDependencies(void *context, uint16_t localCommand);
     static void stopMotorPositionDebugDependencies(void *context, uint16_t localCommand);
@@ -296,6 +304,9 @@ private:
     static DebugService                 m_debugService;
     static DebugImpedanceScanner        m_debugChannelImpedanceScanner;
     static DebugKeypad                  m_debugChannelKeypad;
+    static DebugLeds                    m_debugChannelLeds;
+    static DebugLcd                     m_debugChannelLcd;
+    static DebugIo                      m_debugChannelIo;
     static DebugToneGenerator           m_debugChannelToneGenerator;
     static DebugPll                     m_debugChannelPll;
     static DebugMotorVelocityController m_debugChannelMotorVelocityController;

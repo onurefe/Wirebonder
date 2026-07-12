@@ -65,6 +65,7 @@ FastIO Robot::m_sol3HighPin (DRIVES_SOL3H_GPIO_Port, DRIVES_SOL3H_Pin, FALSE);
 
 FastIO Robot::m_contactSensorPin    (CONTACT_SENSORS_TIP_GPIO_Port,         CONTACT_SENSORS_TIP_Pin,         FALSE);
 FastIO Robot::m_mouseRightButtonPin (CONTACT_SENSORS_MOUSE_RIGHT_GPIO_Port, CONTACT_SENSORS_MOUSE_RIGHT_Pin, FALSE);
+FastIO Robot::m_mouseLeftButtonPin  (CONTACT_SENSORS_MOUSE_LEFT_GPIO_Port,  CONTACT_SENSORS_MOUSE_LEFT_Pin,  FALSE);
 FastIO Robot::m_yAxisLimitSwitchPin (CONTACT_SENSORS_YLIM_GPIO_Port,        CONTACT_SENSORS_YLIM_Pin,        FALSE);
 
 // -----------------------------------------------------------------------------
@@ -193,9 +194,11 @@ StepperService Robot::m_stepperService(&htim6, &Robot::m_stepperEnablePin, &Robo
 // Input monitors  —  pin monitor service + panel buttons
 // -----------------------------------------------------------------------------
 PinMonitorService Robot::m_pinMonitorService(&Robot::m_pinMonitorCriticalTimer, &Robot::m_pinMonitorNormalTimer);
-PinMonitorChannel Robot::m_contactSensorChannel   (&Robot::m_contactSensorPin);
-PinMonitorChannel Robot::m_mouseRightButtonChannel(&Robot::m_mouseRightButtonPin);
-PinMonitorChannel Robot::m_yAxisLimitSwitchChannel(&Robot::m_yAxisLimitSwitchPin);
+// All contact-sensor inputs are behind active-low optocoupler front-ends.
+PinMonitorChannel Robot::m_contactSensorChannel   (&Robot::m_contactSensorPin,    PinMonitorChannel::Level::LOW);
+PinMonitorChannel Robot::m_mouseRightButtonChannel(&Robot::m_mouseRightButtonPin, PinMonitorChannel::Level::LOW);
+PinMonitorChannel Robot::m_mouseLeftButtonChannel (&Robot::m_mouseLeftButtonPin,  PinMonitorChannel::Level::LOW);
+PinMonitorChannel Robot::m_yAxisLimitSwitchChannel(&Robot::m_yAxisLimitSwitchPin, PinMonitorChannel::Level::LOW);
 
 ControlPanelService Robot::m_controlPanelService(&Robot::m_keypadExpanderChannel, &Robot::m_controlPanelPollTimer);
 
@@ -229,27 +232,33 @@ ButtonChannel Robot::m_btnHighReset   (KEYPAD_BTN_HIGH_RESET_A,    KEYPAD_BTN_HI
 LedChannel Robot::m_ledTest     (KEYPAD_LED_TEST);
 LedChannel Robot::m_ledSetup    (KEYPAD_LED_SETUP);
 LedChannel Robot::m_ledClampOpen(KEYPAD_LED_CLAMP_OPEN);
+LedChannel Robot::m_ledManual   (KEYPAD_LED_MANUAL);
 
 // -----------------------------------------------------------------------------
 // Output actuators
 // -----------------------------------------------------------------------------
-SolenoidChannel Robot::m_clampSolenoidChannel(
+// The clamp solenoid is non-latching: it holds the clamp open only while
+// energized, so it is driven through the direct channel.
+DirectSolenoidChannel Robot::m_clampSolenoidChannel(
     &Robot::m_clampHighPin,
     &Robot::m_clampLowPin,
-    SolenoidChannel::DefaultState::CLOSED,
-    &Robot::m_clampSolenoidTimer);
+    &Robot::m_clampSolenoidTimer,
+    CLAMP_SOLENOID_ENERGIZE_TIME,
+    CLAMP_SOLENOID_DEENERGIZE_TIME);
 
-SolenoidChannel Robot::m_sol2SolenoidChannel(
+DirectSolenoidChannel Robot::m_sol2SolenoidChannel(
     &Robot::m_sol2HighPin,
     &Robot::m_sol2LowPin,
-    SolenoidChannel::DefaultState::CLOSED,
-    &Robot::m_sol2SolenoidTimer);
+    &Robot::m_sol2SolenoidTimer,
+    SOL2_SOLENOID_ENERGIZE_TIME,
+    SOL2_SOLENOID_DEENERGIZE_TIME);
 
-SolenoidChannel Robot::m_sol3SolenoidChannel(
+DirectSolenoidChannel Robot::m_sol3SolenoidChannel(
     &Robot::m_sol3HighPin,
     &Robot::m_sol3LowPin,
-    SolenoidChannel::DefaultState::CLOSED,
-    &Robot::m_sol3SolenoidTimer);
+    &Robot::m_sol3SolenoidTimer,
+    SOL3_SOLENOID_ENERGIZE_TIME,
+    SOL3_SOLENOID_DEENERGIZE_TIME);
 
 SolenoidService Robot::m_solenoidService;
 
@@ -365,6 +374,9 @@ UiModule Robot::m_ui(
 DebugService                 Robot::m_debugService;
 DebugImpedanceScanner        Robot::m_debugChannelImpedanceScanner;
 DebugKeypad                  Robot::m_debugChannelKeypad;
+DebugLeds                    Robot::m_debugChannelLeds;
+DebugLcd                     Robot::m_debugChannelLcd;
+DebugIo                      Robot::m_debugChannelIo;
 DebugToneGenerator           Robot::m_debugChannelToneGenerator;
 DebugPll                     Robot::m_debugChannelPll;
 DebugMotorVelocityController Robot::m_debugChannelMotorVelocityController;
@@ -421,7 +433,8 @@ Robot::Robot()
     m_pinMonitorService.addChannel(&m_contactSensorChannel,    true,  PIN_MONITOR_BLIND_REGION_MS);
     m_pinMonitorService.addChannel(&m_yAxisLimitSwitchChannel, true,  PIN_MONITOR_BLIND_REGION_MS);
     m_pinMonitorService.addChannel(&m_mouseRightButtonChannel, false);
-    m_yAxisLimitSwitchChannel.addTransitionListenerCallback(nullptr, &Robot::onYAxisLimitSwitchTransition);
+    m_pinMonitorService.addChannel(&m_mouseLeftButtonChannel,  false);
+    m_yAxisLimitSwitchChannel.addStateListenerCallback(nullptr, &Robot::onYAxisLimitSwitchStateChanged);
 
     // Keypad buttons.
     m_controlPanelService.addButton(&m_btnUp);
@@ -454,6 +467,7 @@ Robot::Robot()
     m_controlPanelService.addLed(&m_ledTest);
     m_controlPanelService.addLed(&m_ledSetup);
     m_controlPanelService.addLed(&m_ledClampOpen);
+    m_controlPanelService.addLed(&m_ledManual);
 
     // Solenoid channels.
     m_solenoidService.addChannel(&m_clampSolenoidChannel);
@@ -494,6 +508,12 @@ Robot::Robot()
         &m_btnSetup,        &m_btnLight,
         &m_btnClampOpen,    &m_btnHighReset
     };
+    static LedChannel *const kBridgeLeds[] = {
+        &m_ledTest,
+        &m_ledSetup,
+        &m_ledClampOpen,
+        &m_ledManual
+    };
 
     m_debugChannelToneGenerator.init(&m_ultrasonicDacChannel,
         &m_ultrasonicVsensChannel,
@@ -502,6 +522,21 @@ Robot::Robot()
     m_debugChannelImpedanceScanner.init(&m_impedanceScannerModule);
 
     m_debugChannelKeypad.init(kBridgeButtons, sizeof(kBridgeButtons) / sizeof(kBridgeButtons[0]));
+    m_debugChannelLeds.init(
+        kBridgeLeds,
+        sizeof(kBridgeLeds) / sizeof(kBridgeLeds[0]),
+        &m_controlPanelService);
+    m_debugChannelLcd.init(&m_lcd);
+
+    // Bridge pin order: TIP, YLIM, MLEFT, MRIGHT (see debugBridge/tests/io.py).
+    static PinMonitorChannel *const kBridgeIoPins[] = {
+        &m_contactSensorChannel,
+        &m_yAxisLimitSwitchChannel,
+        &m_mouseLeftButtonChannel,
+        &m_mouseRightButtonChannel
+    };
+    m_debugChannelIo.init(kBridgeIoPins,
+                          sizeof(kBridgeIoPins) / sizeof(kBridgeIoPins[0]));
     m_debugChannelPll.init(&m_pllModule);
     m_debugChannelMotorVelocityController.init(&m_zMotorVelocityControllerModule);
     m_debugChannelForceCoil.init(&m_forceCoilControllerModule);
@@ -523,6 +558,15 @@ Robot::Robot()
     m_debugChannelKeypad.setDependencyCallback(
         this,
         &Robot::startKeypadDebugDependencies);
+    m_debugChannelLeds.setDependencyCallback(
+        this,
+        &Robot::startLedDebugDependencies);
+    m_debugChannelLcd.setDependencyCallback(
+        this,
+        &Robot::startLcdDebugDependencies);
+    m_debugChannelIo.setDependencyCallback(
+        this,
+        &Robot::startIoDebugDependencies);
     m_debugChannelMotorVelocityController.setDependencyCallback(
         this,
         &Robot::startMotorVelocityDebugDependencies);
@@ -545,9 +589,11 @@ Robot::Robot()
     m_debugChannelToneGenerator.setDependencyReleaseCallback(
         this,
         &Robot::stopToneGeneratorDebugDependencies);
-    m_debugChannelKeypad.setDependencyReleaseCallback(
-        this,
-        &Robot::stopKeypadDebugDependencies);
+    // Keypad and LED channels share the io expander / timer / control panel
+    // stack. Those services are started on first use and left running:
+    // ControlPanelService::startService() resets its output shadow registers,
+    // so a stop/start cycle per command would desync the shadow from the
+    // PCA9535 output state.
     m_debugChannelMotorVelocityController.setDependencyReleaseCallback(
         this,
         &Robot::stopMotorVelocityDebugDependencies);
@@ -567,6 +613,9 @@ Robot::Robot()
     m_debugService.addChannel(&m_debugChannelPll);
     m_debugService.addChannel(&m_debugChannelToneGenerator);
     m_debugService.addChannel(&m_debugChannelKeypad);
+    m_debugService.addChannel(&m_debugChannelLeds);
+    m_debugService.addChannel(&m_debugChannelLcd);
+    m_debugService.addChannel(&m_debugChannelIo);
     m_debugService.addChannel(&m_debugChannelMotorVelocityController);
     m_debugService.addChannel(&m_debugChannelForceCoil);
     m_debugService.addChannel(&m_debugChannelMotorPositionController);
@@ -621,6 +670,49 @@ bool Robot::startKeypadDebugDependencies(void *context, uint16_t localCommand)
     robot->m_startIoExpanderService = true;
     robot->m_startTimerExpireService = true;
     robot->m_startControlPanelService = true;
+    return true;
+}
+
+bool Robot::startLedDebugDependencies(void *context, uint16_t localCommand)
+{
+    if (localCommand != DebugLeds::CMD_SET) {
+        return false;
+    }
+
+    Robot *robot = static_cast<Robot *>(context);
+    robot->m_startIoExpanderService = true;
+    robot->m_startTimerExpireService = true;
+    robot->m_startControlPanelService = true;
+    return true;
+}
+
+bool Robot::startLcdDebugDependencies(void *context, uint16_t localCommand)
+{
+    if (localCommand != DebugLcd::CMD_WRITE_LINE &&
+        localCommand != DebugLcd::CMD_CLEAR) {
+        return false;
+    }
+
+    // Like the keypad/LED stack, the LCD dependencies are started on first
+    // use and left running. LcdModule::start() runs the HD44780 init
+    // sequence, which clears the screen.
+    Robot *robot = static_cast<Robot *>(context);
+    robot->m_startIoExpanderService = true;
+    robot->m_startTimerExpireService = true;
+    robot->m_startLcdModule = true;
+    return true;
+}
+
+bool Robot::startIoDebugDependencies(void *context, uint16_t localCommand)
+{
+    if (localCommand != DebugIo::CMD_LISTEN) {
+        return false;
+    }
+
+    // Started on first use and left running, like the other panel stacks.
+    Robot *robot = static_cast<Robot *>(context);
+    robot->m_startTimerExpireService = true;
+    robot->m_startPinMonitorService = true;
     return true;
 }
 
@@ -702,16 +794,6 @@ void Robot::stopToneGeneratorDebugDependencies(void *context, uint16_t localComm
     Robot *robot = static_cast<Robot *>(context);
     robot->m_stopDacService = true;
     robot->m_stopAdc1Service = true;
-}
-
-void Robot::stopKeypadDebugDependencies(void *context, uint16_t localCommand)
-{
-    (void)localCommand;
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_stopControlPanelService = true;
-    robot->m_stopIoExpanderService = true;
-    robot->m_stopTimerExpireService = true;
 }
 
 void Robot::stopMotorVelocityDebugDependencies(void *context, uint16_t localCommand)
@@ -1032,6 +1114,7 @@ void Robot::execute()
     m_lcd.execute();
     m_ui.execute();
 
+    m_solenoidService.executeService();
     m_routerService.executeService();
     m_bonder.execute();
 
@@ -1096,12 +1179,12 @@ void Robot::stop()
 #endif
 }
 
-void Robot::onYAxisLimitSwitchTransition(
+void Robot::onYAxisLimitSwitchStateChanged(
     void *context,
-    PinMonitorChannel::Transition transition)
+    PinMonitorChannel::PinState state)
 {
     (void)context;
-    (void)transition;
+    (void)state;
 
     // TODO: homing logic.
 }

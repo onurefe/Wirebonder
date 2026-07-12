@@ -61,6 +61,9 @@
 #define DEBUG_CHANNEL_ID_FORCE_COIL                                  6
 #define DEBUG_CHANNEL_ID_MOTOR_POSITION_CONTROLLER                   7
 #define DEBUG_CHANNEL_ID_STEPPER_ROUTER                              8
+#define DEBUG_CHANNEL_ID_LEDS                                        9
+#define DEBUG_CHANNEL_ID_LCD                                         10
+#define DEBUG_CHANNEL_ID_IO                                          11
 
 #define DEBUG_TELEMETRY_DEPTH                                        4000
 #define DEBUG_TELEMETRY_BUFFER_SIZE_BYTES                            (DEBUG_TELEMETRY_DEPTH * 16)
@@ -274,6 +277,16 @@
 #define SOLENOID_SERVICE_EXECUTION_PERIOD                   0.01
 #define SOLENOID_SERVICE_INIT_DELAY_MS                      100
 
+/* Clamp solenoid (non-latching): mechanical transition times in seconds. */
+#define CLAMP_SOLENOID_ENERGIZE_TIME                        0.05
+#define CLAMP_SOLENOID_DEENERGIZE_TIME                      0.05
+
+/* Auxiliary non-latching solenoids: mechanical transition times in seconds. */
+#define SOL2_SOLENOID_ENERGIZE_TIME                         0.05
+#define SOL2_SOLENOID_DEENERGIZE_TIME                       0.05
+#define SOL3_SOLENOID_ENERGIZE_TIME                         0.05
+#define SOL3_SOLENOID_DEENERGIZE_TIME                       0.05
+
 /* StepperService ------------------------------------------------------------*/
 #define STEPPER_SERVICE_DIR_PIN_INVERT                      false
 #define STEPPER_SERVICE_MAX_MOTOR_COUNT                     4
@@ -366,6 +379,7 @@
 #define KEYPAD_LED_TEST               13U   /* IO1_4, IDC 10 */
 #define KEYPAD_LED_SETUP              14U   /* IO1_5, IDC 12 */
 #define KEYPAD_LED_CLAMP_OPEN         15U   /* IO1_6, IDC 11 */
+#define KEYPAD_LED_MANUAL             16U   /* IO1_7 */
 
 /* Left panel (14-pin IDC, inverted ribbon; derived from bench contact
    tests: MANUAL = IDC {3,11}, ESC/DEL = IDC {3,9}, ADD = IDC {3,7}). */

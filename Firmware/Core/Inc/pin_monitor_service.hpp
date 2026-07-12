@@ -8,23 +8,30 @@
 
 // -----------------------------------------------------------------------
 // Class: PinMonitorChannel
+//
+// Reports logical pin states rather than electrical levels: the sensor
+// front-ends (optocouplers) are active-low, so the constructor takes the
+// electrical level that means ACTIVE. UNDETERMINED (not yet sampled) maps
+// to INACTIVE.
 // -----------------------------------------------------------------------
 class PinMonitorChannel {
 public:
-    enum class Transition { NONE, LOW_TO_HIGH, HIGH_TO_LOW };
-    enum class Level      { LOW, HIGH, UNDETERMINED };
+    enum class Level    { LOW, HIGH, UNDETERMINED };
+    enum class PinState { INACTIVE, ACTIVE };
 
-    using Callback = void (*)(void *context, Transition transition);
+    using Callback = void (*)(void *context, PinState state);
 
-    explicit PinMonitorChannel(FastIO *pin);
+    PinMonitorChannel(FastIO *pin, Level activeLevel);
 
-    void addTransitionListenerCallback(void *context, Callback cb);
+    void addStateListenerCallback(void *context, Callback cb);
     void  start();
     void  stop();
     Level getLevel() const;
+    PinState getPinState() const;
 
-    // Poll the pin, fire callback on transition. For critical channels the
-    // lock flag suppresses transitions for blindTicks after the callback fires.
+    // Poll the pin, fire callback on a pin-state change. For critical
+    // channels the lock flag suppresses further changes for blindTicks after
+    // the callback fires.
     void update(uint32_t currentTick);
 
     // Release the lock once its duration has elapsed. Called from the main
@@ -35,9 +42,10 @@ public:
     void setBlindTicks(uint32_t blindTicks);
 
 private:
-    static Transition detectTransition(Level oldLevel, Level newLevel);
+    PinState levelToState(Level level) const;
 
     FastIO    *m_pin;
+    Level      m_activeLevel;
     Level      m_lastLevel;
     bool       m_active;
 

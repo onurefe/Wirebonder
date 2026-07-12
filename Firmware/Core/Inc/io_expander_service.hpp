@@ -46,7 +46,7 @@ public:
 class Pca9535ExpanderChannel : public IoExpanderChannel {
 public:
     using InputChangedCallback = void (*)(void *context, uint8_t port0, uint8_t port1);
-    using WriteCompletedCallback = void (*)(void *context);
+    using WriteCompletedCallback = void (*)(void *context, uint8_t transactionId);
 
     // deviceAddress    : 7-bit I2C deviceAddress (0x20–0x27, set by A0–A2 pins)
     // port0/1Dir : 1 = input pin, 0 = output pin
@@ -58,8 +58,8 @@ public:
 
     bool readPortInputValues(void);
     bool setPortOutputValues(uint8_t port0, uint8_t port1);
-    bool setPort0OutputValues(uint8_t value);
-    bool setPort1OutputValues(uint8_t value);
+    bool setPort0OutputValues(uint8_t value, uint8_t *transactionId = nullptr);
+    bool setPort1OutputValues(uint8_t value, uint8_t *transactionId = nullptr);
     bool setPin(uint8_t port, uint8_t pin, bool value);
 
     void setTransferListenerCallbacks(void *context, 
@@ -78,7 +78,10 @@ private:
     static constexpr uint8_t kOutputPort0Addr = 0x02U;
     static constexpr uint8_t kRegConfigPort0 = 0x06U;
 
-    bool enqueueWrite(uint8_t registerAddress, uint8_t *data, uint16_t length);
+    bool enqueueWrite(uint8_t registerAddress,
+                      uint8_t *data,
+                      uint16_t length,
+                      uint8_t *transactionId = nullptr);
     bool enqueuePortRead();
 
     uint8_t  m_deviceAddress;

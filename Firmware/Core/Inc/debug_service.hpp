@@ -171,7 +171,7 @@ private:
 
 class DebugService {
 public:
-    static constexpr uint8_t MaxChannels = 9;
+    static constexpr uint8_t MaxChannels = 12;
 
     bool addChannel(DebugChannel *channel);
 

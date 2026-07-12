@@ -3,8 +3,9 @@
 // =======================================================================
 // PinMonitorChannel
 // =======================================================================
-PinMonitorChannel::PinMonitorChannel(FastIO *pin)
+PinMonitorChannel::PinMonitorChannel(FastIO *pin, Level activeLevel)
     : m_pin(pin)
+    , m_activeLevel(activeLevel)
     , m_lastLevel(Level::UNDETERMINED)
     , m_active(false)
     , m_blindTicks(0)
@@ -20,7 +21,7 @@ void PinMonitorChannel::setBlindTicks(uint32_t blindTicks)
     m_blindTicks = blindTicks;
 }
 
-void PinMonitorChannel::addTransitionListenerCallback(void *context, Callback cb)
+void PinMonitorChannel::addStateListenerCallback(void *context, Callback cb)
 {
     m_callbackContext = context;
     m_callback        = cb;
@@ -43,20 +44,31 @@ PinMonitorChannel::Level PinMonitorChannel::getLevel() const
     return m_lastLevel;
 }
 
+PinMonitorChannel::PinState PinMonitorChannel::getPinState() const
+{
+    return levelToState(m_lastLevel);
+}
+
+PinMonitorChannel::PinState PinMonitorChannel::levelToState(Level level) const
+{
+    return (level == m_activeLevel) ? PinState::ACTIVE : PinState::INACTIVE;
+}
+
 void PinMonitorChannel::update(uint32_t currentTick)
 {
     if (!m_active || m_locked) return;
 
-    Level      newLevel = m_pin->read() ? Level::HIGH : Level::LOW;
-    Transition trans    = detectTransition(m_lastLevel, newLevel);
-    m_lastLevel         = newLevel;
+    Level    newLevel = m_pin->read() ? Level::HIGH : Level::LOW;
+    PinState oldState = levelToState(m_lastLevel);
+    PinState newState = levelToState(newLevel);
+    m_lastLevel       = newLevel;
 
-    if (trans != Transition::NONE && m_callback != nullptr) {
+    if (newState != oldState && m_callback != nullptr) {
         if (m_blindTicks > 0) {
             m_locked       = true;
             m_lockStartTick = currentTick;
         }
-        m_callback(m_callbackContext, trans);
+        m_callback(m_callbackContext, newState);
     }
 }
 
@@ -65,13 +77,6 @@ void PinMonitorChannel::clearLockIfExpired(uint32_t currentTick)
     if (m_locked && (currentTick - m_lockStartTick) >= m_blindTicks) {
         m_locked = false;
     }
-}
-
-PinMonitorChannel::Transition PinMonitorChannel::detectTransition(Level oldLevel, Level newLevel)
-{
-    if (oldLevel == Level::LOW  && newLevel == Level::HIGH) return Transition::LOW_TO_HIGH;
-    if (oldLevel == Level::HIGH && newLevel == Level::LOW)  return Transition::HIGH_TO_LOW;
-    return Transition::NONE;
 }
 
 // =======================================================================

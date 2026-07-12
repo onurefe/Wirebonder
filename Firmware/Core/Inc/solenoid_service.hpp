@@ -8,38 +8,65 @@
 
 // -----------------------------------------------------------------------
 // Class: SolenoidChannel
+//
+// Interface shared by the solenoid drive flavours so SolenoidService can
+// manage them uniformly.
 // -----------------------------------------------------------------------
 class SolenoidChannel {
 public:
-    enum class State        { UNKNOWN, OPENING, CLOSING, OPENED, CLOSED };
-    enum class DefaultState { OPENED, CLOSED };
+    virtual ~SolenoidChannel() = default;
+
+    virtual void start() = 0;
+    virtual void stop() = 0;
+    virtual void poll() = 0;
+};
+
+// -----------------------------------------------------------------------
+// Class: DirectSolenoidChannel
+//
+// Non-latching solenoid: the plunger is held only while the energize coil
+// is powered, so the energize pin stays set for as long as the solenoid
+// must stay engaged. The close pin is held clear at all times. The state
+// callback fires once the mechanical energize/deenergize time has passed.
+// -----------------------------------------------------------------------
+class DirectSolenoidChannel : public SolenoidChannel {
+public:
+    enum class State        { ENERGIZING, DEENERGIZING, ENERGIZED, DEENERGIZED };
 
     using Callback = void (*)(void *context, State state);
 
-    SolenoidChannel(FastIO *openPin, FastIO *closePin, DefaultState defaultState, Timer *timer);
+    // energizeTime / deenergizeTime: mechanical transition times in seconds.
+    DirectSolenoidChannel(FastIO *energizePin,
+                          FastIO *closePin,
+                          Timer *timer,
+                          float energizeTime,
+                          float deenergizeTime);
 
     void addStateListenerCallback(void *context, Callback cb);
 
-    void open();
-    void close();
+    bool isTransitioning() const;
+
+    void poll();
+    void energize();
+    void deenergize();
 
     State        getState()        const;
-    DefaultState getDefaultState() const;
 
-    void start();
-    void stop();
+    void start() override;
+    void stop() override;
 
 private:
     static void onTransitionTimer(void *context, Timer *timer);
-    void clearPins();
 
-    FastIO      *m_openPin;
-    FastIO      *m_closePin;
-    DefaultState m_defaultState;
-    State        m_state;
-    Timer       *m_timer;
-    Callback     m_callback;
-    void        *m_callbackContext;
+    FastIO          *m_energizePin;
+    FastIO          *m_closePin;
+    State           m_state;
+    State           m_targetState;
+    Timer           *m_timer;
+    float           m_energizeTime;
+    float           m_deenergizeTime;
+    Callback        m_callback;
+    void            *m_callbackContext;
 };
 
 // -----------------------------------------------------------------------
@@ -54,7 +81,7 @@ public:
     void initService()    {}
     void startService();
     void stopService();
-    void executeService() {}
+    void executeService();
 
 private:
     SolenoidChannel *m_channels[SOLENOID_SERVICE_MAX_INSTANCES];

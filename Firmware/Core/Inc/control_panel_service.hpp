@@ -89,6 +89,8 @@ private:
 // ---------------------------------------------------------------------------
 class ControlPanelService {
 public:
+    using OutputWriteCallback = void (*)(void *context, uint8_t transactionId);
+
     ControlPanelService(Pca9535ExpanderChannel *expander, Timer *pollTimer);
 
     bool addButton(ButtonChannel *button);
@@ -98,11 +100,16 @@ public:
     void stopService();
     void executeService();
     bool isOperating() const { return m_state == ServiceState::OPERATING; }
+    bool ledOutputsMatch() const;
+    void setOutputWriteListenerCallbacks(void *context,
+                                         OutputWriteCallback queuedCallback,
+                                         OutputWriteCallback completedCallback);
 
 private:
     static void onPollTimerExpired(void *context, Timer *timer);
     static void onKeypadStateChanged(void *context, uint8_t port0, uint8_t port1);
-    void concatenateLedStates(uint8_t *outputPort0, uint8_t *outputPort1);
+    static void onExpanderWriteCompleted(void *context, uint8_t transactionId);
+    void concatenateLedStates(uint8_t *outputPort0, uint8_t *outputPort1) const;
 
     Pca9535ExpanderChannel *m_expander;
     Timer                  *m_pollTimer;
@@ -117,6 +124,9 @@ private:
     uint8_t        m_buttonCount;
     LedChannel    *m_leds[kMaxLeds];
     uint8_t        m_ledCount;
+    OutputWriteCallback m_outputWriteQueuedCallback;
+    OutputWriteCallback m_outputWriteCompletedCallback;
+    void                *m_outputWriteCallbackContext;
     ServiceState   m_state;
 };
 

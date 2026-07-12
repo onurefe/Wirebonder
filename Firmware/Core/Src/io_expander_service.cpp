@@ -207,16 +207,16 @@ bool Pca9535ExpanderChannel::setPortOutputValues(uint8_t port0, uint8_t port1)
     return enqueueWrite(kOutputPort0Addr, data, 2U);
 }
 
-bool Pca9535ExpanderChannel::setPort0OutputValues(uint8_t value)
+bool Pca9535ExpanderChannel::setPort0OutputValues(uint8_t value, uint8_t *transactionId)
 {
     m_outputPort0 = value;
-    return enqueueWrite(kOutputPort0Addr, &m_outputPort0, 1U);
+    return enqueueWrite(kOutputPort0Addr, &m_outputPort0, 1U, transactionId);
 }
 
-bool Pca9535ExpanderChannel::setPort1OutputValues(uint8_t value)
+bool Pca9535ExpanderChannel::setPort1OutputValues(uint8_t value, uint8_t *transactionId)
 {
     m_outputPort1 = value;
-    return enqueueWrite(kOutputPort0Addr + 1U, &m_outputPort1, 1U);
+    return enqueueWrite(kOutputPort0Addr + 1U, &m_outputPort1, 1U, transactionId);
 }
 
 bool Pca9535ExpanderChannel::setPin(uint8_t port, uint8_t pin, bool value)
@@ -239,9 +239,10 @@ void Pca9535ExpanderChannel::setTransferListenerCallbacks(void *context,
     m_writeCompletedCallback = writeCompletedCb;
 }
 
-bool Pca9535ExpanderChannel::enqueueWrite(uint8_t registerAddress, 
-    uint8_t *data, 
-    uint16_t length)
+bool Pca9535ExpanderChannel::enqueueWrite(uint8_t registerAddress,
+                                           uint8_t *data,
+                                           uint16_t length,
+                                           uint8_t *transactionId)
 {
     if (m_transactionQueue.isFull()) {
         return false;
@@ -258,6 +259,10 @@ bool Pca9535ExpanderChannel::enqueueWrite(uint8_t registerAddress,
 
     if (!m_transactionQueue.enqueue(transaction)) {
         return false;
+    }
+
+    if (transactionId != nullptr) {
+        *transactionId = transaction.id;
     }
 
     m_transactionEnumerator = m_transactionEnumerator + 1U;
@@ -302,7 +307,7 @@ void Pca9535ExpanderChannel::ontransactionCompleted(IoExpanderTransaction &trans
         }
     } else {
         if (m_writeCompletedCallback) {
-            m_writeCompletedCallback(m_callbackContext);
+            m_writeCompletedCallback(m_callbackContext, transaction.id);
         }
     }
 }

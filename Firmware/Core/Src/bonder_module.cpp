@@ -46,7 +46,7 @@ BonderModule::BonderModule(DcMotorPositionControllerModule *zMotorController,
                            RouterChannel *tAxisRouter,
                            PllModule *pll,
                            UsImpedanceScannerModule *impedanceScanner,
-                           SolenoidChannel *clampSolenoid,
+                           DirectSolenoidChannel *clampSolenoid,
                            PinMonitorChannel *contactSensorMonitor,
                            PinMonitorChannel *mouseRightButtonMonitor,
                            Timer *timer)
@@ -68,8 +68,6 @@ BonderModule::BonderModule(DcMotorPositionControllerModule *zMotorController,
     , m_timerExpired(false)
     , m_impedanceScanningCompleted(false)
     , m_usPowerTransferred(false)
-    , m_clampOpened(false)
-    , m_clampClosed(false)
     , m_rightButtonPressed(false)
     , m_rightButtonReleased(false)
     , m_positionError(false)
@@ -145,11 +143,10 @@ void BonderModule::init()
         return;
     }
 
-    m_clampSolenoid->addStateListenerCallback(this, &BonderModule::onSolenoidChanged);
-    m_contactSensorMonitor->addTransitionListenerCallback(
-        this, &BonderModule::onContactSensorTransition);
-    m_mouseRightButtonMonitor->addTransitionListenerCallback(
-        this, &BonderModule::onMouseRightButtonTransition);
+    m_contactSensorMonitor->addStateListenerCallback(
+        this, &BonderModule::onContactSensorStateChanged);
+    m_mouseRightButtonMonitor->addStateListenerCallback(
+        this, &BonderModule::onMouseRightButtonStateChanged);
     m_timer->setExpirationListenerCallback(this, &BonderModule::onTimerDone);
     m_yAxisRouter->addMoveCompleteListenerCallback(this, &BonderModule::onYAxisRouterDone);
     m_tAxisRouter->addMoveCompleteListenerCallback(this, &BonderModule::onTAxisRouterDone);
@@ -176,7 +173,7 @@ void BonderModule::start()
     m_systemState = State::Operating;
 
     m_forceCoilControllerModule->setCurrentSetpoint(0.0f);
-    m_clampSolenoid->close();
+    m_clampSolenoid->deenergize();
     setZMotorPosition(m_config.resetHeight);
 
     if (m_stateChangedCallback != nullptr) {
@@ -268,7 +265,7 @@ void BonderModule::emergencyStop()
     m_yAxisRouter->stop();
     m_tAxisRouter->stop();
     m_forceCoilControllerModule->setCurrentSetpoint(0.0f);
-    m_clampSolenoid->close();
+    m_clampSolenoid->deenergize();
 }
 
 // =============================================================================
@@ -277,12 +274,33 @@ void BonderModule::emergencyStop()
 
 BonderModule::StepStatus BonderModule::stepWaitForSemiAutoButton(BondingPhase phase)
 {
-    (void)phase;
+    if (phase == BondingPhase::Phase2) {
+        if (m_clampSolenoid->isTransitioning()) {
+            return StepStatus::Running;
+        }
+
+        if (m_clampSolenoid->getState() != DirectSolenoidChannel::State::DEENERGIZED) {
+            m_clampSolenoid->deenergize();
+            return StepStatus::Running;
+        }
+    }
+
     return m_rightButtonPressed ? StepStatus::Done : StepStatus::Running;
 }
 
 BonderModule::StepStatus BonderModule::stepMovingToSearchHeight(BondingPhase phase)
 {
+    if (phase == BondingPhase::Phase2) {
+        if (m_clampSolenoid->isTransitioning()) {
+            return StepStatus::Running;
+        }
+
+        if (m_clampSolenoid->getState() != DirectSolenoidChannel::State::ENERGIZED) {
+            m_clampSolenoid->energize();
+            return StepStatus::Running;
+        }
+    }
+
     if (!m_stepStarted) {
         m_forceCoilControllerModule->setCurrentSetpoint(m_config.forceCoilTrackingCurrent);
         setZMotorPosition(phase == BondingPhase::Phase1
@@ -291,7 +309,6 @@ BonderModule::StepStatus BonderModule::stepMovingToSearchHeight(BondingPhase pha
 
         if (phase == BondingPhase::Phase2) {
             m_yAxisRouter->moveTo(m_config.yStepbackPosition);
-            m_clampSolenoid->close();
         }
 
         m_stepStarted = true;
@@ -299,10 +316,6 @@ BonderModule::StepStatus BonderModule::stepMovingToSearchHeight(BondingPhase pha
 
     if (m_forceCoilError) {
         return StepStatus::Error;
-    }
-
-    if (phase == BondingPhase::Phase2 && m_yMoveCompleted) {
-        m_clampSolenoid->open();
     }
 
     const bool yPositionReached =
@@ -432,8 +445,16 @@ BonderModule::StepStatus BonderModule::stepMoveToKinkHeight(BondingPhase phase)
 {
     (void)phase;
 
+    if (m_clampSolenoid->isTransitioning()) {
+        return StepStatus::Running;
+    }
+
+    if (m_clampSolenoid->getState() != DirectSolenoidChannel::State::ENERGIZED) {
+        m_clampSolenoid->energize();
+        return StepStatus::Running;
+    }
+
     if (!m_stepStarted) {
-        m_clampSolenoid->open();
         setZMotorPosition(m_config.kinkHeight);
         m_tailMoveStarted = false;
         m_stepStarted = true;
@@ -480,9 +501,17 @@ BonderModule::StepStatus BonderModule::stepTearTMove(BondingPhase phase)
 {
     (void)phase;
 
+    if (m_clampSolenoid->isTransitioning()) {
+        return StepStatus::Running;
+    }
+
+    if (m_clampSolenoid->getState() != DirectSolenoidChannel::State::DEENERGIZED) {
+        m_clampSolenoid->deenergize();
+        return StepStatus::Running;
+    }
+
     if (!m_stepStarted) {
         m_tAxisRouter->moveTo(m_config.tearPosition);
-        m_clampSolenoid->close();
         m_stepStarted = true;
     }
 
@@ -549,8 +578,6 @@ void BonderModule::clearFlags()
     m_timerExpired = false;
     m_impedanceScanningCompleted = false;
     m_usPowerTransferred = false;
-    m_clampOpened = false;
-    m_clampClosed = false;
     m_rightButtonPressed = false;
     m_rightButtonReleased = false;
     m_positionError = false;
@@ -668,34 +695,24 @@ float BonderModule::calculateDriveAmplitude(uint8_t resonanceIndex, float target
 // Callbacks
 // =============================================================================
 
-void BonderModule::onSolenoidChanged(void *context, SolenoidChannel::State state)
+void BonderModule::onContactSensorStateChanged(
+    void *context, PinMonitorChannel::PinState state)
 {
     BonderModule *self = static_cast<BonderModule *>(context);
-    if (state == SolenoidChannel::State::OPENED) {
-        self->m_clampOpened = true;
-    } else if (state == SolenoidChannel::State::CLOSED) {
-        self->m_clampClosed = true;
-    }
-}
-
-void BonderModule::onContactSensorTransition(
-    void *context, PinMonitorChannel::Transition transition)
-{
-    BonderModule *self = static_cast<BonderModule *>(context);
-    if (transition == PinMonitorChannel::Transition::LOW_TO_HIGH) {
-        self->m_contactPinDisconnected = true;
-    } else if (transition == PinMonitorChannel::Transition::HIGH_TO_LOW) {
+    if (state == PinMonitorChannel::PinState::ACTIVE) {
         self->m_contactPinConnected = true;
+    } else {
+        self->m_contactPinDisconnected = true;
     }
 }
 
-void BonderModule::onMouseRightButtonTransition(
-    void *context, PinMonitorChannel::Transition transition)
+void BonderModule::onMouseRightButtonStateChanged(
+    void *context, PinMonitorChannel::PinState state)
 {
     BonderModule *self = static_cast<BonderModule *>(context);
-    if (transition == PinMonitorChannel::Transition::LOW_TO_HIGH) {
+    if (state == PinMonitorChannel::PinState::ACTIVE) {
         self->m_rightButtonPressed = true;
-    } else if (transition == PinMonitorChannel::Transition::HIGH_TO_LOW) {
+    } else {
         self->m_rightButtonReleased = true;
     }
 }

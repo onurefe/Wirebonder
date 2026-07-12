@@ -2,87 +2,107 @@
 #include "configuration.h"
 
 // =======================================================================
-// SolenoidChannel
+// DirectSolenoidChannel
 // =======================================================================
-SolenoidChannel::SolenoidChannel(FastIO *openPin, FastIO *closePin, DefaultState defaultState, Timer *timer)
-    : m_openPin(openPin)
+DirectSolenoidChannel::DirectSolenoidChannel(FastIO *energizePin,
+                                             FastIO *closePin,
+                                             Timer *timer,
+                                             float energizeTime,
+                                             float deenergizeTime)
+    : m_energizePin(energizePin)
     , m_closePin(closePin)
-    , m_defaultState(defaultState)
-    , m_state(State::UNKNOWN)
+    , m_state(State::DEENERGIZED)
+    , m_targetState(State::DEENERGIZED)
     , m_timer(timer)
+    , m_energizeTime(energizeTime)
+    , m_deenergizeTime(deenergizeTime)
     , m_callback(nullptr)
     , m_callbackContext(nullptr)
 {
     m_timer->setExpirationListenerCallback(this, onTransitionTimer);
 }
 
-void SolenoidChannel::addStateListenerCallback(void *context, Callback cb)
+void DirectSolenoidChannel::addStateListenerCallback(void *context, Callback cb)
 {
     m_callbackContext = context;
     m_callback        = cb;
 }
 
-void SolenoidChannel::open()
+void DirectSolenoidChannel::energize()
 {
-    if (m_state == State::OPENING || m_state == State::CLOSING) return;
-    if (m_state == State::OPENED) return;
-
-    clearPins();
-    m_openPin->set();
-    m_state = State::OPENING;
-    m_timer->start(true, SOLENOID_SERVICE_TRANSITION_TIME);
+    m_targetState = State::ENERGIZED;
 }
 
-void SolenoidChannel::close()
+void DirectSolenoidChannel::deenergize()
 {
-    if (m_state == State::OPENING || m_state == State::CLOSING) return;
-    if (m_state == State::CLOSED) return;
-
-    clearPins();
-    m_closePin->set();
-    m_state = State::CLOSING;
-    m_timer->start(true, SOLENOID_SERVICE_TRANSITION_TIME);
+    m_targetState = State::DEENERGIZED;
 }
 
-SolenoidChannel::State SolenoidChannel::getState() const
+void DirectSolenoidChannel::poll()
+{
+    if (isTransitioning()) {
+        return;
+    }
+
+    if (m_state != m_targetState) {
+        if (m_targetState == State::ENERGIZED) {
+            m_closePin->clear();
+            m_energizePin->set();
+            m_state = State::ENERGIZING;
+            m_timer->start(true, m_energizeTime);
+
+            return;
+        }
+
+        if (m_targetState == State::DEENERGIZED) {
+            m_closePin->clear();
+            m_energizePin->clear();
+            m_state = State::DEENERGIZING;
+            m_timer->start(true, m_deenergizeTime);
+
+            return;
+        }
+    }
+}
+
+bool DirectSolenoidChannel::isTransitioning() const
+{
+    return m_state == State::ENERGIZING || m_state == State::DEENERGIZING;
+}
+
+DirectSolenoidChannel::State DirectSolenoidChannel::getState() const
 {
     return m_state;
 }
 
-SolenoidChannel::DefaultState SolenoidChannel::getDefaultState() const
+void DirectSolenoidChannel::start()
 {
-    return m_defaultState;
+    m_closePin->clear();
+    m_energizePin->clear();
+    m_state = State::DEENERGIZED;
+    m_targetState = State::DEENERGIZED;
 }
 
-void SolenoidChannel::start()
+void DirectSolenoidChannel::stop()
 {
-    clearPins();
-    m_state = State::UNKNOWN;
-}
-
-void SolenoidChannel::stop()
-{
+    m_closePin->clear();
+    m_energizePin->clear();
     m_timer->stop();
-    clearPins();
+    m_state = State::DEENERGIZED;
+    m_targetState = State::DEENERGIZED;
 }
 
-void SolenoidChannel::onTransitionTimer(void *context, Timer *timer)
+void DirectSolenoidChannel::onTransitionTimer(void *context, Timer *timer)
 {
     (void)timer;
-    SolenoidChannel *self = static_cast<SolenoidChannel *>(context);
+    DirectSolenoidChannel *self = static_cast<DirectSolenoidChannel *>(context);
 
-    self->clearPins();
-    self->m_state = (self->m_state == State::OPENING) ? State::OPENED : State::CLOSED;
+    self->m_state = (self->m_state == State::ENERGIZING) ? State::ENERGIZED
+                                                         : State::DEENERGIZED;
 
     if (self->m_callback != nullptr) {
         self->m_callback(self->m_callbackContext, self->m_state);
     }
-}
-
-void SolenoidChannel::clearPins()
-{
-    m_openPin->clear();
-    m_closePin->clear();
 }
 
 // =======================================================================
@@ -117,17 +137,18 @@ void SolenoidService::startService()
 
     HAL_Delay(SOLENOID_SERVICE_INIT_DELAY_MS);
 
-    for (uint8_t i = 0; i < m_numChannels; i++) {
-        SolenoidChannel *ch = m_channels[i];
+    m_state = ServiceState::OPERATING;
+}
 
-        if (ch->getDefaultState() == SolenoidChannel::DefaultState::OPENED) {
-            ch->open();
-        } else {
-            ch->close();
-        }
+void SolenoidService::executeService()
+{
+    if (m_state != ServiceState::OPERATING) {
+        return;
     }
 
-    m_state = ServiceState::OPERATING;
+    for (uint8_t i = 0; i < m_numChannels; i++) {
+        m_channels[i]->poll();
+    }
 }
 
 void SolenoidService::stopService()

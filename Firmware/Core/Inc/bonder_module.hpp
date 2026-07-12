@@ -39,7 +39,7 @@ public:
                  RouterChannel *tAxisRouter,
                  PllModule *pll,
                  UsImpedanceScannerModule *impedanceScanner,
-                 SolenoidChannel *clampSolenoid,
+                 DirectSolenoidChannel *clampSolenoid,
                  PinMonitorChannel *contactSensorMonitor,
                  PinMonitorChannel *mouseRightButtonMonitor,
                  Timer *timer);
@@ -74,15 +74,15 @@ private:
     // Shared first- and second-bond steps.
 
     /*
-     * Entry: no action.
+     * Entry: no action. Phase 2 first ensures that the clamp is closed.
      * Complete when: the semi-automatic button is pressed.
      */
     StepStatus stepWaitForSemiAutoButton(BondingPhase phase);
 
     /*
-     * Entry: apply tracking current and command the phase search height.
-     *        Phase 2 also commands Y stepback and closes the clamp.
-     * While waiting: phase 2 opens the clamp after Y stepback completes.
+     * Entry: apply tracking current and command the phase search height;
+     *        phase 2 also commands Y stepback. Phase 2 holds the entry
+     *        actions until the clamp is confirmed open.
      * Complete when: Z and, for phase 2, Y are settled; tracking current is
      *                settled; and the operator has released the button.
      */
@@ -130,7 +130,7 @@ private:
     // First-bond loop-formation steps.
 
     /*
-     * Entry: open the clamp and command Z to kink height.
+     * Entry: Ensure that the clamp is opened and then command Z to kink height.
      * While waiting: after the contact pin connects, command the T-axis tail
      *                move once.
      * Complete when: Z and T are settled and the contact pin is connected.
@@ -152,7 +152,7 @@ private:
     // Second-bond completion and tail restoration.
 
     /*
-     * Entry: command the T-axis tear displacement and close the clamp.
+     * Entry: Ensure that the clamp is closed, and command the T-axis tear displacement.
      * Complete when: the T-axis move completes.
      */
     StepStatus stepTearTMove(BondingPhase phase);
@@ -198,8 +198,6 @@ private:
     bool m_timerExpired;
     bool m_impedanceScanningCompleted;
     bool m_usPowerTransferred;
-    bool m_clampOpened;
-    bool m_clampClosed;
     bool m_rightButtonPressed;
     bool m_rightButtonReleased;
 
@@ -229,7 +227,7 @@ private:
     RouterChannel            *m_tAxisRouter;
     PllModule                *m_pllModule;
     UsImpedanceScannerModule *m_impedanceScannerModule;
-    SolenoidChannel          *m_clampSolenoid;
+    DirectSolenoidChannel    *m_clampSolenoid;
     PinMonitorChannel        *m_contactSensorMonitor;
     PinMonitorChannel        *m_mouseRightButtonMonitor;
     Timer                    *m_timer;
@@ -261,9 +259,8 @@ private:
 
     static BonderModule *s_instance;
 
-    static void onSolenoidChanged(void *context, SolenoidChannel::State state);
-    static void onContactSensorTransition(void *context, PinMonitorChannel::Transition transition);
-    static void onMouseRightButtonTransition(void *context, PinMonitorChannel::Transition transition);
+    static void onContactSensorStateChanged(void *context, PinMonitorChannel::PinState state);
+    static void onMouseRightButtonStateChanged(void *context, PinMonitorChannel::PinState state);
     static void onTimerDone(void *context, Timer *t);
     static void onYAxisRouterDone(void *context, RouterChannel *channel);
     static void onTAxisRouterDone(void *context, RouterChannel *channel);
