@@ -5,6 +5,7 @@
 #include "generic.h"
 #include "fast_io.hpp"
 #include "timer_expire_service.hpp"
+#include "process.hpp"
 
 // -----------------------------------------------------------------------
 // Class: PinMonitorChannel
@@ -28,14 +29,15 @@ public:
     void  stop();
     Level getLevel() const;
     PinState getPinState() const;
+    // Read the pin immediately and translate it to its logical sensor state.
+    PinState samplePinState() const;
 
-    // Poll the pin, fire callback on a pin-state change. For critical
-    // channels the lock flag suppresses further changes for blindTicks after
-    // the callback fires.
+    // Poll the pin, fire callback on a pin-state change. The lock flag
+    // suppresses further changes for blindTicks after the callback fires.
     void update(uint32_t currentTick);
 
     // Release the lock once its duration has elapsed. Called from the main
-    // loop (PinMonitorService::executeService), so unlock jitter is acceptable.
+    // loop (PinMonitorService::onExecute), so unlock jitter is acceptable.
     void clearLockIfExpired(uint32_t currentTick);
 
     // Called by PinMonitorService::addChannel.
@@ -60,25 +62,22 @@ private:
 // -----------------------------------------------------------------------
 // Class: PinMonitorService
 // -----------------------------------------------------------------------
-class PinMonitorService {
+class PinMonitorService : public Process {
 public:
     PinMonitorService(Timer *criticalTimer, Timer *normalTimer);
 
-    // timeCritical=true  → ISR-based 1 ms sampling + blind-region lock
-    // timeCritical=false → main-loop 20 ms polling, no lock
+    // timeCritical selects the sampling source only: true → ISR-based 1 ms
+    // sampling, false → main-loop 20 ms polling. Blind-region locking works
+    // identically on both.
     bool addChannel(PinMonitorChannel *channel,
                     bool     timeCritical = false,
                     uint32_t blindMs      = 0);
 
-    void initService() {}
-    void startService();
-    void stopService();
-
-    // Clears expired blind-region locks for critical channels. Must be called
-    // from the main loop (e.g. Robot::execute).
-    void executeService();
-
 private:
+    void onStart() override;
+    void onStop() override;
+    void onExecute() override;
+
     static void onCriticalTimerExpired(void *context, Timer *timer);
     static void onNormalTimerExpired  (void *context, Timer *timer);
 
@@ -90,8 +89,6 @@ private:
 
     PinMonitorChannel *m_normalChannels[PIN_MONITOR_SERVICE_MAX_PINS];
     uint8_t            m_numNormalChannels;
-
-    ServiceState       m_state;
 };
 
 #endif /* PIN_MONITOR_SERVICE_HPP */

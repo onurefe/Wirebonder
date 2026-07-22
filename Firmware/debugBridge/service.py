@@ -1,9 +1,14 @@
-"""Client for the firmware DebugService command block."""
+"""Client for the firmware DebugEnvironment command block.
+
+Each debug firmware image contains exactly one DebugEnvironment; the command
+word still carries the environment id in its upper half, so a script driving
+the wrong image gets ERROR_WRONG_ENVIRONMENT (104) instead of silence.
+"""
 
 import gdb
 
 
-BLOCK = "Robot::m_debugService.m_debugServiceBlock"
+BLOCK = "DebugEnvironment::s_commandBlock"
 
 IDLE = 0
 BUSY = 1
@@ -29,8 +34,9 @@ class Channel:
     STEPPER_ROUTER = 8
     LEDS = 9
     LCD = 10
-    IO = 11
     SOLENOIDS = 12
+    BONDER = 13
+    HOMING = 14
 
 
 def command_word(channel_id, local_command):
@@ -58,7 +64,7 @@ class TransactionWatchpoint(gdb.Breakpoint):
 class DebugService:
     NUM_ARGS = 5
     NUM_RESULT_POINTERS = 4
-    TICK_SYMBOL = "DebugService::executeService"
+    TICK_SYMBOL = "DebugEnvironment::execute"
 
     def __init__(self, target, block=BLOCK):
         self.t = target
@@ -66,7 +72,7 @@ class DebugService:
 
     def ready(self):
         try:
-            return self.t.eval_int("Robot::m_debugService.m_channelCount") > 0
+            return self.t.eval_int("DebugEnvironment::s_started") != 0
         except gdb.error:
             return False
 

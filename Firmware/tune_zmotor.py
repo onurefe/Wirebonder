@@ -54,7 +54,7 @@ import sys
 DEFAULT_RI = 1e3
 DEFAULT_RF = 121e3
 DEFAULT_CF = 1e-7
-DEFAULT_VOLTAGE_TO_DUTY_SCALE = 1.0 / 30.0
+DEFAULT_VOLTAGE_TO_DUTY_SCALE = 1.0 / 27.0
 
 
 def newest_capture(captures_dir):

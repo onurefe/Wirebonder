@@ -4,10 +4,11 @@
 #include "configuration.h"
 #include "generic.h"
 #include "pwm_service.hpp"
+#include "process.hpp"
 #include "adc_service.hpp"
 #include "leaky_integrator_controller.hpp"
 
-class DcMotorVelocityControllerModule {
+class DcMotorVelocityControllerModule : public Process {
 public:
     using VelocityListenerCallback = void (*)(void *context, float measuredVelocity);
     // Returns true when the controller is active; the target velocity is
@@ -17,18 +18,23 @@ public:
     DcMotorVelocityControllerModule(AnalogChannel *tachometerChannel,
         PwmRampChannel *pwmChannel);
 
-    void start();
-    void stop();
+    bool enableControl();
+    void disableControl();
 
     bool addVelocityListenerCallback(void *context, VelocityListenerCallback cb);
     bool addVelocityControllerCallback(void *context, VelocityControllerCallback cb);
 
     float getVelocity() const;
-    bool isOperating() const;
+    bool isControlEnabled() const;
     void enablePidBypass();
     void disablePidBypass();
 
 private:
+    enum class ControlState : uint8_t { Disabled, Enabled };
+
+    void onStart() override;
+    void onStop() override;
+
     struct VelocityListenerRegistration {
         VelocityListenerCallback callback;
         void *context;
@@ -58,7 +64,6 @@ private:
     // Helpers
     // -----------------------------------------------------------------------
     void registerPeripheralCallbacks();
-    bool isReady() const;
     float computeTargetDuty(float velocityControlOutput) const;
     static float clampDuty(float duty);
 
@@ -70,7 +75,7 @@ private:
 
     LeakyIntegratorController m_velocityLeakyIntegrator;
 
-    ServiceState m_state;
+    ControlState m_controlState;
 
     // Listeners (observers of the measured velocity) and the single
     // controller that supplies the target velocity each tick — mirrors the

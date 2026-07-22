@@ -3,6 +3,7 @@
 
 #include "stm32f4xx_hal.h"
 #include "configuration.h"
+#include "process.hpp"
 #include "generic.h"
 
 #include <cstdint>
@@ -121,25 +122,21 @@ private:
 // -----------------------------------------------------------------------
 // Class: PwmService
 // -----------------------------------------------------------------------
-class PwmService {
+class PwmService : public Process {
 public:
     PwmService();
 
     bool addChannel(IPwmChannel* channel);
 
-    void initService() {}
-    void startService();
-    void stopService();
-    void executeService() {}
-    bool isOperating() const { return m_state == ServiceState::OPERATING; }
-
     static IPwmChannel *getChannel(TIM_HandleTypeDef* htim);
     static uint32_t activeChannelToTimChannel(uint32_t activeChannel);
 
 private:
+    void onStart() override;
+    void onStop() override;
+
     IPwmChannel *m_channels[PWM_SERVICE_MAX_CHANNELS];
     uint8_t      m_channelCount;
-    ServiceState m_state;
 };
 
 #endif // PWM_SERVICE_HPP

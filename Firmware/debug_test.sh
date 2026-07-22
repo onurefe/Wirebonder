@@ -5,9 +5,18 @@
 #
 # Usage:
 #   ./debug_test.sh            # attach to the running firmware
-#   ./debug_test.sh --flash    # reflash build/firmware first
+#   ./debug_test.sh --flash    # reflash the debug image first
+#
+# The ELF must be a debug-environment image: set FIRMWARE_MODE to a
+# FIRMWARE_MODE_DEBUG_* value in Core/Inc/configuration.h, then build:
+#   cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake
+#   cmake --build build
+#
+# All modes share the single build/ directory; make sure the image on the
+# chip matches the mode in configuration.h (use --flash after rebuilding).
 #
 # Environment overrides:
+#   ELF=elsewhere/firmware ./debug_test.sh
 #   GDB=gdb-multiarch OPENOCD=/opt/openocd/bin/openocd PORT=3334 ./debug_test.sh
 
 set -euo pipefail
@@ -19,7 +28,7 @@ OPENOCD="${OPENOCD:-openocd}"
 # OpenOCD port in the background and steal the connection.
 PORT="${PORT:-3341}"
 ADAPTER_KHZ="${ADAPTER_KHZ:-1000}"
-ELF="build/firmware"
+ELF="${ELF:-build/firmware}"
 OPENOCD_LOG="openocd.log"
 
 FLASH_ARGS=()

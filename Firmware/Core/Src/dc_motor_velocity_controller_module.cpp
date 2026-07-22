@@ -13,47 +13,60 @@ DcMotorVelocityControllerModule::DcMotorVelocityControllerModule(
         DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_CLAMP_MAX,
         1.0f / static_cast<float>(DCMOTOR_VELOCITY_MODULE_CONTROL_FREQUENCY),
         DCMOTOR_VELOCITY_MODULE_CONTROLLER_PREAMPLIFIER_GAIN})
-    , m_state(ServiceState::READY)
+    , m_controlState(ControlState::Disabled)
     , m_velocityListenerCallbacks{}
     , m_velocityListenerCallbackCount(0)
     , m_velocityControllerCallbacks{}
     , m_velocityControllerCallbackCount(0)
     , m_velocityMeasurement(0.0f)
     , m_targetDuty(DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY)
-{
-    registerPeripheralCallbacks();
-}
+{}
 
 // ---------------------------------------------------------------------------
 // Public-Interface
 // ---------------------------------------------------------------------------
 
-void DcMotorVelocityControllerModule::start()
+void DcMotorVelocityControllerModule::onStart()
 {
-    if (!isReady()) {
+    if (m_tachometerChannel == nullptr || m_pwmChannel == nullptr) {
+        setProcessError();
         return;
     }
+    registerPeripheralCallbacks();
+}
 
-    m_state = ServiceState::OPERATING;
+void DcMotorVelocityControllerModule::onStop()
+{
+    disableControl();
+}
+
+bool DcMotorVelocityControllerModule::enableControl()
+{
+    if (!isOperating() || m_controlState != ControlState::Disabled) {
+        return false;
+    }
 
     m_targetDuty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY;
 
     m_velocityLeakyIntegrator.start();
-    m_pwmChannel->start(DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY);
+    m_controlState = ControlState::Enabled;
+    if (!m_pwmChannel->start(DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY)) {
+        m_velocityLeakyIntegrator.stop();
+        m_controlState = ControlState::Disabled;
+        return false;
+    }
+    return true;
 }
 
-void DcMotorVelocityControllerModule::stop()
+void DcMotorVelocityControllerModule::disableControl()
 {
-    if (!isOperating()) {
-        return;
-    }
-
-    m_state = ServiceState::READY;
+    if (m_controlState != ControlState::Enabled) return;
 
     m_pwmChannel->stop();
     m_velocityLeakyIntegrator.stop();
 
     m_targetDuty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY;
+    m_controlState = ControlState::Disabled;
 }
 
 bool DcMotorVelocityControllerModule::addVelocityListenerCallback(void *context, VelocityListenerCallback cb)
@@ -135,7 +148,7 @@ bool DcMotorVelocityControllerModule::pwmUpdateCallback(void *context, float *va
 
 void DcMotorVelocityControllerModule::onTachometerMeasured(float velocity)
 {
-    if (!isOperating()) {
+    if (!isControlEnabled()) {
         return;
     }
 
@@ -172,7 +185,7 @@ bool DcMotorVelocityControllerModule::onPwmUpdate(float *value)
 
     // This module owns the PWM channel: it is always the active duty source
     // while the ramp is running, holding the zero-velocity duty when idle.
-    *value = isOperating() ? m_targetDuty : DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY;
+    *value = isControlEnabled() ? m_targetDuty : DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY;
     return true;
 }
 
@@ -182,18 +195,17 @@ bool DcMotorVelocityControllerModule::onPwmUpdate(float *value)
 
 void DcMotorVelocityControllerModule::registerPeripheralCallbacks()
 {
-    m_tachometerChannel->addMeasurementListenerCallback(this, &DcMotorVelocityControllerModule::tachometerCallback);
-    m_pwmChannel->addTargetDutyControllerCallback(this, &DcMotorVelocityControllerModule::pwmUpdateCallback);
+    if (!m_tachometerChannel->addMeasurementListenerCallback(
+            this, &DcMotorVelocityControllerModule::tachometerCallback) ||
+        !m_pwmChannel->addTargetDutyControllerCallback(
+            this, &DcMotorVelocityControllerModule::pwmUpdateCallback)) {
+        setProcessError();
+    }
 }
 
-bool DcMotorVelocityControllerModule::isReady() const
+bool DcMotorVelocityControllerModule::isControlEnabled() const
 {
-    return m_state == ServiceState::READY;
-}
-
-bool DcMotorVelocityControllerModule::isOperating() const
-{
-    return m_state == ServiceState::OPERATING;
+    return m_controlState == ControlState::Enabled;
 }
 
 float DcMotorVelocityControllerModule::computeTargetDuty(float velocityControlOutput) const

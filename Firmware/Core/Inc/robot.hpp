@@ -16,30 +16,16 @@
 #include "force_coil_module.hpp"
 #include "stepper_service.hpp"
 #include "stepper_router_service.hpp"
+#include "homing_module.hpp"
 #include "pll_module.hpp"
 #include "us_impedance_scanner_module.hpp"
 #include "bonder_module.hpp"
 #include "eeprom_emulator.hpp"
 #include "io_expander_service.hpp"
-#include "lcd_module.hpp"
+#include "lcd_controller_module.hpp"
 #include "control_panel_service.hpp"
-#include "ui_module.hpp"
-
-#if DEBUG_ENABLED
-#include "debug_service.hpp"
-#include "debug_impedance_scanner.hpp"
-#include "debug_keypad.hpp"
-#include "debug_leds.hpp"
-#include "debug_lcd.hpp"
-#include "debug_io.hpp"
-#include "debug_solenoids.hpp"
-#include "debug_pll.hpp"
-#include "debug_tone_generator.hpp"
-#include "debug_motor_velocity_controller.hpp"
-#include "debug_force_coil.hpp"
-#include "debug_motor_position_controller.hpp"
-#include "debug_stepper_router.hpp"
-#endif
+#include "configuration_manager.hpp"
+#include "user_interface_module.hpp"
 
 class Robot {
 public:
@@ -50,23 +36,99 @@ public:
     void stop();
 
 private:
+    static constexpr uint8_t kComponentCount = 21U;
+
+    // Component indices order components so dependencies precede their
+    // dependents: startups walk a list ascending, stop() walks all
+    // components descending.
+    enum class Component : uint8_t {
+        TimerExpireService = 0U,
+        IoExpanderService,
+        PinMonitorService,
+        SolenoidService,
+        StepperService,
+        RouterService,
+        Tim1PwmService,
+        DacService,
+        Adc1Service,
+        Adc2Service,
+        ForceCoilModule,
+        ZMotorVelocityModule,
+        LvdtModule,
+        ZMotorPositionModule,
+        ControlPanelService,
+        LcdControllerModule,
+        UserInterfaceModule,
+        HomingModule,
+        PllModule,
+        ImpedanceScannerModule,
+        BonderModule
+    };
+
+    // Started at boot: everything the operator interface and Y homing need.
+    static const Component kBootComponents[];
+    static const uint8_t kBootComponentCount;
+
+    // Started once the configuration is confirmed and Y is homed: the
+    // bonding plant, ending with the bonder itself.
+    static const Component kBonderComponents[];
+    static const uint8_t kBonderComponentCount;
+
+    void startComponents(const Component *components, uint8_t count);
+    void startComponent(Component component);
+    void stopComponent(Component component);
+
     // =========================================================================
     // Callbacks
     // =========================================================================
 
-    static void onYAxisLimitSwitchStateChanged(void *context, PinMonitorChannel::PinState state);
+    static void onYAxisHomingEvent(void *context, HomingModule::Event event);
     static void onBonderModuleStateChanged(bool isIdle);
     static void onBonderModuleErrorOccurred(BonderModule::Error error);
+    static void onUltrasonicReport(
+        void *context, const BonderModule::UltrasonicReport& report);
 
-    static void onConfigChanged(void *ctx, const BonderConfig& config);
-    static void onSave(void *ctx, const BonderConfig& config);
-    static void onLoad(void *ctx, BonderConfig& config);
-    static void onBonderConfigCompactification(void *ctx);
+    // UI events are triggers, not commands: Robot arbitrates them
+    // against machine state (homing, bonder activity) before acting.
+    static void onUserInterfaceEvent(void *ctx, UserInterfaceModule::Event event);
+    static void onMouseButtonEvent(void *ctx,
+                                   UserInterfaceModule::MouseButtonEvent event);
+    static void onControlPanelButtonEvent(
+        void *ctx,
+        UserInterfaceModule::ControlPanelButtonEvent event);
+
+    void onSetupButtonPressed();
+    void onTestButtonPressed();
+    void onResetButtonPressed();
+    void onClampOpenButtonPressed();
+    void onLightButtonPressed();
+
+    static bool isYAxisHomed();
+    static bool isBondingInterlocked();
+
+    // Points the bonder at another protocol without disengaging it: accepted
+    // while idle or still parked at the start gate, refused once a bond cycle
+    // is engaged. A force setup superseded at its own gate is cleaned up.
+    static bool retaskBonder(const BonderProtocol& protocol);
+    static void updateClampCommandLed();
+    void restoreConfiguredBondingProtocol();
+    static void requestBonderStartIfReady();
+
+    // Emergency-stop latch for unrecoverable faults: stops the bonder,
+    // raises a latched error on the LCD (which also locks the keypad) and
+    // refuses all operator commands except Reset until the MCU is reset.
+    static void lockSystem(const char *message);
 
     // =========================================================================
     // Flags
     // =========================================================================
     static bool m_bonderConfigUpdated;   // true when config update is queued while bonder is busy
+    static bool m_ultrasonicTestActive;
+    static bool m_forceSetupActive;
+    static bool m_manualClampOpen;
+    static bool m_manualClampCommandActive;
+    static bool m_systemLocked;          // latched by lockSystem(); cleared only by MCU reset
+    bool m_areaLightOn{false};
 
     // =========================================================================
     // Buffers  —  raw DMA / processing memory
@@ -232,6 +294,7 @@ private:
     static DirectSolenoidChannel m_sol1SolenoidChannel;
     static DirectSolenoidChannel m_sol2SolenoidChannel;
     static SolenoidService m_solenoidService;
+    static DirectPwmChannel m_areaLightPwmChannel;
 
     // =========================================================================
     // Motion  —  stepper channels and router
@@ -251,6 +314,7 @@ private:
     static ForceCoilDriverModule            m_forceCoilControllerModule;
     static DcMotorVelocityControllerModule  m_zMotorVelocityControllerModule;
     static DcMotorPositionControllerModule  m_zMotorPositionControllerModule;
+    static HomingModule                     m_yAxisHomingModule;
     static PllModule                        m_pllModule;
     static UsImpedanceScannerModule         m_impedanceScannerModule;
 
@@ -258,7 +322,7 @@ private:
     // LCD
     // =========================================================================
 
-    static LcdModule m_lcd;
+    static LcdControllerModule m_lcdController;
 
     // =========================================================================
     // Bonder  —  top-level bonding state machine
@@ -267,93 +331,24 @@ private:
     static BonderModule m_bonder;
 
     // =========================================================================
-    // Persistence  —  EEPROM emulator and live bonding configuration
+    // Persistence and active bonding configuration
     // =========================================================================
 
     static EepromEmulator m_eepromEmulator;
-    static BonderConfig   m_bonderConfig;   /* live editable copy; registered with EEPROM emulator */
+    static ConfigurationManager m_configurationManager;
+    static bool m_configurationConfirmed;
 
     // =========================================================================
-    // UI  —  LCD parameter editor
+    // User interface  —  LCD, configuration editor, and operator controls
     // =========================================================================
 
-    static UiModule m_ui;
+    static UserInterfaceModule m_userInterface;
 
-    // =========================================================================
-    // Debug modules
-    // =========================================================================
-#if DEBUG_ENABLED
-    static bool startImpedanceScannerDebugDependencies(void *context, uint16_t localCommand);
-    static bool startPllDebugDependencies(void *context, uint16_t localCommand);
-    static bool startToneGeneratorDebugDependencies(void *context, uint16_t localCommand);
-    static bool startKeypadDebugDependencies(void *context, uint16_t localCommand);
-    static bool startLedDebugDependencies(void *context, uint16_t localCommand);
-    static bool startLcdDebugDependencies(void *context, uint16_t localCommand);
-    static bool startIoDebugDependencies(void *context, uint16_t localCommand);
-    static bool startSolenoidDebugDependencies(void *context, uint16_t localCommand);
-    static bool startMotorVelocityDebugDependencies(void *context, uint16_t localCommand);
-    static bool startForceCoilDebugDependencies(void *context, uint16_t localCommand);
-    static bool startMotorPositionDebugDependencies(void *context, uint16_t localCommand);
-    static bool startStepperRouterDebugDependencies(void *context, uint16_t localCommand);
-    static void stopImpedanceScannerDebugDependencies(void *context, uint16_t localCommand);
-    static void stopPllDebugDependencies(void *context, uint16_t localCommand);
-    static void stopToneGeneratorDebugDependencies(void *context, uint16_t localCommand);
-    static void stopMotorVelocityDebugDependencies(void *context, uint16_t localCommand);
-    static void stopForceCoilDebugDependencies(void *context, uint16_t localCommand);
-    static void stopMotorPositionDebugDependencies(void *context, uint16_t localCommand);
-    static void stopStepperRouterDebugDependencies(void *context, uint16_t localCommand);
+    // Deferred bonder-chain start; requested from configuration/homing/bonder
+    // callbacks and processed at the top of execute().
+    static bool m_bonderStartPending;
 
-    static DebugService                 m_debugService;
-    static DebugImpedanceScanner        m_debugChannelImpedanceScanner;
-    static DebugKeypad                  m_debugChannelKeypad;
-    static DebugLeds                    m_debugChannelLeds;
-    static DebugLcd                     m_debugChannelLcd;
-    static DebugIo                      m_debugChannelIo;
-    static DebugSolenoids               m_debugChannelSolenoids;
-    static DebugToneGenerator           m_debugChannelToneGenerator;
-    static DebugPll                     m_debugChannelPll;
-    static DebugMotorVelocityController m_debugChannelMotorVelocityController;
-    static DebugForceCoil               m_debugChannelForceCoil;
-    static DebugMotorPositionController m_debugChannelMotorPositionController;
-    static DebugStepperRouter           m_debugChannelStepperRouter;
-#endif
-    bool m_startDebugService;
-    bool m_startIoExpanderService;
-    bool m_startTimerExpireService;
-    bool m_startPinMonitorService;
-    bool m_startSolenoidService;
-    bool m_startStepperService;
-    bool m_startRouterService;
-    bool m_startTim1PwmService;
-    bool m_startDacService;
-    bool m_startAdc1Service;
-    bool m_startAdc2Service;
-    bool m_startForceCoilControllerModule;
-    bool m_startZmotorVelocityControllerModule;
-    bool m_startZmotorPositionControllerModule;
-    bool m_startBonderModule;
-    bool m_startControlPanelService;
-    bool m_startLcdModule;
-    bool m_startUiModule;
-
-    bool m_stopDebugService;
-    bool m_stopIoExpanderService;
-    bool m_stopTimerExpireService;
-    bool m_stopPinMonitorService;
-    bool m_stopSolenoidService;
-    bool m_stopStepperService;
-    bool m_stopRouterService;
-    bool m_stopTim1PwmService;
-    bool m_stopDacService;
-    bool m_stopAdc1Service;
-    bool m_stopAdc2Service;
-    bool m_stopForceCoilControllerModule;
-    bool m_stopZmotorVelocityControllerModule;
-    bool m_stopZmotorPositionControllerModule;
-    bool m_stopBonderModule;
-    bool m_stopControlPanelService;
-    bool m_stopLcdModule;
-    bool m_stopUiModule;
+    Process *m_components[kComponentCount]{};
 };
 
 #endif /* ROBOT_HPP */

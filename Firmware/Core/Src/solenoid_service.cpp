@@ -18,9 +18,7 @@ DirectSolenoidChannel::DirectSolenoidChannel(FastIO *energizePin,
     , m_deenergizeTime(deenergizeTime)
     , m_callback(nullptr)
     , m_callbackContext(nullptr)
-{
-    m_timer->setExpirationListenerCallback(this, onTransitionTimer);
-}
+{}
 
 void DirectSolenoidChannel::addStateListenerCallback(void *context, Callback cb)
 {
@@ -77,6 +75,7 @@ DirectSolenoidChannel::State DirectSolenoidChannel::getState() const
 
 void DirectSolenoidChannel::start()
 {
+    m_timer->setExpirationListenerCallback(this, onTransitionTimer);
     m_closePin->clear();
     m_energizePin->clear();
     m_state = State::DEENERGIZED;
@@ -90,6 +89,7 @@ void DirectSolenoidChannel::stop()
     m_timer->stop();
     m_state = State::DEENERGIZED;
     m_targetState = State::DEENERGIZED;
+    m_timer->setExpirationListenerCallback(nullptr, nullptr);
 }
 
 void DirectSolenoidChannel::onTransitionTimer(void *context, Timer *timer)
@@ -110,7 +110,6 @@ void DirectSolenoidChannel::onTransitionTimer(void *context, Timer *timer)
 // =======================================================================
 SolenoidService::SolenoidService()
     : m_numChannels(0)
-    , m_state(ServiceState::READY)
 {
     for (uint8_t i = 0; i < SOLENOID_SERVICE_MAX_INSTANCES; i++) {
         m_channels[i] = nullptr;
@@ -127,37 +126,27 @@ bool SolenoidService::addChannel(SolenoidChannel *channel)
     return true;
 }
 
-void SolenoidService::startService()
+void SolenoidService::onStart()
 {
-    if (m_state != ServiceState::READY) return;
-
     for (uint8_t i = 0; i < m_numChannels; i++) {
         m_channels[i]->start();
     }
 
     HAL_Delay(SOLENOID_SERVICE_INIT_DELAY_MS);
 
-    m_state = ServiceState::OPERATING;
 }
 
-void SolenoidService::executeService()
+void SolenoidService::onExecute()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
-    }
-
     for (uint8_t i = 0; i < m_numChannels; i++) {
         m_channels[i]->poll();
     }
 }
 
-void SolenoidService::stopService()
+void SolenoidService::onStop()
 {
-    if (m_state != ServiceState::OPERATING) return;
-
     for (uint8_t i = 0; i < m_numChannels; i++) {
         m_channels[i]->stop();
     }
 
-    m_state = ServiceState::READY;
 }

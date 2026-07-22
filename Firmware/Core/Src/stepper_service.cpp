@@ -232,7 +232,6 @@ StepperService::StepperService(TIM_HandleTypeDef *htim, FastIO *enablePin, FastI
     , m_enablePin(enablePin)
     , m_resetPin(resetPin)
     , m_numChannels(0)
-    , m_state(ServiceState::READY)
 {
     for (uint8_t i = 0; i < STEPPER_SERVICE_MAX_MOTOR_COUNT; i++) {
         m_channels[i] = nullptr;
@@ -251,12 +250,8 @@ bool StepperService::addChannel(StepperChannel *channel)
     return true;
 }
 
-void StepperService::startService()
+void StepperService::onStart()
 {
-    if (m_state != ServiceState::READY) {
-        return;
-    }
-
     m_enablePin->clear();
     m_resetPin->set();
 
@@ -265,17 +260,11 @@ void StepperService::startService()
     }
 
     HAL_TIM_Base_Start_IT(m_htim);
-    m_state = ServiceState::OPERATING;
 }
 
-void StepperService::stopService()
+void StepperService::onStop()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
-    }
-
     HAL_TIM_Base_Stop_IT(m_htim);
-    m_state = ServiceState::READY;
 
     m_enablePin->set();
 
@@ -290,7 +279,7 @@ void StepperService::handlePeriodElapsed(TIM_HandleTypeDef *htim)
         return;
     }
 
-    if (m_state != ServiceState::OPERATING) {
+    if (!isOperating()) {
         return;
     }
 

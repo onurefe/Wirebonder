@@ -4,102 +4,155 @@
 #include "configuration.h"
 #include <cstdint>
 
-// ---------------------------------------------------------------------------
-// EepromEmulator
-//
-// Log-structured EEPROM emulation on a single STM32F446RE flash sector.
-//
-// Sector layout (128 KB, Sector 7 — 0x08060000):
-//   [+0x0000–+0x0001]  Sector status (uint16_t: 0xFFFF=empty, 0xAAAA=active)
-//   [+0x0002–+0x0007]  Reserved (alignment padding)
-//   [+0x0008–+0x3FFF]  Entry stack  (≤ 2048 entries × 8 B = 16 KB)
-//   [+0x4000–end    ]  Data  stack  (≈ 112 KB)
-//
-// Objects are registered with registerObject() before init(). Each write
-// appends one Entry {id, dataOffset} to the entry stack and the raw payload
-// to the data stack. Reads scan the entry stack backwards for the latest entry.
-//
-// When either stack is nearly full, saveObject() triggers compactification:
-// all registered modules are notified first (so they can decide whether to
-// keep their current RAM values or reload from flash), then the sector is
-// erased and each object is re-written from its registered RAM buffer.
-//
-// Power-loss note: a reset during compactification loses all stored data
-// (accepted trade-off for single-sector operation).
-// ---------------------------------------------------------------------------
+// Log-structured EEPROM emulation over two interchangeable flash areas.
+// New records are appended to the active area. When it fills, the newest
+// committed version of every object is copied directly from flash into the
+// alternate area. The alternate area is marked active before the old area is
+// erased, so a reset at any point leaves at least one complete generation.
 class EepromEmulator {
 public:
     EepromEmulator();
-    
-    using CompactificationNotificationCallback = void (*)(void *context);
 
-    bool init();
-    bool registerObject(uint16_t objectId, uint8_t *memoryBuffer, uint16_t length, 
-        CompactificationNotificationCallback compactificationNotificationCallback, void *context);
-    bool saveObject(uint16_t objectId);
-    bool loadObject(uint16_t objectId);
-    bool reset();
-
-private:
-    struct Entry {
-        uint32_t id;          // object identifier (uint32_t to pad struct to 8 bytes)
-        uint32_t dataOffset;  // byte offset from the data stack base
+    struct ObjectInfo {
+        uint16_t id;
+        uint32_t length;
     };
 
-    // Sector status codes (written to the first 2 bytes of the sector).
-    static constexpr uint16_t kSectorEmpty  = 0xFFFFU;  // erased flash default
-    static constexpr uint16_t kSectorActive = 0xAAAAU;
+    struct ObjectCursor {
+        int32_t nextEntryIndex;
+    };
 
-    // Sentinels — erased flash reads as 0xFF bytes.
-    // kNullId (0xFFFFFFFF) is detectable in Entry.id as "slot never written".
-    // kNullIdx (0xFFFF) is returned by getObjectIdx when an ID is not registered.
-    static constexpr uint32_t kNullId  = 0xFFFFFFFFU;
-    static constexpr uint16_t kNullIdx = 0xFFFFU;
+    bool init();
+    bool saveObject(uint16_t objectId, const void *data, uint32_t length);
+    bool loadObject(uint16_t objectId,
+                    void *data,
+                    uint32_t capacity,
+                    uint32_t *length = nullptr) const;
+    bool getObjectInfo(uint16_t objectId, ObjectInfo& info) const;
+    ObjectCursor beginObjectEnumeration() const;
+    bool getNextObject(ObjectCursor& cursor, ObjectInfo& info) const;
+    // Appends a tombstone. Older versions remain physically present until an
+    // area rollover but are immediately inaccessible through loadObject().
+    bool logicalErase(uint16_t objectId);
+    // Appends a reset barrier. All records before it become inaccessible;
+    // physical areas are erased only when normal rollover requires it.
+    bool logicalReset();
+    // Activates an empty generation in the alternate area, then physically
+    // erases the previously active area.
+    bool hardReset();
 
-    // Configurable limits (defined in configuration.h)
-    static constexpr uint32_t kSector      = EEPROM_EMULATOR_FLASH_SECTOR;
-    static constexpr uint32_t kSectorAddr  = EEPROM_EMULATOR_FLASH_SECTOR_ADDR;
-    static constexpr uint32_t kSectorSize  = EEPROM_EMULATOR_FLASH_SECTOR_SIZE;
+private:
+    struct FlashArea {
+        uint32_t sector;
+        uint32_t address;
+    };
 
-    // Sector layout constants
-    static constexpr uint32_t kSectorHdrSize    = 8U;
-    static constexpr uint32_t kEntryStackSize   = sizeof(Entry) * EEPROM_EMULATOR_MAX_NUM_OF_ENTRIES;
-    static constexpr uint32_t kDataStackSize    = kSectorSize - kSectorHdrSize - kEntryStackSize;
-    static constexpr uint32_t kEntryStackAddr   = kSectorAddr + kSectorHdrSize;
-    static constexpr uint32_t kDataStackAddr    = kEntryStackAddr + kEntryStackSize;
+    struct AreaHeader {
+        uint32_t magic;
+        uint32_t generation;
+        uint32_t generationInverse;
+        uint32_t preparedMarker;
+        uint32_t transferMarker;
+        uint32_t activeMarker;
+    };
 
-    // Runtime state
-    uint16_t m_objectIds[EEPROM_EMULATOR_MAX_NUM_OF_OBJECTS];
-    CompactificationNotificationCallback m_compactificationCallbacks[EEPROM_EMULATOR_MAX_NUM_OF_OBJECTS];
-    void *m_contexts[EEPROM_EMULATOR_MAX_NUM_OF_OBJECTS];
-    uint8_t *m_objectMemoryBuffers[EEPROM_EMULATOR_MAX_NUM_OF_OBJECTS];
-    uint16_t m_objectLengths[EEPROM_EMULATOR_MAX_NUM_OF_OBJECTS];
-    uint8_t m_numOfObjects;
+    // The ID word is programmed last and therefore commits the record.
+    struct Entry {
+        uint32_t id;
+        uint32_t dataOffset;
+        uint32_t length;
+        uint32_t checksum;
+    };
 
-    uint16_t m_entryStackPtr;                  // next free entry stack slot
-    uint32_t m_dataStackPtr;                   // next free byte offset in the data stack
-    
-    // Helpers.
+    static constexpr uint8_t  kAreaCount = 2U;
+    static constexpr uint8_t  kAreaA = 0U;
+    static constexpr uint8_t  kAreaB = 1U;
+    static constexpr uint8_t  kNoArea = 0xFFU;
+
+    static constexpr uint32_t kAreaMagic = 0x45455033UL; // "EEP3"
+    static constexpr uint32_t kAreaPrepared = 0x50524550UL; // "PREP"
+    static constexpr uint32_t kAreaTransfer = 0x434F5059UL; // "COPY"
+    static constexpr uint32_t kAreaActive = 0x41435456UL;    // "ACTV"
+    static constexpr uint32_t kNullId = 0xFFFFFFFFUL;
+    static constexpr uint32_t kResetId = 0xFFFFFFFEUL;
+    static constexpr uint32_t kDeletedLength = 0xFFFFFFFFUL;
+    static constexpr uint32_t kTombstoneChecksum = 0x44454C45UL; // "DELE"
+    static constexpr uint32_t kResetChecksum = 0x52455345UL;     // "RESE"
+    static constexpr uint32_t kAreaSize = EEPROM_EMULATOR_FLASH_AREA_SIZE;
+    static constexpr uint32_t kAreaHeaderSize = sizeof(AreaHeader);
+    static constexpr uint32_t kEntryStackSize =
+        sizeof(Entry) * EEPROM_EMULATOR_MAX_NUM_OF_ENTRIES;
+    static constexpr uint32_t kDataStackSize =
+        kAreaSize - kAreaHeaderSize - kEntryStackSize;
+
+    static_assert(kAreaHeaderSize + kEntryStackSize < kAreaSize,
+                  "EEPROM metadata must fit inside each flash area");
+
+    FlashArea m_flashAreas[kAreaCount];
+
+    uint8_t  m_activeArea;
+    uint16_t m_entryStackPtr;
+    uint32_t m_dataStackPtr;
+
+    bool format();
     bool compactify();
-    
-    void sendCompactificationNotification();
+    bool appendObject(uint8_t areaIndex,
+                      uint16_t& entryStackPtr,
+                      uint32_t& dataStackPtr,
+                      uint16_t objectId,
+                      const uint8_t *data,
+                      uint32_t length);
+    bool appendTombstone(uint8_t areaIndex,
+                         uint16_t& entryStackPtr,
+                         uint32_t dataStackPtr,
+                         uint16_t objectId);
+    bool appendResetMarker(uint8_t areaIndex,
+                           uint16_t& entryStackPtr,
+                           uint32_t dataStackPtr);
+    bool appendMarker(uint8_t areaIndex,
+                      uint16_t& entryStackPtr,
+                      uint32_t dataStackPtr,
+                      const Entry& entry);
+
     void initializeStackPointers();
+    bool checkWriteAvailability(uint16_t entryStackPtr,
+                                uint32_t dataStackPtr,
+                                uint32_t dataLength) const;
 
-    bool checkWriteAvailability(uint16_t dataLength);
-    uint16_t readSectorHeader();
-    bool findObjectEntry(uint16_t objectId, Entry *entry);
-    
-    bool writeObjectData(Entry &entry, uint8_t *data, uint16_t length);
-    void readObjectData(Entry &entry, uint8_t *data, uint16_t length);
+    uint32_t getPaddedLength(uint32_t length) const;
+    uint32_t calculateChecksum(const uint8_t *data, uint32_t length) const;
 
-    bool writeObjectEntry(uint16_t idx, Entry *entry);
-    void readObjectEntry(uint16_t idx, Entry *entry);
-    
-    uint16_t getObjectIdx(uint16_t objectId);
-    uint32_t getPaddedLength(uint32_t length);
+    uint32_t entryStackAddress(uint8_t areaIndex) const;
+    uint32_t dataStackAddress(uint8_t areaIndex) const;
+    uint32_t entryAddress(uint8_t areaIndex, uint16_t entryIndex) const;
 
-    // Flash primitives
-    bool flashWrite(uint32_t addr, uint8_t *data, uint16_t length);
-    bool eraseSector();
-    bool writeSectorHeader();
+    AreaHeader readAreaHeader(uint8_t areaIndex) const;
+    bool isAreaActive(uint8_t areaIndex, AreaHeader *header = nullptr) const;
+    bool isAreaPrepared(uint8_t areaIndex, uint32_t generation) const;
+    bool isGenerationNewer(uint32_t lhs, uint32_t rhs) const;
+    bool prepareArea(uint8_t areaIndex, uint32_t generation);
+    bool ensureAreaPrepared(uint8_t areaIndex, uint32_t generation);
+    bool ensureStandbyAreaPrepared();
+    bool beginAreaTransfer(uint8_t areaIndex);
+    bool activateArea(uint8_t areaIndex);
+
+    bool findObjectEntry(uint8_t areaIndex,
+                         uint16_t entryCount,
+                         uint16_t objectId,
+                         Entry *entry) const;
+    bool hasObjectRecord(uint8_t areaIndex,
+                         uint16_t entryCount,
+                         uint16_t objectId) const;
+    bool hasNewerObjectRecord(uint16_t entryIndex, uint16_t objectId) const;
+    bool isEntryErased(const Entry& entry) const;
+    bool hasValidMetadata(const Entry& entry) const;
+    bool isTombstone(const Entry& entry) const;
+    bool isResetMarker(const Entry& entry) const;
+    bool isEntryCommitted(uint8_t areaIndex, const Entry& entry) const;
+    void readObjectEntry(uint8_t areaIndex, uint16_t entryIndex, Entry *entry) const;
+    bool reserveObjectEntry(uint8_t areaIndex, uint16_t entryIndex, const Entry& entry);
+    bool commitObjectEntry(uint8_t areaIndex, uint16_t entryIndex, const Entry& entry);
+
+    bool flashWrite(uint32_t address, const uint8_t *data, uint32_t length);
+    bool eraseArea(uint8_t areaIndex);
 };

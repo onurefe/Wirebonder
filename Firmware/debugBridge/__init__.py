@@ -12,12 +12,15 @@ The package is loaded by debugBridge/debug_bridge.py, usually through
 
 from .service import DebugService
 from .target import Target
-from .tests import register_all
+from .tests import register_all, COMMAND_CLASSES
 
 
 def register():
     target = Target()
     service = DebugService(target)
-    names = register_all(target, service)
+    register_all(target, service)
 
-    print("debugBridge loaded: " + " / ".join(names))
+    print("debugBridge loaded; available commands:")
+    for cls in COMMAND_CLASSES:
+        summary = (cls.__doc__ or cls.NAME).strip().splitlines()[0]
+        print("  " + summary)

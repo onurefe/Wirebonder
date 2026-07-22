@@ -7,10 +7,11 @@
 #include "generic.h"
 #include "configuration.h"
 #include "complex.h"
+#include "process.hpp"
 #include "adc_service.hpp"
 #include "dac_service.hpp"
 
-class UsImpedanceScannerModule {
+class UsImpedanceScannerModule : public Process {
 public:
     using Callback = void (*)(void *context,
                               complexf *voltagePhasors,
@@ -40,11 +41,19 @@ public:
     void setScanParameters(uint16_t numFrequencies, float minFrequency, float frequencyStep);
 
     bool addScanCompleteListenerCallback(void *context, Callback cb);
-    void start(complexf *voltagePhasors, complexf *currentPhasors, complexf *impedances);
-    void execute();
-    void stop();
+    bool beginScan(complexf *voltagePhasors,
+                   complexf *currentPhasors,
+                   complexf *impedances);
+    void abortScan();
+    bool isScanning() const;
 
 private:
+    enum class ScanState : uint8_t { Idle, Scanning };
+
+    void onStart() override;
+    void onStop() override;
+    void onExecute() override;
+
     struct CallbackRegistration {
         Callback callback;
         void *context;
@@ -55,6 +64,7 @@ private:
     static void onVoltageCaptureDone(void *context, uint16_t *buffer, uint32_t numSamples);
     static void onCurrentCaptureDone(void *context, uint16_t *buffer, uint32_t numSamples);
 
+    float synthesisSample(uint32_t n) const;
     void analyzeChannel(const uint16_t *samples, uint32_t n, float gain, complexf *phasors);
     void computeImpedances();
     void publishScanComplete();
@@ -78,7 +88,7 @@ private:
     float    m_vGain;
     float    m_iGain;
 
-    ServiceState m_state;
+    ScanState m_scanState;
 
     uint16_t         m_warmupIterations;
     volatile uint16_t m_vWarmupRemaining;

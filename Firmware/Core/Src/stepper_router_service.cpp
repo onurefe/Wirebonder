@@ -11,6 +11,9 @@ RouterChannel::RouterChannel(StepperChannel *stepper,
     , m_maxVelocity(maxVel)
     , m_maxAcceleration(maxAcc)
     , m_stepPerMm(stepPerMm)
+    , m_travelLimitsEnabled(false)
+    , m_minimumPosition(0.0f)
+    , m_maximumPosition(0.0f)
     , m_callback(nullptr)
     , m_callbackContext(nullptr)
     , m_routeParams{}
@@ -19,6 +22,7 @@ RouterChannel::RouterChannel(StepperChannel *stepper,
     , m_targetPosition(0.0f)
     , m_numOfRenderedSegments(0)
     , m_lastRenderedStepperServicePosition(0)
+    , m_moveStartStepperPosition(0)
 {
 }
 
@@ -35,16 +39,53 @@ void RouterChannel::append(float displacement)
 
 void RouterChannel::moveTo(float position)
 {
+    moveTo(position, m_maxVelocity);
+}
+
+void RouterChannel::moveTo(float position, float velocityLimit)
+{
     if (m_isBusy || m_stepper == nullptr) {
         return;
+    }
+
+    if (m_travelLimitsEnabled) {
+        position = std::clamp(position, m_minimumPosition, m_maximumPosition);
     }
 
     m_targetPosition = position;
     m_lastRenderedStepperServicePosition = 0;
     m_numOfRenderedSegments              = 0;
+    m_moveStartStepperPosition           = m_stepper->getMotorPosition();
     m_isBusy                             = true;
 
-    formTrapezoidRoute(m_targetPosition - m_position);
+    formTrapezoidRoute(m_targetPosition - m_position,
+                       std::min(std::abs(velocityLimit), m_maxVelocity));
+}
+
+bool RouterChannel::setPosition(float position)
+{
+    if (m_isBusy) return false;
+    m_position = position;
+    m_targetPosition = position;
+    m_lastRenderedStepperServicePosition = 0;
+    m_numOfRenderedSegments = 0U;
+    m_moveStartStepperPosition = m_stepper != nullptr
+        ? m_stepper->getMotorPosition()
+        : 0;
+    return true;
+}
+
+void RouterChannel::setTravelLimits(float minimumPosition, float maximumPosition)
+{
+    if (minimumPosition > maximumPosition) std::swap(minimumPosition, maximumPosition);
+    m_minimumPosition = minimumPosition;
+    m_maximumPosition = maximumPosition;
+    m_travelLimitsEnabled = true;
+}
+
+void RouterChannel::clearTravelLimits()
+{
+    m_travelLimitsEnabled = false;
 }
 
 float RouterChannel::getPosition() const
@@ -72,14 +113,26 @@ void RouterChannel::start()
     m_lastRenderedStepperServicePosition = 0;
     m_numOfRenderedSegments              = 0;
     m_isBusy                             = false;
-    m_position                           = 0.0f;
-    m_targetPosition                     = 0.0f;
+    m_targetPosition                     = m_position;
     m_routeParams                        = {};
+    m_moveStartStepperPosition           = m_stepper != nullptr
+        ? m_stepper->getMotorPosition()
+        : 0;
 }
 
 void RouterChannel::stop()
 {
+    if (m_isBusy && m_stepper != nullptr) {
+        const int32_t completedSteps =
+            m_stepper->getMotorPosition() - m_moveStartStepperPosition;
+        m_position += stepsToMillimeters(completedSteps);
+        m_targetPosition = m_position;
+        m_stepper->restart();
+    }
     m_isBusy = false;
+    m_lastRenderedStepperServicePosition = 0;
+    m_numOfRenderedSegments = 0U;
+    m_routeParams = {};
 }
 
 void RouterChannel::execute()
@@ -116,12 +169,12 @@ void RouterChannel::execute()
 // -------------------------------------------------------------------------
 // Motion planning
 // -------------------------------------------------------------------------
-void RouterChannel::formTrapezoidRoute(float displacement)
+void RouterChannel::formTrapezoidRoute(float displacement, float velocityLimit)
 {
     const float absDisplacement = std::abs(displacement);
 
     if (absDisplacement <= 0.0f ||
-        m_maxVelocity <= 0.0f  ||
+        velocityLimit <= 0.0f  ||
         m_maxAcceleration <= 0.0f)
     {
         m_routeParams   = {};
@@ -130,7 +183,7 @@ void RouterChannel::formTrapezoidRoute(float displacement)
     }
 
     const float maxAchievableVelocity = sqrtf(absDisplacement * m_maxAcceleration);
-    const float targetVelocity        = std::min(m_maxVelocity, maxAchievableVelocity);
+    const float targetVelocity        = std::min(velocityLimit, maxAchievableVelocity);
 
     const float tAcc  = targetVelocity / m_maxAcceleration;
     const float dAcc  = 0.5f * m_maxAcceleration * tAcc * tAcc;
@@ -216,7 +269,6 @@ qint7_8_t RouterChannel::getStepperServiceSegment(float destinationPosition)
 // =======================================================================
 StepperRouterService::StepperRouterService()
     : m_numChannels(0)
-    , m_state(ServiceState::READY)
 {
     for (uint8_t i = 0; i < ROUTER_MODULE_MAX_NUM_OF_ROUTERS; i++) {
         m_channels[i] = nullptr;
@@ -233,38 +285,24 @@ bool StepperRouterService::addChannel(RouterChannel *channel)
     return true;
 }
 
-void StepperRouterService::startService()
+void StepperRouterService::onStart()
 {
-    if (m_state != ServiceState::READY) {
-        return;
-    }
-
     for (uint8_t i = 0; i < m_numChannels; i++) {
         m_channels[i]->start();
     }
 
-    m_state = ServiceState::OPERATING;
 }
 
-void StepperRouterService::stopService()
+void StepperRouterService::onStop()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
-    }
-
     for (uint8_t i = 0; i < m_numChannels; i++) {
         m_channels[i]->stop();
     }
 
-    m_state = ServiceState::READY;
 }
 
-void StepperRouterService::executeService()
+void StepperRouterService::onExecute()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
-    }
-
     for (uint8_t i = 0; i < m_numChannels; i++) {
         m_channels[i]->execute();
     }

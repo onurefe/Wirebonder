@@ -6,7 +6,7 @@ from .base import BridgeCommand
 CMD_WRITE_LINE = 1
 CMD_CLEAR = 2
 
-TEXT_BUFFER = "Robot::m_debugChannelLcd.m_text"
+TEXT_BUFFER = "LcdDebugEnvironment::m_text"
 MAX_ROWS = 4
 MAX_COLUMNS = 20
 

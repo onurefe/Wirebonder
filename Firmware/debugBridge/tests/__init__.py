@@ -1,10 +1,12 @@
 """Test registry for DebugBridge GDB tests."""
 
-from .io import DebugIoPins
+from .bonder import (DebugBonderWatch, DebugBonderStatus, DebugBonderStart,
+                     DebugBonderStop, DebugBonderButton)
 from .keypad import DebugKeys
 from .lcd import DebugLcd
 from .leds import DebugLeds
 from .force_coil import DebugForceCoil
+from .homing import DebugHome, DebugCenter, DebugHomingStop
 from .motor_position import DebugMotorPosition, DebugMotorPositionStall
 from .motor_velocity import DebugMotorVelocity
 from .pll import DebugPll, DebugStop
@@ -24,7 +26,6 @@ COMMAND_CLASSES = [
     DebugKeys,
     DebugLeds,
     DebugLcd,
-    DebugIoPins,
     DebugSolenoids,
     DebugMotorVelocity,
     DebugMotorPosition,
@@ -32,6 +33,14 @@ COMMAND_CLASSES = [
     DebugForceCoil,
     DebugStepperRouter,
     DebugStepperRouterStop,
+    DebugHome,
+    DebugCenter,
+    DebugHomingStop,
+    DebugBonderWatch,
+    DebugBonderStatus,
+    DebugBonderStart,
+    DebugBonderStop,
+    DebugBonderButton,
 ]
 
 

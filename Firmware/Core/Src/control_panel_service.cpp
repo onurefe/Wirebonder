@@ -9,6 +9,7 @@ ButtonChannel::ButtonChannel(uint8_t idcPin0, uint8_t idcPin1)
     : m_mask(static_cast<uint16_t>((1U << (idcPin0 - 1U)) | (1U << (idcPin1 - 1U))))
     , m_wasPressed(false)
     , m_initialized(false)
+    , m_lastChangeTick(0U)
     , m_callbacks{}
     , m_callbackCount(0)
 {
@@ -34,6 +35,26 @@ bool ButtonChannel::addPressListenerCallback(void *context, PressCallback callba
     return false;
 }
 
+bool ButtonChannel::removePressListenerCallback(void *context,
+                                                PressCallback callback)
+{
+    for (uint8_t i = 0; i < m_callbackCount; ++i) {
+        if (m_callbacks[i].context != context ||
+            m_callbacks[i].callback != callback) {
+            continue;
+        }
+
+        for (uint8_t j = static_cast<uint8_t>(i + 1U);
+             j < m_callbackCount; ++j) {
+            m_callbacks[j - 1U] = m_callbacks[j];
+        }
+        --m_callbackCount;
+        m_callbacks[m_callbackCount] = {};
+        return true;
+    }
+    return false;
+}
+
 void ButtonChannel::update(uint16_t state)
 {
     bool pressed = (state & m_mask) == m_mask;
@@ -44,11 +65,22 @@ void ButtonChannel::update(uint16_t state)
         return;
     }
 
-    if (pressed && !m_wasPressed) {
+    if (pressed == m_wasPressed) {
+        return;
+    }
+
+    // The two DPST poles never settle in sync, so "both bits high" flickers
+    // around each press and release. A press edge only counts when the
+    // released state had been stable for the debounce interval; the bounced
+    // edges arrive within it and are dropped.
+    const uint32_t tick = HAL_GetTick();
+    if (pressed &&
+        (tick - m_lastChangeTick) >= KEYPAD_BTN_DEBOUNCE_MS) {
         for (uint8_t i = 0; i < m_callbackCount; i++) {
             m_callbacks[i].callback(m_callbacks[i].context);
         }
     }
+    m_lastChangeTick = tick;
     m_wasPressed = pressed;
 }
 
@@ -86,10 +118,7 @@ ControlPanelService::ControlPanelService(Pca9535ExpanderChannel *expander, Timer
     , m_outputWriteQueuedCallback(nullptr)
     , m_outputWriteCompletedCallback(nullptr)
     , m_outputWriteCallbackContext(nullptr)
-    , m_state(ServiceState::READY)
-{
-    m_pollTimer->setExpirationListenerCallback(this, onPollTimerExpired);
-}
+{}
 
 bool ControlPanelService::addButton(ButtonChannel *button)
 {
@@ -105,11 +134,13 @@ bool ControlPanelService::addLed(LedChannel *led)
     return true;
 }
 
-void ControlPanelService::startService()
+void ControlPanelService::onStart()
 {
-    if (m_state != ServiceState::READY) {
+    if (m_expander == nullptr || m_pollTimer == nullptr) {
+        setProcessError();
         return;
     }
+    m_pollTimer->setExpirationListenerCallback(this, onPollTimerExpired);
 
     m_outputPort0 = 0x00U;
     m_outputPort1 = 0x00U;
@@ -117,26 +148,21 @@ void ControlPanelService::startService()
     m_expander->setTransferListenerCallbacks(
         this, onKeypadStateChanged, onExpanderWriteCompleted);
     m_pollTimer->start(false, 1.0f / CONTROL_PANEL_POLL_FREQUENCY);
-    m_state = ServiceState::OPERATING;
 }
 
-void ControlPanelService::stopService()
+void ControlPanelService::onStop()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
+    if (m_pollTimer != nullptr) {
+        m_pollTimer->stop();
+        m_pollTimer->setExpirationListenerCallback(nullptr, nullptr);
     }
-
-    m_pollTimer->stop();
-    m_expander->setTransferListenerCallbacks(nullptr, nullptr, nullptr);
-    m_state = ServiceState::READY;
+    if (m_expander != nullptr) {
+        m_expander->setTransferListenerCallbacks(nullptr, nullptr, nullptr);
+    }
 }
 
-void ControlPanelService::executeService()
+void ControlPanelService::onExecute()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
-    }
-
     uint8_t new_output_port0;
     uint8_t new_output_port1;
 
@@ -184,7 +210,7 @@ void ControlPanelService::onPollTimerExpired(void *context, Timer *timer)
 {
     (void)timer;
     ControlPanelService *self = static_cast<ControlPanelService *>(context);
-    if (self->m_state == ServiceState::OPERATING) {
+    if (self->isOperating()) {
         self->m_expander->readPortInputValues();
     }
 }
@@ -209,7 +235,7 @@ void ControlPanelService::onKeypadStateChanged(void *context, uint8_t port0, uin
 {
     ControlPanelService *self  = static_cast<ControlPanelService *>(context);
 
-    if (self == nullptr || self->m_state != ServiceState::OPERATING) {
+    if (self == nullptr || !self->isOperating()) {
         return;
     }
 

@@ -35,7 +35,7 @@ UsImpedanceScannerModule::UsImpedanceScannerModule(
     , m_adcVoltageRange(adcVoltageRange)
     , m_vGain(vGain)
     , m_iGain(iGain)
-    , m_state(ServiceState::READY)
+    , m_scanState(ScanState::Idle)
     , m_warmupIterations(warmupIterations)
     , m_vWarmupRemaining(0)
     , m_iWarmupRemaining(0)
@@ -61,7 +61,7 @@ UsImpedanceScannerModule::UsImpedanceScannerModule(
 // ---------------------------------------------------------------------------
 void UsImpedanceScannerModule::setScanParameters(uint16_t numFrequencies, float minFrequency, float frequencyStep)
 {
-    if (m_state == ServiceState::OPERATING) return;
+    if (isScanning()) return;
 
     // The synthesis buffer loops every m_synthesisBufferSize samples, so
     // only frequencies on the resulting grid are generated coherently
@@ -90,21 +90,54 @@ void UsImpedanceScannerModule::setScanParameters(uint16_t numFrequencies, float 
 // ---------------------------------------------------------------------------
 // Public: re-compute multi-tone synthesis waveform (also called from ctor)
 // ---------------------------------------------------------------------------
+// One sample of the unit-per-tone multitone. Newman phases (pi*k^2/N)
+// spread the tone alignment so the crest stays near sqrt(2N) instead of N,
+// letting every tone run correspondingly hotter in the same DAC range.
+float UsImpedanceScannerModule::synthesisSample(uint32_t n) const
+{
+    float sum = 0.0f;
+
+    for (uint16_t k = 0; k < m_numFrequencies; k++) {
+        float freq  = m_minFrequency + static_cast<float>(k) * m_frequencyStep;
+        float phase = PI * static_cast<float>(k) * static_cast<float>(k) /
+                      static_cast<float>(m_numFrequencies);
+        sum += arm_sin_f32(2.0f * PI * freq * static_cast<float>(n) /
+                               m_dacSamplingFrequency +
+                           phase);
+    }
+
+    return sum;
+}
+
 void UsImpedanceScannerModule::updateSynthesisBuffer()
 {
     float midCode  = IDacChannel::voltsToDacCode(m_dacVoltageRange * 0.5f, m_dacBits, m_dacVoltageRange);
-    float ampCode  = IDacChannel::voltsToDacCode(m_dacVoltageRange * 0.5f / static_cast<float>(m_numFrequencies),
-                                                  m_dacBits, m_dacVoltageRange);
     uint16_t maxCode = static_cast<uint16_t>((1u << m_dacBits) - 1u);
 
+    // First pass: measure the actual multitone peak (the crest-factor
+    // formula is only approximate for a frequency grid offset from DC).
+    float peak = 0.0f;
     for (uint32_t n = 0; n < m_synthesisBufferSize; n++) {
-        float sum = 0.0f;
-        for (uint16_t k = 0; k < m_numFrequencies; k++) {
-            float freq = m_minFrequency + static_cast<float>(k) * m_frequencyStep;
-            sum += arm_sin_f32(2.0f * PI * freq * static_cast<float>(n) / m_dacSamplingFrequency);
+        float magnitude = fabsf(synthesisSample(n));
+        if (magnitude > peak) {
+            peak = magnitude;
         }
+    }
 
-        int32_t code = static_cast<int32_t>(midCode + ampCode * sum + 0.5f);
+    if (peak <= 0.0f) {
+        for (uint32_t n = 0; n < m_synthesisBufferSize; n++) {
+            m_synthesisBuffer[n] = static_cast<uint16_t>(midCode);
+        }
+        return;
+    }
+
+    // Scale so the measured peak lands at the configured fraction of the
+    // half range; the clamp below only catches rounding.
+    float ampCode = midCode * SCANNER_SYNTHESIS_PEAK_HEADROOM / peak;
+
+    for (uint32_t n = 0; n < m_synthesisBufferSize; n++) {
+        int32_t code = static_cast<int32_t>(
+            midCode + ampCode * synthesisSample(n) + 0.5f);
         if (code < 0)                               code = 0;
         if (static_cast<uint32_t>(code) > maxCode)  code = static_cast<int32_t>(maxCode);
         m_synthesisBuffer[n] = static_cast<uint16_t>(code);
@@ -134,9 +167,36 @@ bool UsImpedanceScannerModule::addScanCompleteListenerCallback(void *context, Ca
     return false;
 }
 
-void UsImpedanceScannerModule::start(complexf *voltagePhasors, complexf *currentPhasors, complexf *impedances)
+void UsImpedanceScannerModule::onStart()
 {
-    if (m_state != ServiceState::READY) return;
+    if (m_dacChannel == nullptr || m_vChannel == nullptr ||
+        m_iChannel == nullptr) {
+        setProcessError();
+        return;
+    }
+
+    if (!m_vChannel->addCaptureCompleteListenerCallback(
+            this, onVoltageCaptureDone) ||
+        !m_iChannel->addCaptureCompleteListenerCallback(
+            this, onCurrentCaptureDone)) {
+        setProcessError();
+    }
+}
+
+void UsImpedanceScannerModule::onStop()
+{
+    abortScan();
+}
+
+bool UsImpedanceScannerModule::beginScan(
+    complexf *voltagePhasors,
+    complexf *currentPhasors,
+    complexf *impedances)
+{
+    if (!isOperating() || isScanning() || voltagePhasors == nullptr ||
+        currentPhasors == nullptr || impedances == nullptr) {
+        return false;
+    }
 
     m_voltagePhasors = voltagePhasors;
     m_currentPhasors = currentPhasors;
@@ -150,20 +210,17 @@ void UsImpedanceScannerModule::start(complexf *voltagePhasors, complexf *current
 
     m_vChannel->reset();
     m_iChannel->reset();
-    m_vChannel->addCaptureCompleteListenerCallback(this, onVoltageCaptureDone);
-    m_iChannel->addCaptureCompleteListenerCallback(this, onCurrentCaptureDone);
-
+    m_scanState = ScanState::Scanning;
     m_vChannel->enable();
     m_iChannel->enable();
 
     m_dacChannel->start();
-
-    m_state = ServiceState::OPERATING;
+    return true;
 }
 
-void UsImpedanceScannerModule::execute()
+void UsImpedanceScannerModule::onExecute()
 {
-    if (m_state != ServiceState::OPERATING) return;
+    if (!isScanning()) return;
     if (!m_vReady || !m_iReady) return;
 
     m_dacChannel->stop();
@@ -176,10 +233,12 @@ void UsImpedanceScannerModule::execute()
 
     // Undo the V/I ADC sequencing skew: the I-sense rank converts
     // ADC_CHANNEL_US_VI_SKEW_SECONDS after V-sense, advancing its phase
-    // by 2*pi*f*skew (frequency-dependent across the sweep).
+    // by 2*pi*f*skew (frequency-dependent across the sweep), plus the
+    // frequency-independent current-transformer phase lead.
     for (uint16_t k = 0; k < m_numFrequencies; k++) {
         float freq  = m_minFrequency + static_cast<float>(k) * m_frequencyStep;
-        float theta = 2.0f * PI * freq * ADC_CHANNEL_US_VI_SKEW_SECONDS;
+        float theta = 2.0f * PI * freq * ADC_CHANNEL_US_VI_SKEW_SECONDS +
+                      ADC_CHANNEL_US_ISENS_PHASE_LEAD_RAD;
         m_currentPhasors[k] = complexf_mul(
             m_currentPhasors[k],
             complexf_create(arm_cos_f32(theta), -arm_sin_f32(theta)));
@@ -187,14 +246,14 @@ void UsImpedanceScannerModule::execute()
 
     computeImpedances();
 
-    m_state = ServiceState::READY;
+    m_scanState = ScanState::Idle;
 
     publishScanComplete();
 }
 
-void UsImpedanceScannerModule::stop()
+void UsImpedanceScannerModule::abortScan()
 {
-    if (m_state != ServiceState::OPERATING) return;
+    if (!isScanning()) return;
 
     m_dacChannel->stop();
 
@@ -203,7 +262,12 @@ void UsImpedanceScannerModule::stop()
 
     m_vReady = false;
     m_iReady = false;
-    m_state  = ServiceState::READY;
+    m_scanState = ScanState::Idle;
+}
+
+bool UsImpedanceScannerModule::isScanning() const
+{
+    return m_scanState == ScanState::Scanning;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,7 +276,7 @@ void UsImpedanceScannerModule::stop()
 void UsImpedanceScannerModule::onVoltageCaptureDone(void *context, uint16_t *buffer, uint32_t numSamples)
 {
     UsImpedanceScannerModule *self = static_cast<UsImpedanceScannerModule *>(context);
-    if (self->m_state != ServiceState::OPERATING || self->m_vReady) return;
+    if (!self->isScanning() || self->m_vReady) return;
 
     if (self->m_vWarmupRemaining > 0) {
         self->m_vWarmupRemaining--;
@@ -228,7 +292,7 @@ void UsImpedanceScannerModule::onVoltageCaptureDone(void *context, uint16_t *buf
 void UsImpedanceScannerModule::onCurrentCaptureDone(void *context, uint16_t *buffer, uint32_t numSamples)
 {
     UsImpedanceScannerModule *self = static_cast<UsImpedanceScannerModule *>(context);
-    if (self->m_state != ServiceState::OPERATING || self->m_iReady) return;
+    if (!self->isScanning() || self->m_iReady) return;
 
     if (self->m_iWarmupRemaining > 0) {
         self->m_iWarmupRemaining--;

@@ -14,7 +14,6 @@ IoExpanderService::IoExpanderService(I2C_HandleTypeDef *hi2c)
     , m_expanderPointer(0U)
     , m_activeTransaction{}
     , m_busy(false)
-    , m_state(ServiceState::READY)
 {
     if (g_numServices < IO_EXPANDER_SERVICE_MAX_HANDLES) {
         g_services[g_numServices++] = this;
@@ -31,32 +30,22 @@ bool IoExpanderService::addExpander(IoExpanderChannel *expander)
     return true;
 }
 
-void IoExpanderService::startService()
+void IoExpanderService::onStart()
 {
-    if (m_state != ServiceState::READY) {
-        return;
-    }
-
     for (uint8_t i = 0U; i < m_channelCount; ++i) {
         m_channels[i]->initializePorts();
     }
 
-    m_state = ServiceState::OPERATING;
 }
 
-void IoExpanderService::stopService()
+void IoExpanderService::onStop()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
-    }
-
     m_busy = false;
-    m_state = ServiceState::READY;
 }
 
-void IoExpanderService::executeService()
+void IoExpanderService::onExecute()
 {
-    if (m_state != ServiceState::OPERATING || m_channelCount == 0U) {
+    if (m_channelCount == 0U) {
         return;
     }
 
@@ -127,7 +116,7 @@ bool IoExpanderService::startWriteTransaction(uint8_t deviceAddress, uint8_t reg
 IoExpanderService* IoExpanderService::getServiceObject(I2C_HandleTypeDef *hi2c)
 {
     for (uint8_t i = 0; i < g_numServices; i++) {
-        if (g_services[i]->m_state == ServiceState::OPERATING &&
+        if (g_services[i]->isOperating() &&
             g_services[i]->m_hi2c->Instance == hi2c->Instance) {
             return g_services[i];
         }
@@ -137,7 +126,7 @@ IoExpanderService* IoExpanderService::getServiceObject(I2C_HandleTypeDef *hi2c)
 
 void IoExpanderService::onI2cComplete(bool isRead)
 {
-    if (m_state != ServiceState::OPERATING) {
+    if (!isOperating()) {
         return;
     }
 

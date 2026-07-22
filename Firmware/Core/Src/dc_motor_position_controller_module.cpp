@@ -5,47 +5,63 @@ DcMotorPositionControllerModule::DcMotorPositionControllerModule(
     DcMotorVelocityControllerModule *velocityController)
     : m_lvdtSensorModule(lvdtSensor)
     , m_velocityController(velocityController)
-    , m_state(ServiceState::READY)
+    , m_controlState(ControlState::Disabled)
     , m_bypassEnabled(false)
     , m_hasPositionMeasurement(false)
     , m_setpointControllerCallbacks{}
     , m_setpointControllerCallbackCount(0)
+    , m_eventCallback(nullptr)
+    , m_eventCallbackContext(nullptr)
     , m_positionMeasurement(0.0f)
     , m_lvdtMagnitudeA(0.0f)
     , m_lvdtMagnitudeB(0.0f)
-{
-    registerPeripheralCallbacks();
-}
+{}
 
 // ---------------------------------------------------------------------------
 // Public-Interface
 // ---------------------------------------------------------------------------
 
-void DcMotorPositionControllerModule::start()
+void DcMotorPositionControllerModule::onStart()
 {
-    if (!isReady()) {
+    if (m_lvdtSensorModule == nullptr || m_velocityController == nullptr) {
+        setProcessError();
         return;
     }
-
-    m_state = ServiceState::OPERATING;
-    m_hasPositionMeasurement = false;
-
-    m_velocityController->start();
-    m_lvdtSensorModule->start();
+    registerPeripheralCallbacks();
 }
 
-void DcMotorPositionControllerModule::stop()
+void DcMotorPositionControllerModule::onStop()
 {
-    if (!isOperating()) {
-        return;
+    disableControl();
+}
+
+bool DcMotorPositionControllerModule::enableControl()
+{
+    if (!isOperating() || m_controlState != ControlState::Disabled) {
+        return false;
     }
 
-    m_state = ServiceState::READY;
+    m_hasPositionMeasurement = false;
 
-    m_lvdtSensorModule->stop();
-    m_velocityController->stop();
+    if (!m_lvdtSensorModule->startMeasurement()) return false;
+    if (!m_velocityController->enableControl()) {
+        m_lvdtSensorModule->stopMeasurement();
+        return false;
+    }
+
+    m_controlState = ControlState::Enabled;
+    return true;
+}
+
+void DcMotorPositionControllerModule::disableControl()
+{
+    if (m_controlState != ControlState::Enabled) return;
+
+    m_lvdtSensorModule->stopMeasurement();
+    m_velocityController->disableControl();
     m_bypassEnabled = false;
     m_hasPositionMeasurement = false;
+    m_controlState = ControlState::Disabled;
 }
 
 void DcMotorPositionControllerModule::restartControlLoop()
@@ -77,6 +93,13 @@ bool DcMotorPositionControllerModule::addPositionSetpointControllerCallback(
     return true;
 }
 
+void DcMotorPositionControllerModule::addEventListenerCallback(
+    void *context, EventCallback callback)
+{
+    m_eventCallbackContext = context;
+    m_eventCallback = callback;
+}
+
 float DcMotorPositionControllerModule::getPosition() const
 {
     return m_positionMeasurement;
@@ -89,7 +112,7 @@ float DcMotorPositionControllerModule::getVelocity() const
 
 float DcMotorPositionControllerModule::execute(float positionSetpoint)
 {
-    if (!isOperating()) {
+    if (!isControlEnabled()) {
         return 0.0f;
     }
 
@@ -158,7 +181,7 @@ bool DcMotorPositionControllerModule::controlUpdateCallback(void *context, float
 
 void DcMotorPositionControllerModule::onLvdtMeasured(float position, float magA, float magB)
 {
-    if (!isOperating()) {
+    if (!isControlEnabled()) {
         return;
     }
 
@@ -176,7 +199,7 @@ bool DcMotorPositionControllerModule::onControlUpdate(float *targetVelocity)
         return false;
     }
 
-    if (!isOperating()) {
+    if (!isControlEnabled()) {
         return false;
     }
 
@@ -185,11 +208,19 @@ bool DcMotorPositionControllerModule::onControlUpdate(float *targetVelocity)
     }
 
     float positionSetpoint = m_positionMeasurement;
+    bool setpointProvided = false;
     for (uint8_t i = 0; i < m_setpointControllerCallbackCount; i++) {
         if (m_setpointControllerCallbacks[i].callback(
                 m_setpointControllerCallbacks[i].context, &positionSetpoint)) {
+            setpointProvided = true;
             break;
         }
+    }
+
+    if (setpointProvided && m_eventCallback != nullptr &&
+        fabsf(positionSetpoint - m_positionMeasurement) <
+            DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR) {
+        m_eventCallback(m_eventCallbackContext, Event::SetpointReached);
     }
 
     *targetVelocity = execute(positionSetpoint);
@@ -205,18 +236,15 @@ void DcMotorPositionControllerModule::registerPeripheralCallbacks()
     m_lvdtSensorModule->addMeasurementListenerCallback(this, 
         &DcMotorPositionControllerModule::lvdtCallback);
 
-    m_velocityController->addVelocityControllerCallback(this,
-        &DcMotorPositionControllerModule::controlUpdateCallback);
+    if (!m_velocityController->addVelocityControllerCallback(
+            this, &DcMotorPositionControllerModule::controlUpdateCallback)) {
+        setProcessError();
+    }
 }
 
-bool DcMotorPositionControllerModule::isReady() const
+bool DcMotorPositionControllerModule::isControlEnabled() const
 {
-    return m_state == ServiceState::READY;
-}
-
-bool DcMotorPositionControllerModule::isOperating() const
-{
-    return m_state == ServiceState::OPERATING;
+    return m_controlState == ControlState::Enabled;
 }
 
 float DcMotorPositionControllerModule::clampOutput(float rawOutput) const

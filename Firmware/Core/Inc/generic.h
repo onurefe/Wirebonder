@@ -40,15 +40,6 @@ enum
 };
 typedef uint8_t OperationResult_t;
 
-enum
-{
-  STATE_UNINIT = 0x00,
-  STATE_READY = 0x01,
-  STATE_OPERATING = 0x02,
-  STATE_ERROR = 0x03
-};
-typedef uint8_t State_t;
-
 typedef uint8_t Bool_t;
 
 typedef uint64_t quint48_16_t;
@@ -64,12 +55,6 @@ typedef int32_t qint16_15_t;
 typedef int16_t qint7_8_t;
 typedef uint16_t quint8_8_t;
 typedef int32_t qint19_12_t;
-
-enum class ServiceState {
-    UNINIT,
-    READY,
-    OPERATING
-};
 
 class InterruptLock {
 public:

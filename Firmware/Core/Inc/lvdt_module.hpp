@@ -2,10 +2,11 @@
 #define LVDT_MODULE_HPP
 
 #include "adc_service.hpp"
+#include "process.hpp"
 #include "dac_service.hpp"
 #include "generic.h"
 
-class LvdtSensorModule {
+class LvdtSensorModule : public Process {
 public:
     using MeasurementCallback = void (*)(void* context, float positionMm, float magA, float magB);
 
@@ -14,12 +15,17 @@ public:
         IQDemodulatorChannel* secondaryB,
         float strokeMm);
 
-    void start();
     void addMeasurementListenerCallback(void* callbackContext, MeasurementCallback callback);
-    void stop();
-    bool isOperating() const { return m_state == ServiceState::OPERATING; }
+    bool startMeasurement();
+    void stopMeasurement();
+    bool isMeasuring() const;
 
 private:
+    enum class MeasurementState : uint8_t { Idle, Measuring };
+
+    void onStart() override;
+    void onStop() override;
+
     enum class Secondary {
         A,
         B
@@ -47,7 +53,7 @@ private:
     volatile float m_magB;
     volatile bool m_updatedA;
     volatile bool m_updatedB;
-    ServiceState m_state;
+    MeasurementState m_measurementState;
 };
 
 #endif // LVDT_MODULE_HPP

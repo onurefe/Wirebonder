@@ -71,7 +71,6 @@ TimerExpireService::TimerExpireService()
     , m_numNormalTimers(0)
     , m_globalTick(0)
     , m_lastCallTick(0)
-    , m_state(ServiceState::READY)
 {
     for (uint8_t i = 0; i < TIMER_EXPIRE_SERVICE_MAX_HANDLES; i++) {
         m_criticalTimers[i] = nullptr;
@@ -98,21 +97,12 @@ bool TimerExpireService::addTimer(Timer *timer, bool timeCritical)
     return true;
 }
 
-void TimerExpireService::startService()
+void TimerExpireService::onStart()
 {
-    if (m_state != ServiceState::READY) {
-        return;
-    }
-
-    m_state = ServiceState::OPERATING;
 }
 
-void TimerExpireService::executeService()
+void TimerExpireService::onExecute()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
-    }
-
     uint32_t currentTick = m_globalTick;
 
     if (m_lastCallTick != currentTick) {
@@ -124,18 +114,13 @@ void TimerExpireService::executeService()
     }
 }
 
-void TimerExpireService::stopService()
+void TimerExpireService::onStop()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
-    }
-
-    m_state = ServiceState::READY;
 }
 
 void TimerExpireService::tickFromISR()
 {
-    if (g_instance == nullptr || g_instance->m_state != ServiceState::OPERATING) {
+    if (g_instance == nullptr || !g_instance->isOperating()) {
         return;
     }
 

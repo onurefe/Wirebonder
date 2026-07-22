@@ -143,7 +143,7 @@ bool fitMotionalBranch(const complexf *impedances,
         (double)(TRANSDUCER_ANALYZER_MIN_REL_YM * TRANSDUCER_ANALYZER_MIN_REL_YM);
 
     double sum_x = 0.0, sum_y = 0.0, sum_xx = 0.0, sum_xy = 0.0;
-    double sum_r = 0.0;
+    double sum_r = 0.0, sum_weight = 0.0;
     int valid = 0;
 
     for (uint8_t i = 0; i < count; i++) {
@@ -171,32 +171,37 @@ bool fitMotionalBranch(const complexf *impedances,
         double x = w * w;
         double y = w * zm_im;
 
-        sum_x += x;
-        sum_y += y;
-        sum_xx += x * x;
-        sum_xy += x * y;
-        sum_r += zm_re;
+        // Weight by |Ym|^2: the I-sense SNR scales with the drawn current,
+        // so points near series resonance carry the reliable phase and the
+        // noise-dominated shoulders are attenuated instead of trusted.
+        double weight = ym_abs2 / ym_abs2_max;
+
+        sum_x += weight * x;
+        sum_y += weight * y;
+        sum_xx += weight * x * x;
+        sum_xy += weight * x * y;
+        sum_r += weight * zm_re;
+        sum_weight += weight;
         valid++;
     }
 
-    if (valid < TRANSDUCER_ANALYZER_MIN_POINTS) {
+    if (valid < TRANSDUCER_ANALYZER_MIN_POINTS || sum_weight <= 0.0) {
         return false;
     }
 
-    double n = (double)valid;
-    double denom = n * sum_xx - sum_x * sum_x;
+    double denom = sum_weight * sum_xx - sum_x * sum_x;
     if (denom <= 0.0) {
         return false;
     }
 
-    double slope = (n * sum_xy - sum_x * sum_y) / denom;
-    double intercept = (sum_y - slope * sum_x) / n;
+    double slope = (sum_weight * sum_xy - sum_x * sum_y) / denom;
+    double intercept = (sum_y - slope * sum_x) / sum_weight;
 
     if (slope <= 0.0 || intercept >= 0.0) {
         return false;
     }
 
-    r1 = sum_r / n;
+    r1 = sum_r / sum_weight;
     l1 = slope;
     invC1 = -intercept;
     return true;

@@ -23,6 +23,7 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 
 add_executable(firmware_tests
+    test_process.cpp
     test_pid_controller.cpp
     test_leaky_integrator_controller.cpp
     test_queue.cpp

@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(firmware C CXX ASM)
 
+# The firmware operating mode (Robot vs. one debug environment) is selected
+# by the FIRMWARE_MODE define in Core/Inc/configuration.h. All application
+# sources are compiled; each one is guarded so only the selected mode emits
+# code.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_C_STANDARD 11)
@@ -74,21 +78,23 @@ set(C_SOURCES
     Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c
 )
 
-# C++ application sources
+# C++ application sources shared by every firmware mode. Unreferenced modules
+# are discarded at link time (--gc-sections); mode-specific top-level code is
+# appended below.
 set(CPP_SOURCES
+    Core/Src/app.cpp
     Core/Src/adc_service.cpp
-    Core/Src/bonder_module.cpp
     Core/Src/transducer_analyzer.cpp
     Core/Src/dac_service.cpp
     Core/Src/fast_io.cpp
     Core/Src/force_coil_module.cpp
+    Core/Src/homing_module.cpp
     Core/Src/lvdt_module.cpp
     Core/Src/leaky_integrator_controller.cpp
     Core/Src/pid_controller.cpp
     Core/Src/pin_monitor_service.cpp
     Core/Src/pll_module.cpp
     Core/Src/pwm_service.cpp
-    Core/Src/robot.cpp
     Core/Src/stepper_router_service.cpp
     Core/Src/solenoid_service.cpp
     Core/Src/stepper_service.cpp
@@ -97,23 +103,40 @@ set(CPP_SOURCES
     Core/Src/dc_motor_velocity_controller_module.cpp
     Core/Src/dc_motor_position_controller_module.cpp
     Core/Src/io_expander_service.cpp
-    Core/Src/lcd_module.cpp
+    Core/Src/lcd_controller_module.cpp
+    Core/Src/widgets.cpp
+    Core/Src/page_renderer.cpp
+    Core/Src/menu.cpp
+    Core/Src/configuration_manager.cpp
     Core/Src/control_panel_service.cpp
-    Core/Src/ui_module.cpp
+    Core/Src/configuration_parameter_catalog.cpp
+    Core/Src/user_interface_module.cpp
     Core/Src/eeprom_emulator.cpp
-    Core/Src/debug_service.cpp
-    Core/Src/debug_keypad.cpp
-    Core/Src/debug_leds.cpp
-    Core/Src/debug_lcd.cpp
-    Core/Src/debug_io.cpp
-    Core/Src/debug_solenoids.cpp
-    Core/Src/debug_pll.cpp
-    Core/Src/debug_tone_generator.cpp
-    Core/Src/debug_impedance_scanner.cpp
-    Core/Src/debug_motor_velocity_controller.cpp
-    Core/Src/debug_force_coil.cpp
-    Core/Src/debug_motor_position_controller.cpp
-    Core/Src/debug_stepper_router.cpp
+    Core/Src/bonder_module.cpp
+    Core/Src/protocol_semi_auto.cpp
+    Core/Src/protocol_manual.cpp
+    Core/Src/protocol_table_tear.cpp
+    Core/Src/protocol_lange_coupling.cpp
+    Core/Src/protocol_ultrasonic_test.cpp
+    Core/Src/protocol_force_setup.cpp
+)
+
+list(APPEND CPP_SOURCES
+    Core/Src/robot.cpp
+    Core/Src/debug_environment.cpp
+    Core/Src/debug_environment_pll.cpp
+    Core/Src/debug_environment_impedance_scanner.cpp
+    Core/Src/debug_environment_tone_generator.cpp
+    Core/Src/debug_environment_keypad.cpp
+    Core/Src/debug_environment_motor_velocity.cpp
+    Core/Src/debug_environment_force_coil.cpp
+    Core/Src/debug_environment_motor_position.cpp
+    Core/Src/debug_environment_stepper_router.cpp
+    Core/Src/debug_environment_leds.cpp
+    Core/Src/debug_environment_lcd.cpp
+    Core/Src/debug_environment_solenoids.cpp
+    Core/Src/debug_environment_bonder.cpp
+    Core/Src/debug_environment_homing.cpp
 )
 
 set(ASM_SOURCES

@@ -6,6 +6,7 @@
 #include "stm32f4xx_hal.h"
 #include "complex.h"
 #include "configuration.h"
+#include "process.hpp"
 #include "generic.h"
 
 // -----------------------------------------------------------------------
@@ -132,23 +133,19 @@ private:
 // -----------------------------------------------------------------------
 // Class: DacService
 // -----------------------------------------------------------------------
-class DacService {
+class DacService : public Process {
 public:
     explicit DacService(DAC_HandleTypeDef *hdac);
     bool addChannel(IDacChannel *channel);
 
-    void initService() {}
-    void startService();
-    void stopService();
-    void executeService() {}
-    bool isOperating() const { return m_state == ServiceState::OPERATING; }
-
     static IDacChannel *findChannel(DAC_HandleTypeDef *hdac, uint32_t halChannel);
 
 private:
+    void onStart() override;
+    void onStop() override;
+
     IDacChannel *m_channels[DAC_SERVICE_MAX_CHANNELS];
     uint8_t      m_numChannels;
-    ServiceState m_state;
 };
 
 #endif // DAC_SERVICE_HPP

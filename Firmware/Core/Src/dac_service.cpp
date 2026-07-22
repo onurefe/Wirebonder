@@ -268,7 +268,6 @@ static DacService *g_instance = nullptr;
 
 DacService::DacService(DAC_HandleTypeDef *hdac)
     : m_numChannels(0)
-    , m_state(ServiceState::READY)
 {
     (void)hdac;
     for (uint8_t i = 0; i < DAC_SERVICE_MAX_CHANNELS; i++) {
@@ -293,33 +292,23 @@ bool DacService::addChannel(IDacChannel *channel)
     return true;
 }
 
-void DacService::startService()
+void DacService::onStart()
 {
-    if (m_state != ServiceState::READY) {
-        return;
-    }
-
-    m_state = ServiceState::OPERATING;
 }
 
-void DacService::stopService()
+void DacService::onStop()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
-    }
-
     for (uint8_t i = 0; i < m_numChannels; i++) {
         if (m_channels[i] != nullptr && m_channels[i]->isActive()) {
             m_channels[i]->stop();
         }
     }
 
-    m_state = ServiceState::READY;
 }
 
 IDacChannel *DacService::findChannel(DAC_HandleTypeDef *hdac, uint32_t halChannel)
 {
-    if (g_instance == nullptr || g_instance->m_state != ServiceState::OPERATING) {
+    if (g_instance == nullptr || !g_instance->isOperating()) {
         return nullptr;
     }
 

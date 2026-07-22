@@ -5,6 +5,7 @@
 #include "generic.h"
 #include "fast_io.hpp"
 #include "timer_expire_service.hpp"
+#include "process.hpp"
 
 // -----------------------------------------------------------------------
 // Class: SolenoidChannel
@@ -72,21 +73,19 @@ private:
 // -----------------------------------------------------------------------
 // Class: SolenoidService
 // -----------------------------------------------------------------------
-class SolenoidService {
+class SolenoidService : public Process {
 public:
     SolenoidService();
 
     bool addChannel(SolenoidChannel *channel);
 
-    void initService()    {}
-    void startService();
-    void stopService();
-    void executeService();
-
 private:
+    void onStart() override;
+    void onStop() override;
+    void onExecute() override;
+
     SolenoidChannel *m_channels[SOLENOID_SERVICE_MAX_INSTANCES];
     uint8_t          m_numChannels;
-    ServiceState     m_state;
 };
 
 #endif /* SOLENOID_SERVICE_HPP */

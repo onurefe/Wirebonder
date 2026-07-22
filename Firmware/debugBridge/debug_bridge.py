@@ -16,7 +16,6 @@ Sourced by GDB, or by running ./debug_test.sh from the Firmware directory:
     (gdb) debug-led all off
     (gdb) debug-lcd 0 Hello, world!
     (gdb) debug-lcd clear
-    (gdb) debug-io
     (gdb) debug-solenoid clamp energize
     (gdb) debug-solenoid clamp deenergize
     (gdb) debug-solenoid all deenergize
@@ -29,6 +28,16 @@ Sourced by GDB, or by running ./debug_test.sh from the Firmware directory:
     (gdb) debug-stepper-router y 10
     (gdb) debug-stepper-router t 2.5
     (gdb) debug-stepper-stop
+    (gdb) debug-bonder-start semi-auto
+    (gdb) debug-bonder
+    (gdb) debug-bonder-status
+    (gdb) debug-bonder-button right click
+    (gdb) debug-bonder-button left press
+    (gdb) debug-bonder-button left release
+    (gdb) debug-bonder-stop
+    (gdb) debug-home
+    (gdb) debug-center
+    (gdb) debug-homing-stop
     (gdb) debug-status
 """
 

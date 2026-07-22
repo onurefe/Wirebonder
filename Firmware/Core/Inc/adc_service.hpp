@@ -6,6 +6,7 @@
 
 #include "stm32f4xx_hal.h"
 #include "configuration.h"
+#include "process.hpp"
 #include "generic.h"
 
 // -----------------------------------------------------------------------
@@ -176,7 +177,7 @@ private:
 // -----------------------------------------------------------------------
 // Class: AdcService
 // -----------------------------------------------------------------------
-class AdcService {
+class AdcService : public Process {
 public:
     AdcService(
         ADC_HandleTypeDef *hadc,
@@ -189,17 +190,16 @@ public:
 
     bool addChannel(IAdcChannel *channel);
 
-    void initService() {}
-    void startService(uint16_t *buffer = nullptr, uint32_t bufferSize = 0);
-    void stopService();
-    void executeService() {}
-    bool isOperating() const { return m_state == ServiceState::OPERATING; }
+    void setBuffer(uint16_t *buffer, uint32_t bufferSize);
 
     void handleDmaInterrupt(bool secondHalf);
 
     static AdcService *getController(ADC_HandleTypeDef *hadc);
 
 private:
+    void onStart() override;
+    void onStop() override;
+
     ADC_HandleTypeDef *m_hadc;
     TIM_HandleTypeDef *m_htim;
     uint16_t *m_buffer;
@@ -211,7 +211,6 @@ private:
 
     uint8_t m_bits;
     float   m_voltageRange;
-    ServiceState m_state;
 
 };
 

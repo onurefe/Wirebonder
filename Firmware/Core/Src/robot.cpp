@@ -1,6 +1,50 @@
+#include "configuration.h"
+
+#if FIRMWARE_MODE == FIRMWARE_MODE_NORMAL
+
 #include "robot.hpp"
-#include "robot.h"
 #include "main.h"
+#include "protocol_semi_auto.hpp"
+#include "protocol_manual.hpp"
+#include "protocol_table_tear.hpp"
+#include "protocol_lange_coupling.hpp"
+#include "protocol_ultrasonic_test.hpp"
+#include "protocol_force_setup.hpp"
+#include <cstring>
+
+// Maps the configured bonding mode to its protocol program; BonderModule
+// itself is protocol-agnostic.
+static const BonderProtocol& protocolForMode(BondingMode mode)
+{
+    static const SemiAutoBondingProtocol semiAutoProtocol;
+    static const ManualBondingProtocol manualProtocol;
+    static const TableTearBondingProtocol tableTearProtocol;
+    static const LangeCouplingBondingProtocol langeCouplingProtocol;
+
+    switch (mode) {
+    case BondingMode::Manual:
+        return manualProtocol;
+    case BondingMode::TableTear:
+        return tableTearProtocol;
+    case BondingMode::LangeCoupling:
+        return langeCouplingProtocol;
+    case BondingMode::SemiAutomatic:
+    default:
+        return semiAutoProtocol;
+    }
+}
+
+static const BonderProtocol& ultrasonicTestProtocol()
+{
+    static const UltrasonicTestProtocol protocol;
+    return protocol;
+}
+
+static const BonderProtocol& forceSetupProtocol()
+{
+    static const ForceSetupProtocol protocol;
+    return protocol;
+}
 
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;
@@ -13,6 +57,7 @@ extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim4;
 extern TIM_HandleTypeDef htim5;
 extern TIM_HandleTypeDef htim6;
+extern TIM_HandleTypeDef htim8;
 
 extern I2C_HandleTypeDef hi2c1;
 
@@ -28,6 +73,45 @@ extern I2C_HandleTypeDef hi2c1;
 // Flags
 // -----------------------------------------------------------------------------
 bool Robot::m_bonderConfigUpdated = false;
+bool Robot::m_ultrasonicTestActive = false;
+bool Robot::m_forceSetupActive = false;
+bool Robot::m_manualClampOpen = false;
+bool Robot::m_manualClampCommandActive = false;
+bool Robot::m_systemLocked = false;
+
+// Startup lists, dependency order (matches the Component enum ordering).
+const Robot::Component Robot::kBootComponents[] = {
+    Component::TimerExpireService,
+    Component::IoExpanderService,
+    Component::PinMonitorService,
+    Component::SolenoidService,
+    Component::StepperService,
+    Component::RouterService,
+    Component::ControlPanelService,
+    Component::LcdControllerModule,
+    Component::UserInterfaceModule,
+    Component::HomingModule
+};
+
+const uint8_t Robot::kBootComponentCount =
+    sizeof(Robot::kBootComponents) / sizeof(Robot::kBootComponents[0]);
+
+const Robot::Component Robot::kBonderComponents[] = {
+    Component::Tim1PwmService,
+    Component::DacService,
+    Component::Adc1Service,
+    Component::Adc2Service,
+    Component::ForceCoilModule,
+    Component::ZMotorVelocityModule,
+    Component::LvdtModule,
+    Component::ZMotorPositionModule,
+    Component::PllModule,
+    Component::ImpedanceScannerModule,
+    Component::BonderModule
+};
+
+const uint8_t Robot::kBonderComponentCount =
+    sizeof(Robot::kBonderComponents) / sizeof(Robot::kBonderComponents[0]);
 
 // -----------------------------------------------------------------------------
 // Buffers  —  raw DMA / processing memory
@@ -160,6 +244,9 @@ PwmRampChannel Robot::m_zMotorPwmChannel(
     Robot::m_tim1pwmChannel2Buffer, 2 * TIM1_PWM_CHANNEL2_SAMPLES,
     TIM1_PWM_CHANNEL2_SEGMENT_LIFETIME_IN_SAMPLES,
     /* complementaryOutput = */ true);   // drives CH2 (PWM) + CH2N (nPWM)
+
+// PC6 / TIM8 CH1 drives an active-low area-light PWM input.
+DirectPwmChannel Robot::m_areaLightPwmChannel(&htim8, TIM_CHANNEL_1);
 
 // -----------------------------------------------------------------------------
 // Timers
@@ -305,6 +392,10 @@ DcMotorPositionControllerModule Robot::m_zMotorPositionControllerModule(
     &Robot::m_lvdtSensorModule,
     &Robot::m_zMotorVelocityControllerModule);
 
+HomingModule Robot::m_yAxisHomingModule(
+    &Robot::m_yAxisRouterChannel,
+    &Robot::m_yAxisLimitSwitchChannel);
+
 PllModule Robot::m_pllModule(
     &Robot::m_ultrasonicDacChannel,
     &Robot::m_ultrasonicVsensChannel,
@@ -334,7 +425,7 @@ UsImpedanceScannerModule Robot::m_impedanceScannerModule(
 // -----------------------------------------------------------------------------
 // LCD
 // -----------------------------------------------------------------------------
-LcdModule Robot::m_lcd(&Robot::m_lcdExpanderChannel, &Robot::m_lcdDelayTimer);
+LcdControllerModule Robot::m_lcdController(&Robot::m_lcdExpanderChannel, &Robot::m_lcdDelayTimer);
 
 // -----------------------------------------------------------------------------
 // Bonder  —  top-level bonding state machine
@@ -348,53 +439,93 @@ BonderModule Robot::m_bonder(
     &Robot::m_impedanceScannerModule,
     &Robot::m_clampSolenoidChannel,
     &Robot::m_contactSensorChannel,
-    &Robot::m_mouseRightButtonChannel,
     &Robot::m_bonderTimer);
 
 // -----------------------------------------------------------------------------
 // Persistence  —  EEPROM emulator and live bonding configuration
 // -----------------------------------------------------------------------------
 EepromEmulator Robot::m_eepromEmulator;
-BonderConfig   Robot::m_bonderConfig;
+ConfigurationManager Robot::m_configurationManager(&Robot::m_eepromEmulator);
+bool Robot::m_configurationConfirmed = false;
+bool Robot::m_bonderStartPending = false;
 
 // -----------------------------------------------------------------------------
-// UI  —  LCD parameter editor
+// User interface  —  LCD, configuration editor, and operator controls
 // -----------------------------------------------------------------------------
-UiModule Robot::m_ui(
-    &Robot::m_lcd,
-    UiModule::Buttons{
+UserInterfaceModule Robot::m_userInterface(
+    &Robot::m_lcdController,
+    &Robot::m_configurationManager,
+    Menu::NavigationButtons{
         &Robot::m_btnUp,           &Robot::m_btnDown,
-        &Robot::m_btnLeft,         &Robot::m_btnRight,
+        &Robot::m_btnLeft,         &Robot::m_btnRight
+    },
+    Menu::ConfigurationButtons{
         &Robot::m_btnPlus,         &Robot::m_btnMinus,
         &Robot::m_btnSave,         &Robot::m_btnLoad,
+        &Robot::m_btnEnter,        &Robot::m_btnAdd,
+        &Robot::m_btnEscDel,
         &Robot::m_btnTailPlus,     &Robot::m_btnTailMinus,
         &Robot::m_btnLoopPlus,     &Robot::m_btnLoopMinus,
         &Robot::m_btnSearchPlus,   &Robot::m_btnSearchMinus,
-        &Robot::m_btnStepPlus,     &Robot::m_btnStepMinus,
-        &Robot::m_btnReset,        &Robot::m_btnEnter
+        &Robot::m_btnStepPlus,     &Robot::m_btnStepMinus
+    },
+    &Robot::m_ledManual,
+    &Robot::m_mouseRightButtonChannel,
+    &Robot::m_mouseLeftButtonChannel,
+    UserInterfaceModule::ControlPanelButtons{
+        &Robot::m_btnSetup,
+        &Robot::m_btnTest,
+        &Robot::m_btnReset,
+        &Robot::m_btnClampOpen,
+        &Robot::m_btnLight
     });
-
-#if DEBUG_ENABLED
-DebugService                 Robot::m_debugService;
-DebugImpedanceScanner        Robot::m_debugChannelImpedanceScanner;
-DebugKeypad                  Robot::m_debugChannelKeypad;
-DebugLeds                    Robot::m_debugChannelLeds;
-DebugLcd                     Robot::m_debugChannelLcd;
-DebugIo                      Robot::m_debugChannelIo;
-DebugSolenoids               Robot::m_debugChannelSolenoids;
-DebugToneGenerator           Robot::m_debugChannelToneGenerator;
-DebugPll                     Robot::m_debugChannelPll;
-DebugMotorVelocityController Robot::m_debugChannelMotorVelocityController;
-DebugForceCoil               Robot::m_debugChannelForceCoil;
-DebugMotorPositionController Robot::m_debugChannelMotorPositionController;
-DebugStepperRouter           Robot::m_debugChannelStepperRouter;
-#endif
 
 // =============================================================================
 // Constructor
 // =============================================================================
 Robot::Robot()
 {
+    m_components[static_cast<uint8_t>(Component::TimerExpireService)] =
+        &m_timerExpireService;
+    m_components[static_cast<uint8_t>(Component::IoExpanderService)] =
+        &m_ioExpanderService;
+    m_components[static_cast<uint8_t>(Component::PinMonitorService)] =
+        &m_pinMonitorService;
+    m_components[static_cast<uint8_t>(Component::SolenoidService)] =
+        &m_solenoidService;
+    m_components[static_cast<uint8_t>(Component::StepperService)] =
+        &m_stepperService;
+    m_components[static_cast<uint8_t>(Component::RouterService)] =
+        &m_routerService;
+    m_components[static_cast<uint8_t>(Component::Tim1PwmService)] =
+        &m_tim1PwmService;
+    m_components[static_cast<uint8_t>(Component::DacService)] =
+        &m_dacService;
+    m_components[static_cast<uint8_t>(Component::Adc1Service)] =
+        &m_adc1Service;
+    m_components[static_cast<uint8_t>(Component::Adc2Service)] =
+        &m_adc2Service;
+    m_components[static_cast<uint8_t>(Component::ForceCoilModule)] =
+        &m_forceCoilControllerModule;
+    m_components[static_cast<uint8_t>(Component::ZMotorVelocityModule)] =
+        &m_zMotorVelocityControllerModule;
+    m_components[static_cast<uint8_t>(Component::LvdtModule)] =
+        &m_lvdtSensorModule;
+    m_components[static_cast<uint8_t>(Component::ZMotorPositionModule)] =
+        &m_zMotorPositionControllerModule;
+    m_components[static_cast<uint8_t>(Component::ControlPanelService)] =
+        &m_controlPanelService;
+    m_components[static_cast<uint8_t>(Component::LcdControllerModule)] = &m_lcdController;
+    m_components[static_cast<uint8_t>(Component::UserInterfaceModule)] =
+        &m_userInterface;
+    m_components[static_cast<uint8_t>(Component::HomingModule)] =
+        &m_yAxisHomingModule;
+    m_components[static_cast<uint8_t>(Component::PllModule)] =
+        &m_pllModule;
+    m_components[static_cast<uint8_t>(Component::ImpedanceScannerModule)] =
+        &m_impedanceScannerModule;
+    m_components[static_cast<uint8_t>(Component::BonderModule)] = &m_bonder;
+
     // Timers.
     m_timerExpireService.addTimer(&m_clampSolenoidTimer,      false);
     m_timerExpireService.addTimer(&m_sol1SolenoidTimer,       false);
@@ -437,9 +568,8 @@ Robot::Robot()
     // Pin monitor channels.
     m_pinMonitorService.addChannel(&m_contactSensorChannel,    true,  PIN_MONITOR_BLIND_REGION_MS);
     m_pinMonitorService.addChannel(&m_yAxisLimitSwitchChannel, true,  PIN_MONITOR_BLIND_REGION_MS);
-    m_pinMonitorService.addChannel(&m_mouseRightButtonChannel, false);
-    m_pinMonitorService.addChannel(&m_mouseLeftButtonChannel,  false);
-    m_yAxisLimitSwitchChannel.addStateListenerCallback(nullptr, &Robot::onYAxisLimitSwitchStateChanged);
+    m_pinMonitorService.addChannel(&m_mouseRightButtonChannel, true,  PIN_MONITOR_BLIND_REGION_MS);
+    m_pinMonitorService.addChannel(&m_mouseLeftButtonChannel,  true,  PIN_MONITOR_BLIND_REGION_MS);
 
     // Keypad buttons.
     m_controlPanelService.addButton(&m_btnUp);
@@ -485,815 +615,534 @@ Robot::Robot()
 
     // Bonder.
     m_bonder.addEventListenerCallbacks(&Robot::onBonderModuleStateChanged, &Robot::onBonderModuleErrorOccurred);
-    m_bonder.init();
+    m_bonder.setUltrasonicReportListenerCallback(
+        this, &Robot::onUltrasonicReport);
 
-    // EEPROM: register bonder config buffer.
-    m_eepromEmulator.registerObject(ROBOT_BONDER_CONFIG_OBJECT_ID, reinterpret_cast<uint8_t *>(&m_bonderConfig),
-        static_cast<uint16_t>(sizeof(m_bonderConfig)), &Robot::onBonderConfigCompactification, nullptr);
+    // Y-axis homing.
+    m_yAxisHomingModule.addEventListenerCallback(
+        this, &Robot::onYAxisHomingEvent);
 
-    // UI callbacks.
-    m_ui.setConfigChangedListenerCallback(nullptr, &Robot::onConfigChanged);
-    m_ui.setPersistenceControllerCallbacks(nullptr, &Robot::onSave, &Robot::onLoad);
+    // UI events are relayed here for machine-state arbitration.
+    m_userInterface.setEventListenerCallback(this, &Robot::onUserInterfaceEvent);
+    m_userInterface.setMouseButtonListenerCallback(this, &Robot::onMouseButtonEvent);
+    m_userInterface.setControlPanelButtonListenerCallback(
+        this, &Robot::onControlPanelButtonEvent);
 
-    m_eepromEmulator.init();
-
-#if DEBUG_ENABLED
-    static ButtonChannel *const kBridgeButtons[] = {
-        &m_btnUp,           &m_btnDown,
-        &m_btnLeft,         &m_btnRight,
-        &m_btnPlus,         &m_btnMinus,
-        &m_btnSave,         &m_btnLoad,
-        &m_btnTailPlus,     &m_btnTailMinus,
-        &m_btnLoopPlus,     &m_btnLoopMinus,
-        &m_btnSearchPlus,   &m_btnSearchMinus,
-        &m_btnStepPlus,     &m_btnStepMinus,
-        &m_btnReset,        &m_btnEnter,
-        &m_btnManual,       &m_btnEscDel,
-        &m_btnAdd,          &m_btnTest,
-        &m_btnSetup,        &m_btnLight,
-        &m_btnClampOpen,    &m_btnHighReset
-    };
-    static LedChannel *const kBridgeLeds[] = {
-        &m_ledTest,
-        &m_ledSetup,
-        &m_ledClampOpen,
-        &m_ledManual
-    };
-
-    m_debugChannelToneGenerator.init(&m_ultrasonicDacChannel,
-        &m_ultrasonicVsensChannel,
-        &m_ultrasonicIsensChannel);
-
-    m_debugChannelImpedanceScanner.init(&m_impedanceScannerModule);
-
-    m_debugChannelKeypad.init(kBridgeButtons, sizeof(kBridgeButtons) / sizeof(kBridgeButtons[0]));
-    m_debugChannelLeds.init(
-        kBridgeLeds,
-        sizeof(kBridgeLeds) / sizeof(kBridgeLeds[0]),
-        &m_controlPanelService);
-    m_debugChannelLcd.init(&m_lcd);
-
-    // Bridge pin order: TIP, YLIM, MLEFT, MRIGHT (see debugBridge/tests/io.py).
-    static PinMonitorChannel *const kBridgeIoPins[] = {
-        &m_contactSensorChannel,
-        &m_yAxisLimitSwitchChannel,
-        &m_mouseLeftButtonChannel,
-        &m_mouseRightButtonChannel
-    };
-    m_debugChannelIo.init(kBridgeIoPins,
-                          sizeof(kBridgeIoPins) / sizeof(kBridgeIoPins[0]));
-    static DirectSolenoidChannel *const kBridgeSolenoids[] = {
-        &m_clampSolenoidChannel,
-        &m_sol1SolenoidChannel,
-        &m_sol2SolenoidChannel
-    };
-    m_debugChannelSolenoids.init(
-        kBridgeSolenoids,
-        sizeof(kBridgeSolenoids) / sizeof(kBridgeSolenoids[0]));
-    m_debugChannelPll.init(&m_pllModule);
-    m_debugChannelMotorVelocityController.init(&m_zMotorVelocityControllerModule);
-    m_debugChannelForceCoil.init(&m_forceCoilControllerModule);
-    m_debugChannelMotorPositionController.init(
-        &m_zMotorPositionControllerModule);
-    m_debugChannelStepperRouter.init(
-        &m_yAxisRouterChannel,
-        &m_tAxisRouterChannel);
-
-    m_debugChannelImpedanceScanner.setDependencyCallback(
-        this,
-        &Robot::startImpedanceScannerDebugDependencies);
-    m_debugChannelPll.setDependencyCallback(
-        this,
-        &Robot::startPllDebugDependencies);
-    m_debugChannelToneGenerator.setDependencyCallback(
-        this,
-        &Robot::startToneGeneratorDebugDependencies);
-    m_debugChannelKeypad.setDependencyCallback(
-        this,
-        &Robot::startKeypadDebugDependencies);
-    m_debugChannelLeds.setDependencyCallback(
-        this,
-        &Robot::startLedDebugDependencies);
-    m_debugChannelLcd.setDependencyCallback(
-        this,
-        &Robot::startLcdDebugDependencies);
-    m_debugChannelIo.setDependencyCallback(
-        this,
-        &Robot::startIoDebugDependencies);
-    m_debugChannelSolenoids.setDependencyCallback(
-        this,
-        &Robot::startSolenoidDebugDependencies);
-    m_debugChannelMotorVelocityController.setDependencyCallback(
-        this,
-        &Robot::startMotorVelocityDebugDependencies);
-    m_debugChannelForceCoil.setDependencyCallback(
-        this,
-        &Robot::startForceCoilDebugDependencies);
-    m_debugChannelMotorPositionController.setDependencyCallback(
-        this,
-        &Robot::startMotorPositionDebugDependencies);
-    m_debugChannelStepperRouter.setDependencyCallback(
-        this,
-        &Robot::startStepperRouterDebugDependencies);
-
-    m_debugChannelImpedanceScanner.setDependencyReleaseCallback(
-        this,
-        &Robot::stopImpedanceScannerDebugDependencies);
-    m_debugChannelPll.setDependencyReleaseCallback(
-        this,
-        &Robot::stopPllDebugDependencies);
-    m_debugChannelToneGenerator.setDependencyReleaseCallback(
-        this,
-        &Robot::stopToneGeneratorDebugDependencies);
-    // Keypad and LED channels share the io expander / timer / control panel
-    // stack. Those services are started on first use and left running:
-    // ControlPanelService::startService() resets its output shadow registers,
-    // so a stop/start cycle per command would desync the shadow from the
-    // PCA9535 output state.
-    m_debugChannelMotorVelocityController.setDependencyReleaseCallback(
-        this,
-        &Robot::stopMotorVelocityDebugDependencies);
-    m_debugChannelForceCoil.setDependencyReleaseCallback(
-        this,
-        &Robot::stopForceCoilDebugDependencies);
-    m_debugChannelMotorPositionController.setDependencyReleaseCallback(
-        this,
-        &Robot::stopMotorPositionDebugDependencies);
-    m_debugChannelStepperRouter.setDependencyReleaseCallback(
-        this,
-        &Robot::stopStepperRouterDebugDependencies);
-
-    // Register every channel with the dispatcher so the service block's
-    // command word is routed by channel id (see debug_service.hpp).
-    m_debugService.addChannel(&m_debugChannelImpedanceScanner);
-    m_debugService.addChannel(&m_debugChannelPll);
-    m_debugService.addChannel(&m_debugChannelToneGenerator);
-    m_debugService.addChannel(&m_debugChannelKeypad);
-    m_debugService.addChannel(&m_debugChannelLeds);
-    m_debugService.addChannel(&m_debugChannelLcd);
-    m_debugService.addChannel(&m_debugChannelIo);
-    m_debugService.addChannel(&m_debugChannelSolenoids);
-    m_debugService.addChannel(&m_debugChannelMotorVelocityController);
-    m_debugService.addChannel(&m_debugChannelForceCoil);
-    m_debugService.addChannel(&m_debugChannelMotorPositionController);
-    m_debugService.addChannel(&m_debugChannelStepperRouter);
-#endif
+    m_bonderConfigUpdated = false;
 }
 
-#if DEBUG_ENABLED
-bool Robot::startImpedanceScannerDebugDependencies(void *context, uint16_t localCommand)
+void Robot::startComponents(const Component *components, uint8_t count)
 {
-    if (localCommand != DebugImpedanceScanner::CMD_SCAN) {
-        return false;
+    for (uint8_t i = 0U; i < count; ++i) {
+        startComponent(components[i]);
+    }
+}
+
+void Robot::startComponent(Component component)
+{
+    const uint8_t index = static_cast<uint8_t>(component);
+    if (index >= kComponentCount || m_components[index] == nullptr) {
+        return;
     }
 
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_startDacService = true;
-    robot->m_startAdc1Service = true;
-    return true;
-}
-
-bool Robot::startPllDebugDependencies(void *context, uint16_t localCommand)
-{
-    if (localCommand != DebugPll::CMD_START) {
-        return false;
+    if (component == Component::HomingModule) {
+        m_userInterface.notifyUser("Homing Y axis");
+    } else if (component == Component::BonderModule) {
+        m_bonder.configure(m_userInterface.activeConfiguration());
+        const BonderProtocol& protocol =
+            protocolForMode(m_userInterface.activeConfiguration().bondingMode);
+        m_bonder.setProtocol(protocol);
     }
 
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_startDacService = true;
-    robot->m_startAdc1Service = true;
-    return true;
-}
+    m_components[index]->start();
 
-bool Robot::startToneGeneratorDebugDependencies(void *context, uint16_t localCommand)
-{
-    if (localCommand != DebugToneGenerator::CMD_START) {
-        return false;
+    if (component == Component::HomingModule &&
+        m_components[index]->isOperating()) {
+        (void)m_yAxisHomingModule.home();
+    } else if (component == Component::BonderModule &&
+               m_components[index]->isOperating() &&
+               !isBondingInterlocked()) {
+        (void)m_bonder.engage();
     }
 
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_startDacService = true;
-    robot->m_startAdc1Service = true;
-    return true;
-}
-
-bool Robot::startKeypadDebugDependencies(void *context, uint16_t localCommand)
-{
-    if (localCommand != DebugKeypad::CMD_LISTEN) {
-        return false;
+    if (component == Component::BonderModule) {
+        m_bonderConfigUpdated = false;
     }
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_startIoExpanderService = true;
-    robot->m_startTimerExpireService = true;
-    robot->m_startControlPanelService = true;
-    return true;
 }
 
-bool Robot::startLedDebugDependencies(void *context, uint16_t localCommand)
+void Robot::stopComponent(Component component)
 {
-    if (localCommand != DebugLeds::CMD_SET) {
-        return false;
+    const uint8_t index = static_cast<uint8_t>(component);
+    if (index < kComponentCount && m_components[index] != nullptr) {
+        m_components[index]->stop();
     }
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_startIoExpanderService = true;
-    robot->m_startTimerExpireService = true;
-    robot->m_startControlPanelService = true;
-    return true;
+}
+bool Robot::isYAxisHomed()
+{
+    return m_yAxisHomingModule.isHomed();
 }
 
-bool Robot::startLcdDebugDependencies(void *context, uint16_t localCommand)
+bool Robot::isBondingInterlocked()
 {
-    if (localCommand != DebugLcd::CMD_WRITE_LINE &&
-        localCommand != DebugLcd::CMD_CLEAR) {
-        return false;
+    return m_ultrasonicTestActive || m_forceSetupActive || m_manualClampOpen;
+}
+
+void Robot::updateClampCommandLed()
+{
+    if (!m_manualClampCommandActive) return;
+
+    const DirectSolenoidChannel::State completedState = m_manualClampOpen
+        ? DirectSolenoidChannel::State::ENERGIZED
+        : DirectSolenoidChannel::State::DEENERGIZED;
+    if (!m_clampSolenoidChannel.isTransitioning() &&
+        m_clampSolenoidChannel.getState() == completedState) {
+        m_manualClampCommandActive = false;
+        // The LED mirrors the latched manual-open state, not the command:
+        // it stays lit the whole time the clamp is held open.
+        m_ledClampOpen.set(m_manualClampOpen);
     }
-
-    // Like the keypad/LED stack, the LCD dependencies are started on first
-    // use and left running. LcdModule::start() runs the HD44780 init
-    // sequence, which clears the screen.
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_startIoExpanderService = true;
-    robot->m_startTimerExpireService = true;
-    robot->m_startLcdModule = true;
-    return true;
 }
 
-bool Robot::startIoDebugDependencies(void *context, uint16_t localCommand)
+void Robot::restoreConfiguredBondingProtocol()
 {
-    if (localCommand != DebugIo::CMD_LISTEN) {
-        return false;
+    if (!m_configurationManager.isReady() || m_bonder.isActive()) return;
+
+    const BonderConfig& config = m_userInterface.activeConfiguration();
+    m_bonder.configure(config);
+    m_bonder.setProtocol(protocolForMode(config.bondingMode));
+    m_bonderConfigUpdated = false;
+}
+
+void Robot::lockSystem(const char *message)
+{
+    m_systemLocked = true;
+    m_ultrasonicTestActive = false;
+    m_forceSetupActive = false;
+    m_manualClampCommandActive = false;
+    m_ledTest.off();
+    m_ledSetup.off();
+    m_ledClampOpen.off();
+    m_bonder.stop();
+    m_userInterface.raiseError(message);
+}
+
+void Robot::requestBonderStartIfReady()
+{
+    // An engaged bonder is already armed (or working); nothing to request.
+    if (m_systemLocked || m_bonder.isActive()) return;
+
+    if (m_configurationConfirmed && isYAxisHomed() && !isBondingInterlocked()) {
+        m_bonderStartPending = true;
+    } else if (m_ultrasonicTestActive) {
+        m_userInterface.notifyUser("TEST IN PROGRESS");
+    } else if (m_forceSetupActive) {
+        m_userInterface.notifyUser("SETUP IN PROGRESS");
+    } else if (m_manualClampOpen) {
+        m_userInterface.notifyUser("CLOSE CLAMP FIRST");
     }
-
-    // Started on first use and left running, like the other panel stacks.
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_startTimerExpireService = true;
-    robot->m_startPinMonitorService = true;
-    return true;
 }
-
-bool Robot::startSolenoidDebugDependencies(void *context, uint16_t localCommand)
-{
-    if (localCommand != DebugSolenoids::CMD_SET) {
-        return false;
-    }
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_startTimerExpireService = true;
-    robot->m_startSolenoidService = true;
-    return true;
-}
-
-bool Robot::startMotorVelocityDebugDependencies(void *context, uint16_t localCommand)
-{
-    if (localCommand != DebugMotorVelocityController::CMD_START) {
-        return false;
-    }
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_startTim1PwmService = true;
-    robot->m_startAdc2Service = true;
-    return true;
-}
-
-bool Robot::startForceCoilDebugDependencies(void *context, uint16_t localCommand)
-{
-    if (localCommand != DebugForceCoil::CMD_START) {
-        return false;
-    }
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_startTim1PwmService = true;
-    robot->m_startAdc2Service = true;
-    robot->m_startForceCoilControllerModule = true;
-    return true;
-}
-
-bool Robot::startMotorPositionDebugDependencies(void *context, uint16_t localCommand)
-{
-    if (localCommand != DebugMotorPositionController::CMD_START &&
-        localCommand != DebugMotorPositionController::CMD_STALL_SCAN) {
-        return false;
-    }
-
-    Robot *robot = static_cast<Robot *>(context);
-    // Position control adds the LVDT to the velocity cascade: PWM (drive),
-    // ADC2 (tachometer + LVDT sensing), and DAC (LVDT excitation).
-    robot->m_startTim1PwmService = true;
-    robot->m_startAdc2Service = true;
-    robot->m_startDacService = true;
-    return true;
-}
-
-bool Robot::startStepperRouterDebugDependencies(void *context, uint16_t localCommand)
-{
-    if (localCommand != DebugStepperRouter::CMD_MOVE) {
-        return false;
-    }
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_startStepperService = true;
-    robot->m_startRouterService = true;
-    return true;
-}
-
-void Robot::stopImpedanceScannerDebugDependencies(void *context, uint16_t localCommand)
-{
-    (void)localCommand;
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_stopDacService = true;
-    robot->m_stopAdc1Service = true;
-}
-
-void Robot::stopPllDebugDependencies(void *context, uint16_t localCommand)
-{
-    (void)localCommand;
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_stopDacService = true;
-    robot->m_stopAdc1Service = true;
-}
-
-void Robot::stopToneGeneratorDebugDependencies(void *context, uint16_t localCommand)
-{
-    (void)localCommand;
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_stopDacService = true;
-    robot->m_stopAdc1Service = true;
-}
-
-void Robot::stopMotorVelocityDebugDependencies(void *context, uint16_t localCommand)
-{
-    (void)localCommand;
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_stopTim1PwmService = true;
-    robot->m_stopAdc2Service = true;
-}
-
-void Robot::stopForceCoilDebugDependencies(void *context, uint16_t localCommand)
-{
-    (void)localCommand;
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_stopForceCoilControllerModule = true;
-    robot->m_stopTim1PwmService = true;
-    robot->m_stopAdc2Service = true;
-}
-
-void Robot::stopMotorPositionDebugDependencies(void *context, uint16_t localCommand)
-{
-    (void)localCommand;
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_stopTim1PwmService = true;
-    robot->m_stopAdc2Service = true;
-    robot->m_stopDacService = true;
-}
-
-void Robot::stopStepperRouterDebugDependencies(void *context, uint16_t localCommand)
-{
-    (void)localCommand;
-
-    Robot *robot = static_cast<Robot *>(context);
-    robot->m_stopRouterService = true;
-    robot->m_stopStepperService = true;
-}
-#endif
 
 void Robot::start()
 {
-#if DEBUG_ENABLED
-    m_startDebugService = true;
-    m_startIoExpanderService = false;
-    m_startTimerExpireService = false;
-    m_startPinMonitorService = false;
-    m_startSolenoidService = false;
-    m_startStepperService = false;
-    m_startRouterService = false;
-    m_startTim1PwmService = false;
-    m_startDacService = false;
-    m_startAdc1Service = false;
-    m_startAdc2Service = false;
-    m_startForceCoilControllerModule = false;
-    m_startZmotorVelocityControllerModule = false;
-    m_startZmotorPositionControllerModule = false;
-    m_startBonderModule = false;
-    m_startControlPanelService = false;
-    m_startLcdModule = false;
-    m_startUiModule = false;
-    m_stopDebugService = false;
-    m_stopIoExpanderService = false;
-    m_stopTimerExpireService = false;
-    m_stopPinMonitorService = false;
-    m_stopSolenoidService = false;
-    m_stopStepperService = false;
-    m_stopRouterService = false;
-    m_stopTim1PwmService = false;
-    m_stopDacService = false;
-    m_stopAdc1Service = false;
-    m_stopAdc2Service = false;
-    m_stopForceCoilControllerModule = false;
-    m_stopZmotorVelocityControllerModule = false;
-    m_stopZmotorPositionControllerModule = false;
-    m_stopBonderModule = false;
-    m_stopControlPanelService = false;
-    m_stopLcdModule = false;
-    m_stopUiModule = false;
-#else
-    m_startDebugService = false;
-    m_startIoExpanderService = true;
-    m_startTimerExpireService = true;
-    m_startPinMonitorService = true;
-    m_startSolenoidService = true;
-    m_startStepperService = true;
-    m_startRouterService = true;
-    m_startTim1PwmService = true;
-    m_startDacService = true;
-    m_startAdc1Service = true;
-    m_startAdc2Service = true;
-    m_startForceCoilControllerModule = true;
-    m_startZmotorVelocityControllerModule = false;
-    m_startZmotorPositionControllerModule = true;
-    m_startBonderModule = true;
-    m_startControlPanelService = true;
-    m_startLcdModule = true;
-    m_startUiModule = true;
-    m_stopDebugService = false;
-    m_stopIoExpanderService = false;
-    m_stopTimerExpireService = false;
-    m_stopPinMonitorService = false;
-    m_stopSolenoidService = false;
-    m_stopStepperService = false;
-    m_stopRouterService = false;
-    m_stopTim1PwmService = false;
-    m_stopDacService = false;
-    m_stopAdc1Service = false;
-    m_stopAdc2Service = false;
-    m_stopForceCoilControllerModule = false;
-    m_stopZmotorVelocityControllerModule = false;
-    m_stopZmotorPositionControllerModule = false;
-    m_stopBonderModule = false;
-    m_stopControlPanelService = false;
-    m_stopLcdModule = false;
-    m_stopUiModule = false;
-#endif
+    m_configurationConfirmed = false;
+    m_bonderStartPending = false;
+    m_ultrasonicTestActive = false;
+    m_forceSetupActive = false;
+    m_manualClampOpen = false;
+    m_manualClampCommandActive = false;
+    m_systemLocked = false;
+    m_areaLightOn = false;
+    m_ledTest.off();
+    m_ledSetup.off();
+    m_ledClampOpen.off();
+    m_ledManual.off();
+    // The light driver is active-low, so a raw duty of 1 keeps it off.
+    m_areaLightPwmChannel.start(1.0f);
+    // The bonder chain is intentionally absent: configuration confirmation
+    // and homing completion request it later through the startup gate.
+    startComponents(kBootComponents, kBootComponentCount);
 }
 
 void Robot::execute()
 {
-    if (m_stopDebugService) {
-#if DEBUG_ENABLED
-        m_debugService.stopService();
-#endif
-        m_stopDebugService = false;
+    if (m_bonderStartPending) {
+        m_bonderStartPending = false;
+        if (!m_systemLocked && !isBondingInterlocked()) {
+            startComponents(kBonderComponents, kBonderComponentCount);
+        }
     }
 
-    if (m_stopBonderModule) {
-        m_bonder.stop();
-        m_stopBonderModule = false;
+    for (uint8_t i = 0U; i < kComponentCount; ++i) {
+        if (m_components[i] != nullptr) m_components[i]->execute();
     }
 
-    if (m_stopZmotorPositionControllerModule) {
-        m_zMotorPositionControllerModule.stop();
-        m_stopZmotorPositionControllerModule = false;
-    }
+    updateClampCommandLed();
 
-    if (m_stopZmotorVelocityControllerModule) {
-        m_zMotorVelocityControllerModule.stop();
-        m_stopZmotorVelocityControllerModule = false;
-    }
-
-    if (m_stopForceCoilControllerModule) {
-        m_forceCoilControllerModule.stop();
-        m_stopForceCoilControllerModule = false;
-    }
-
-    if (m_stopUiModule) {
-        m_ui.stopService();
-        m_stopUiModule = false;
-    }
-
-    if (m_stopLcdModule) {
-        m_lcd.stop();
-        m_stopLcdModule = false;
-    }
-
-    if (m_stopControlPanelService) {
-        m_controlPanelService.stopService();
-        m_stopControlPanelService = false;
-    }
-
-    if (m_stopRouterService) {
-        m_routerService.stopService();
-        m_stopRouterService = false;
-    }
-
-    if (m_stopStepperService) {
-        m_stepperService.stopService();
-        m_stopStepperService = false;
-    }
-
-    if (m_stopSolenoidService) {
-        m_solenoidService.stopService();
-        m_stopSolenoidService = false;
-    }
-
-    if (m_stopPinMonitorService) {
-        m_pinMonitorService.stopService();
-        m_stopPinMonitorService = false;
-    }
-
-    if (m_stopAdc1Service) {
-        m_adc1Service.stopService();
-        m_stopAdc1Service = false;
-    }
-
-    if (m_stopAdc2Service) {
-        m_adc2Service.stopService();
-        m_stopAdc2Service = false;
-    }
-
-    if (m_stopDacService) {
-        m_dacService.stopService();
-        m_stopDacService = false;
-    }
-
-    if (m_stopTim1PwmService) {
-        m_tim1PwmService.stopService();
-        m_stopTim1PwmService = false;
-    }
-
-    if (m_stopIoExpanderService) {
-        m_ioExpanderService.stopService();
-        m_stopIoExpanderService = false;
-    }
-
-    if (m_stopTimerExpireService) {
-        m_timerExpireService.stopService();
-        m_stopTimerExpireService = false;
-    }
-
-#if DEBUG_ENABLED
-    if (m_startDebugService) {
-        m_debugService.startService();
-        m_startDebugService = false;
-    }
-#endif
-
-    if (m_startIoExpanderService) {
-        m_ioExpanderService.startService();
-        m_startIoExpanderService = false;
-    }
-
-    if (m_startTimerExpireService) {
-        m_timerExpireService.startService();
-        m_startTimerExpireService = false;
-    }
-
-    if (m_startPinMonitorService) {
-        m_pinMonitorService.startService();
-        m_startPinMonitorService = false;
-    }
-
-    if (m_startSolenoidService) {
-        m_solenoidService.startService();
-        m_startSolenoidService = false;
-    }
-
-    if (m_startStepperService) {
-        m_stepperService.startService();
-        m_startStepperService = false;
-    }
-
-    if (m_startRouterService) {
-        m_routerService.startService();
-        m_startRouterService = false;
-    }
-
-    if (m_startTim1PwmService) {
-        m_tim1PwmService.startService();
-        m_startTim1PwmService = false;
-    }
-
-    if (m_startDacService) {
-        m_dacService.startService();
-        m_startDacService = false;
-    }
-
-    if (m_startAdc1Service) {
-        m_adc1Service.startService();
-        m_startAdc1Service = false;
-    }
-
-    if (m_startAdc2Service) {
-        m_adc2Service.startService();
-        m_startAdc2Service = false;
-    }
-
-    if (m_startForceCoilControllerModule) {
-        m_forceCoilControllerModule.start();
-        m_startForceCoilControllerModule = false;
-    }
-
-    if (m_startZmotorVelocityControllerModule) {
-        m_zMotorVelocityControllerModule.start();
-        m_startZmotorVelocityControllerModule = false;
-    }
-
-    if (m_startZmotorPositionControllerModule) {
-        m_zMotorPositionControllerModule.start();
-        m_startZmotorPositionControllerModule = false;
-    }
-
-    if (m_startBonderModule) {
-        m_eepromEmulator.loadObject(ROBOT_BONDER_CONFIG_OBJECT_ID);
-        m_bonder.configure(m_bonderConfig);
-        m_bonder.start();
-        m_startBonderModule = false;
-    }
-
-    if (m_startControlPanelService) {
-        m_controlPanelService.startService();
-        m_startControlPanelService = false;
-    }
-
-    if (m_startLcdModule) {
-        m_lcd.start();
-        m_startLcdModule = false;
-    }
-
-    if (m_startUiModule) {
-        m_ui.startService();
-        m_startUiModule = false;
-    }
-
-#if DEBUG_ENABLED
-    m_debugService.executeService();
-#endif
-
-    m_timerExpireService.executeService();
-    m_pinMonitorService.executeService();
-
-    m_ioExpanderService.executeService();
-    m_controlPanelService.executeService();
-    m_lcd.execute();
-    m_ui.execute();
-
-    m_solenoidService.executeService();
-    m_routerService.executeService();
-    m_bonder.execute();
-
-    if (m_bonderConfigUpdated && m_bonder.isIdle()) {
-        m_bonder.configure(m_bonderConfig);
+    if (m_configurationConfirmed &&
+        isYAxisHomed() &&
+        m_bonderConfigUpdated &&
+        m_bonder.isIdle()) {
+        m_bonder.configure(m_userInterface.activeConfiguration());
+        const BonderProtocol& protocol =
+            protocolForMode(m_userInterface.activeConfiguration().bondingMode);
+        m_bonder.setProtocol(protocol);
         m_bonderConfigUpdated = false;
-    }   
+    }
 }
 
 void Robot::stop()
 {
-    m_startDebugService = false;
-    m_startIoExpanderService = false;
-    m_startTimerExpireService = false;
-    m_startPinMonitorService = false;
-    m_startSolenoidService = false;
-    m_startStepperService = false;
-    m_startRouterService = false;
-    m_startTim1PwmService = false;
-    m_startDacService = false;
-    m_startAdc1Service = false;
-    m_startAdc2Service = false;
-    m_startForceCoilControllerModule = false;
-    m_startZmotorVelocityControllerModule = false;
-    m_startZmotorPositionControllerModule = false;
-    m_startBonderModule = false;
-    m_startControlPanelService = false;
-    m_startLcdModule = false;
-    m_startUiModule = false;
+    m_configurationConfirmed = false;
+    m_bonderStartPending = false;
+    m_ultrasonicTestActive = false;
+    m_forceSetupActive = false;
+    m_manualClampOpen = false;
+    m_manualClampCommandActive = false;
+    m_areaLightOn = false;
+    m_ledTest.off();
+    m_ledSetup.off();
+    m_ledClampOpen.off();
+    m_ledManual.off();
+    // Keep TIM8 running at inactive-high. Stopping the channel would return
+    // its active-low output to the configured reset level.
+    m_areaLightPwmChannel.setDuty(1.0f);
 
-#if DEBUG_ENABLED
-    m_stopDebugService = true;
-    m_stopIoExpanderService = true;
-    m_stopTimerExpireService = true;
-    m_stopSolenoidService = true;
-    m_stopTim1PwmService = true;
-    m_stopDacService = true;
-    m_stopAdc1Service = true;
-    m_stopAdc2Service = true;
-    m_stopForceCoilControllerModule = true;
-    m_stopZmotorVelocityControllerModule = true;
-    m_stopZmotorPositionControllerModule = true;
-    m_stopControlPanelService = true;
-#else
-    m_stopDebugService = false;
-    m_stopIoExpanderService = true;
-    m_stopTimerExpireService = true;
-    m_stopPinMonitorService = true;
-    m_stopSolenoidService = true;
-    m_stopStepperService = true;
-    m_stopRouterService = true;
-    m_stopTim1PwmService = true;
-    m_stopDacService = true;
-    m_stopAdc1Service = true;
-    m_stopAdc2Service = true;
-    m_stopForceCoilControllerModule = true;
-    m_stopZmotorVelocityControllerModule = true;
-    m_stopZmotorPositionControllerModule = true;
-    m_stopBonderModule = true;
-    m_stopControlPanelService = true;
-    m_stopLcdModule = true;
-    m_stopUiModule = true;
-#endif
+    for (uint8_t i = kComponentCount; i > 0U; --i) {
+        stopComponent(static_cast<Component>(i - 1U));
+    }
 }
 
-void Robot::onYAxisLimitSwitchStateChanged(
-    void *context,
-    PinMonitorChannel::PinState state)
+void Robot::onYAxisHomingEvent(void *context, HomingModule::Event event)
 {
-    (void)context;
-    (void)state;
+    Robot *robot = static_cast<Robot *>(context);
+    if (robot == nullptr) return;
 
-    // TODO: homing logic.
+    if (event == HomingModule::Event::Completed) {
+        robot->m_userInterface.notifyUser("Y axis homed");
+        robot->requestBonderStartIfReady();
+        return;
+    }
+
+    if (event != HomingModule::Event::Failed) {
+        // Progress notification; only the terminal events matter here.
+        return;
+    }
+
+    // Without a Y reference nothing can move safely: latch the machine.
+    robot->m_bonderStartPending = false;
+    lockSystem("Y HOMING FAILED");
 }
 
 void Robot::onBonderModuleStateChanged(bool isIdle)
 {
-    (void)isIdle;
+    if (!isIdle) return;
+
+    if (m_forceSetupActive) {
+        m_forceSetupActive = false;
+        m_ledSetup.off();
+        const BonderConfig& config = m_userInterface.activeConfiguration();
+        m_bonder.configure(config);
+        m_bonder.setProtocol(protocolForMode(config.bondingMode));
+        m_bonderConfigUpdated = false;
+    } else if (m_ultrasonicTestActive) {
+        m_ultrasonicTestActive = false;
+        m_ledTest.off();
+        const BonderConfig& config = m_userInterface.activeConfiguration();
+        m_bonder.configure(config);
+        m_bonder.setProtocol(protocolForMode(config.bondingMode));
+        m_bonderConfigUpdated = false;
+    }
+
+    // A finished (or aborted-by-error) cycle must leave the machine armed for
+    // the next one; the guards inside reject locked, unconfirmed or
+    // interlocked states, so intentional stops stay stopped.
+    requestBonderStartIfReady();
 }
 
 void Robot::onBonderModuleErrorOccurred(BonderModule::Error error)
 {
-    (void)error;
-}
-
-void Robot::onConfigChanged(void *ctx, const BonderConfig& config)
-{
-    (void)ctx;
-    m_bonderConfig = config;
-    m_bonderConfigUpdated = true;
-}
-
-void Robot::onSave(void *ctx, const BonderConfig& config)
-{
-    (void)ctx;
-    m_bonderConfig = config;
-    m_eepromEmulator.saveObject(ROBOT_BONDER_CONFIG_OBJECT_ID);
-}
-
-void Robot::onLoad(void *ctx, BonderConfig& config)
-{
-    (void)ctx;
-    if (m_eepromEmulator.loadObject(ROBOT_BONDER_CONFIG_OBJECT_ID)) {
-        config = m_bonderConfig;
-        m_bonderConfigUpdated = true;
-    }
-}
-
-void Robot::onBonderConfigCompactification(void *ctx)
-{
-    (void)ctx;
-    // m_bonderConfig in RAM is always the authoritative copy; nothing to do before compaction.
-}
-
-// -----------------------------------------------------------------------------
-// C-linkage entry points, callable from main.c
-// -----------------------------------------------------------------------------
-extern "C" {
-
-static Robot *g_robot = nullptr;
-
-void Robot_Init(void)
-{
-    if (g_robot) {
+    switch (error) {
+    case BonderModule::Error::InsufficientBondingPower:
+        // The bond cycle already aborted, but the machine itself is intact:
+        // a process-quality problem, not a machine fault.
+        m_userInterface.warnUser(m_ultrasonicTestActive
+            ? "US TEST FAILED"
+            : "LOW BONDING POWER");
+        break;
+    case BonderModule::Error::UnableToSetForceCoilCurrent:
+        // Actuator control faults may leave the mechanics in an unknown
+        // state; latch the machine until reset.
+        lockSystem("FORCE COIL CURRENT");
+        return;
+    case BonderModule::Error::UnableToSetPosition:
+        lockSystem("Z AXIS POSITION");
+        return;
+    case BonderModule::Error::ProtocolTimeout:
+        lockSystem("BONDING TIMEOUT");
         return;
     }
 
-    static Robot instance;
-    g_robot = &instance;
+    if (!m_ultrasonicTestActive) return;
+
+    m_ultrasonicTestActive = false;
+    m_ledTest.off();
+    const BonderConfig& config = m_userInterface.activeConfiguration();
+    m_bonder.configure(config);
+    m_bonder.setProtocol(protocolForMode(config.bondingMode));
 }
 
-void Robot_Start(void)
+void Robot::onUltrasonicReport(
+    void *context, const BonderModule::UltrasonicReport& report)
 {
-    if (g_robot) {
-        g_robot->start();
+    Robot *robot = static_cast<Robot *>(context);
+    if (robot == nullptr) return;
+
+    robot->m_userInterface.ultrasonicInfo(
+        report.resonanceFrequency,
+        report.qualityFactor,
+        report.transferredPower,
+        report.bondingDuration);
+}
+
+void Robot::onUserInterfaceEvent(void *ctx, UserInterfaceModule::Event event)
+{
+    Robot *robot = static_cast<Robot *>(ctx);
+    if (robot == nullptr) return;
+
+    // Configuration navigation must not stop or replace a force setup that is
+    // already controlling the Z axis and force coil.
+    if (m_forceSetupActive) return;
+
+    switch (event) {
+    case UserInterfaceModule::Event::ActiveConfigurationChanged:
+        m_bonderConfigUpdated = true;
+        break;
+
+    case UserInterfaceModule::Event::ConfigurationConfirmed:
+        m_configurationConfirmed = true;
+        robot->requestBonderStartIfReady();
+        break;
+
+    case UserInterfaceModule::Event::ConfigurationSelectionStarted: {
+        m_configurationConfirmed = false;
+        robot->m_bonderStartPending = false;
+        // Stopping an engaged bonder emergency-closes the clamp; drop a
+        // latched manual-open so the interlock and LED keep matching the
+        // physical clamp.
+        const bool wasEngaged = m_bonder.isActive();
+        m_bonder.stop();
+        if (wasEngaged && m_manualClampOpen) {
+            m_manualClampOpen = false;
+            m_manualClampCommandActive = false;
+            m_ledClampOpen.off();
+        }
+        break;
+    }
     }
 }
 
-void Robot_Execute(void)
+void Robot::onMouseButtonEvent(void *ctx,
+                               UserInterfaceModule::MouseButtonEvent event)
 {
-    if (g_robot) {
-        g_robot->execute();
+    (void)ctx;
+    if (m_systemLocked) return;
+
+    // The bonder stays engaged through the clamp and test interlocks; the
+    // operator's controls are blocked here instead, with a notice on the
+    // display. Releases still pass so a held jog can never stick on.
+    const char *blockedBy = nullptr;
+    if (m_manualClampOpen) {
+        blockedBy = "CLOSE CLAMP FIRST";
+    } else if (m_ultrasonicTestActive) {
+        blockedBy = "TEST IN PROGRESS";
+    }
+    if (blockedBy != nullptr) {
+        if (event == UserInterfaceModule::MouseButtonEvent::RightReleased) {
+            m_bonder.notifyRightButton(false);
+        } else if (event ==
+                   UserInterfaceModule::MouseButtonEvent::LeftReleased) {
+            m_bonder.notifyLeftButton(false);
+        } else {
+            m_userInterface.notifyUser(blockedBy);
+        }
+        return;
+    }
+
+    switch (event) {
+    case UserInterfaceModule::MouseButtonEvent::RightPressed:
+        m_bonder.notifyRightButton(true);
+        break;
+    case UserInterfaceModule::MouseButtonEvent::RightReleased:
+        m_bonder.notifyRightButton(false);
+        break;
+    case UserInterfaceModule::MouseButtonEvent::LeftPressed:
+        m_bonder.notifyLeftButton(true);
+        break;
+    case UserInterfaceModule::MouseButtonEvent::LeftReleased:
+        m_bonder.notifyLeftButton(false);
+        break;
     }
 }
 
-void Robot_Stop(void)
+void Robot::onControlPanelButtonEvent(
+    void *ctx,
+    UserInterfaceModule::ControlPanelButtonEvent event)
 {
-    if (g_robot) {
-        g_robot->stop();
+    Robot *robot = static_cast<Robot *>(ctx);
+    if (robot == nullptr) return;
+
+    // Reset remains an emergency exit and the area light is independent of
+    // bonder motion. Other control-panel commands cannot interrupt setup.
+    if (m_forceSetupActive &&
+        event != UserInterfaceModule::ControlPanelButtonEvent::ResetPressed &&
+        event != UserInterfaceModule::ControlPanelButtonEvent::LightPressed) {
+        return;
+    }
+
+    switch (event) {
+    case UserInterfaceModule::ControlPanelButtonEvent::SetupPressed:
+        robot->onSetupButtonPressed();
+        break;
+
+    case UserInterfaceModule::ControlPanelButtonEvent::TestPressed:
+        robot->onTestButtonPressed();
+        break;
+
+    case UserInterfaceModule::ControlPanelButtonEvent::ResetPressed:
+        robot->onResetButtonPressed();
+        break;
+
+    case UserInterfaceModule::ControlPanelButtonEvent::ClampOpenPressed:
+        robot->onClampOpenButtonPressed();
+        break;
+
+    case UserInterfaceModule::ControlPanelButtonEvent::LightPressed:
+        robot->onLightButtonPressed();
+        break;
     }
 }
 
-} // extern "C"
+bool Robot::retaskBonder(const BonderProtocol& protocol)
+{
+    if (!m_bonder.setProtocol(protocol)) return false;
+    // A force setup still parked at its own start gate is superseded by the
+    // retask; natural completion cleans up via the idle callback instead.
+    if (m_forceSetupActive) {
+        m_forceSetupActive = false;
+        m_ledSetup.off();
+    }
+    return true;
+}
+
+void Robot::onSetupButtonPressed()
+{
+    if (m_systemLocked || m_forceSetupActive) return;
+    if (m_manualClampOpen) {
+        m_userInterface.notifyUser("CLOSE CLAMP FIRST");
+        return;
+    }
+    if (m_ultrasonicTestActive) {
+        m_userInterface.notifyUser("TEST IN PROGRESS");
+        return;
+    }
+    if (!m_bonder.isOperating()) {
+        m_userInterface.notifyUser("SETUP NOT READY");
+        return;
+    }
+    if (!retaskBonder(forceSetupProtocol())) {
+        m_userInterface.notifyUser("BONDER ACTIVE");
+        return;
+    }
+
+    m_bonderStartPending = false;
+    m_bonder.configure(m_userInterface.activeConfiguration());
+    m_forceSetupActive = true;
+
+    if (m_bonder.isIdle() && !m_bonder.engage()) {
+        m_forceSetupActive = false;
+        restoreConfiguredBondingProtocol();
+        m_userInterface.notifyUser("SETUP START FAILED");
+        return;
+    }
+
+    m_ledSetup.on();
+    m_userInterface.notifyUser("FORCE SETUP");
+}
+
+void Robot::onTestButtonPressed()
+{
+    if (m_systemLocked) return;
+    if (m_manualClampOpen) {
+        m_userInterface.notifyUser("CLOSE CLAMP FIRST");
+        return;
+    }
+    if (m_ultrasonicTestActive) {
+        m_userInterface.notifyUser("TEST IN PROGRESS");
+        return;
+    }
+    if (!m_bonder.isOperating()) {
+        m_userInterface.notifyUser("TEST NOT READY");
+        return;
+    }
+    if (!retaskBonder(ultrasonicTestProtocol())) {
+        m_userInterface.notifyUser("BONDER ACTIVE");
+        return;
+    }
+
+    m_bonderStartPending = false;
+    m_bonder.configure(m_userInterface.activeConfiguration());
+    m_ultrasonicTestActive = true;
+
+    if (m_bonder.isIdle() && !m_bonder.engage()) {
+        m_ultrasonicTestActive = false;
+        restoreConfiguredBondingProtocol();
+        m_userInterface.notifyUser("TEST START FAILED");
+        return;
+    }
+
+    m_ledTest.on();
+    m_userInterface.notifyUser("US TEST RUNNING");
+}
+
+void Robot::onResetButtonPressed()
+{
+    NVIC_SystemReset();
+}
+
+void Robot::onClampOpenButtonPressed()
+{
+    if (m_systemLocked) return;
+    if (m_ultrasonicTestActive) {
+        m_userInterface.notifyUser("TEST IN PROGRESS");
+        return;
+    }
+    if (m_bonder.isActive() && !m_bonder.isAwaitingStartTrigger()) {
+        m_userInterface.notifyUser("BONDER ACTIVE");
+        return;
+    }
+
+    // The bonder stays engaged at its gate; while the clamp is open the
+    // operator's bonding controls are blocked instead (onMouseButtonEvent).
+    m_manualClampOpen = !m_manualClampOpen;
+    m_manualClampCommandActive = true;
+    m_ledClampOpen.on();
+    if (m_manualClampOpen) {
+        m_clampSolenoidChannel.energize();
+    } else {
+        m_clampSolenoidChannel.deenergize();
+        // Closing the clamp releases the bonding interlock; re-arm the
+        // bonder so the next trigger is accepted.
+        requestBonderStartIfReady();
+    }
+}
+
+void Robot::onLightButtonPressed()
+{
+    m_areaLightOn = !m_areaLightOn;
+    const float rawDuty = m_areaLightOn
+        ? (1.0f - AREA_LIGHT_PWM_DUTY_RATIO)
+        : 1.0f;
+    m_areaLightPwmChannel.setDuty(rawDuty);
+}
+
+#endif // FIRMWARE_MODE == FIRMWARE_MODE_NORMAL

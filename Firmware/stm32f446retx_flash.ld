@@ -62,7 +62,7 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 MEMORY
 {
 RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
-FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 384K /* Sector 7 (0x08060000–0x0807FFFF) reserved for EepromEmulator */
+FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 256K /* Sectors 6-7 reserved as EepromEmulator Areas A-B */
 }
 
 PHDRS

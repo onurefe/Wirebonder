@@ -49,6 +49,13 @@ PinMonitorChannel::PinState PinMonitorChannel::getPinState() const
     return levelToState(m_lastLevel);
 }
 
+PinMonitorChannel::PinState PinMonitorChannel::samplePinState() const
+{
+    if (m_pin == nullptr) return PinState::INACTIVE;
+    const Level level = m_pin->read() ? Level::HIGH : Level::LOW;
+    return levelToState(level);
+}
+
 PinMonitorChannel::PinState PinMonitorChannel::levelToState(Level level) const
 {
     return (level == m_activeLevel) ? PinState::ACTIVE : PinState::INACTIVE;
@@ -87,15 +94,12 @@ PinMonitorService::PinMonitorService(Timer *criticalTimer, Timer *normalTimer)
     , m_normalTimer(normalTimer)
     , m_numCriticalChannels(0)
     , m_numNormalChannels(0)
-    , m_state(ServiceState::READY)
 {
     for (uint8_t i = 0; i < PIN_MONITOR_SERVICE_MAX_PINS; i++) {
         m_criticalChannels[i] = nullptr;
         m_normalChannels[i]   = nullptr;
     }
 
-    m_criticalTimer->setExpirationListenerCallback(this, onCriticalTimerExpired);
-    m_normalTimer->setExpirationListenerCallback(this, onNormalTimerExpired);
 }
 
 bool PinMonitorService::addChannel(PinMonitorChannel *channel, bool timeCritical, uint32_t blindMs)
@@ -114,9 +118,15 @@ bool PinMonitorService::addChannel(PinMonitorChannel *channel, bool timeCritical
     return true;
 }
 
-void PinMonitorService::startService()
+void PinMonitorService::onStart()
 {
-    if (m_state != ServiceState::READY) return;
+    if (m_criticalTimer == nullptr || m_normalTimer == nullptr) {
+        setProcessError();
+        return;
+    }
+    m_criticalTimer->setExpirationListenerCallback(
+        this, onCriticalTimerExpired);
+    m_normalTimer->setExpirationListenerCallback(this, onNormalTimerExpired);
 
     for (uint8_t i = 0; i < m_numCriticalChannels; i++) m_criticalChannels[i]->start();
     for (uint8_t i = 0; i < m_numNormalChannels;   i++) m_normalChannels[i]->start();
@@ -124,29 +134,32 @@ void PinMonitorService::startService()
     m_criticalTimer->start(false, 1.0f / PIN_MONITOR_CRITICAL_SAMPLING_FREQUENCY);
     m_normalTimer->start  (false, 1.0f / PIN_MONITOR_NORMAL_SAMPLING_FREQUENCY);
 
-    m_state = ServiceState::OPERATING;
 }
 
-void PinMonitorService::stopService()
+void PinMonitorService::onStop()
 {
-    if (m_state != ServiceState::OPERATING) return;
-
-    m_criticalTimer->stop();
-    m_normalTimer->stop();
+    if (m_criticalTimer != nullptr) m_criticalTimer->stop();
+    if (m_normalTimer != nullptr) m_normalTimer->stop();
 
     for (uint8_t i = 0; i < m_numCriticalChannels; i++) m_criticalChannels[i]->stop();
     for (uint8_t i = 0; i < m_numNormalChannels;   i++) m_normalChannels[i]->stop();
 
-    m_state = ServiceState::READY;
+    if (m_criticalTimer != nullptr) {
+        m_criticalTimer->setExpirationListenerCallback(nullptr, nullptr);
+    }
+    if (m_normalTimer != nullptr) {
+        m_normalTimer->setExpirationListenerCallback(nullptr, nullptr);
+    }
 }
 
-void PinMonitorService::executeService()
+void PinMonitorService::onExecute()
 {
-    if (m_state != ServiceState::OPERATING) return;
-
     uint32_t currentTick = TimerExpireService::getTicks();
     for (uint8_t i = 0; i < m_numCriticalChannels; i++) {
         m_criticalChannels[i]->clearLockIfExpired(currentTick);
+    }
+    for (uint8_t i = 0; i < m_numNormalChannels; i++) {
+        m_normalChannels[i]->clearLockIfExpired(currentTick);
     }
 }
 
@@ -165,8 +178,9 @@ void PinMonitorService::onNormalTimerExpired(void *context, Timer *timer)
 {
     (void)timer;
     PinMonitorService *self = static_cast<PinMonitorService *>(context);
+    uint32_t tick = TimerExpireService::getTicks();
 
     for (uint8_t i = 0; i < self->m_numNormalChannels; i++) {
-        self->m_normalChannels[i]->update(0);
+        self->m_normalChannels[i]->update(tick);
     }
 }

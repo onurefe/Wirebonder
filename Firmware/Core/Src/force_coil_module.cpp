@@ -14,22 +14,38 @@ ForceCoilDriverModule::ForceCoilDriverModule(AnalogChannel *iSensChannel,
         FORCE_COIL_MODULE_PID_INPUT_FILTER_TC,
         FORCE_COIL_MODULE_PID_OUTPUT_MIN,
         FORCE_COIL_MODULE_PID_OUTPUT_MAX})
-    , m_state(STATE_READY)
+    , m_controlState(ControlState::Disabled)
     , m_callback(nullptr)
     , m_currentListenerCallbacks{}
     , m_currentListenerCallbackCount(0)
     , m_currentSetpoint(0.0f)
     , m_targetDuty(FORCE_COIL_MODULE_MIN_DUTY)
     , m_newSetpoint(false)
+{}
+
+void ForceCoilDriverModule::onStart()
 {
-    m_iDriveChannel->addTargetDutyControllerCallback(this, &ForceCoilDriverModule::iDriveCallback);
-    m_iSensChannel->addMeasurementListenerCallback(this, &ForceCoilDriverModule::iSensCallback);
+    if (m_iDriveChannel == nullptr || m_iSensChannel == nullptr) {
+        setProcessError();
+        return;
+    }
+    if (!m_iDriveChannel->addTargetDutyControllerCallback(
+            this, &ForceCoilDriverModule::iDriveCallback) ||
+        !m_iSensChannel->addMeasurementListenerCallback(
+            this, &ForceCoilDriverModule::iSensCallback)) {
+        setProcessError();
+    }
 }
 
-void ForceCoilDriverModule::start(void)
+void ForceCoilDriverModule::onStop()
 {
-    if (m_state != STATE_READY) {
-        return;
+    disableControl();
+}
+
+bool ForceCoilDriverModule::enableControl()
+{
+    if (!isOperating() || m_controlState != ControlState::Disabled) {
+        return false;
     }
 
     m_currentSetpoint = 0.0f;
@@ -37,15 +53,18 @@ void ForceCoilDriverModule::start(void)
     m_newSetpoint = false;
 
     m_pidCtrl.start();
-    m_state = STATE_OPERATING;
-    m_iDriveChannel->start(FORCE_COIL_MODULE_MIN_DUTY);
+    m_controlState = ControlState::Enabled;
+    if (!m_iDriveChannel->start(FORCE_COIL_MODULE_MIN_DUTY)) {
+        m_pidCtrl.stop();
+        m_controlState = ControlState::Disabled;
+        return false;
+    }
+    return true;
 }
 
-void ForceCoilDriverModule::stop(void)
+void ForceCoilDriverModule::disableControl()
 {
-    if (m_state != STATE_OPERATING) {
-        return;
-    }
+    if (m_controlState != ControlState::Enabled) return;
 
     m_iDriveChannel->stop();
     m_pidCtrl.stop();
@@ -53,12 +72,17 @@ void ForceCoilDriverModule::stop(void)
     m_currentSetpoint = 0.0f;
     m_targetDuty = FORCE_COIL_MODULE_MIN_DUTY;
     m_newSetpoint = false;
-    m_state = STATE_READY;
+    m_controlState = ControlState::Disabled;
+}
+
+bool ForceCoilDriverModule::isControlEnabled() const
+{
+    return m_controlState == ControlState::Enabled;
 }
 
 void ForceCoilDriverModule::setCurrentSetpoint(float currentSetpoint)
 {
-    if (m_state != STATE_OPERATING) {
+    if (!isControlEnabled()) {
         return;
     }
 
@@ -106,7 +130,7 @@ void ForceCoilDriverModule::disablePidBypass()
 
 void ForceCoilDriverModule::onCurrentMeasured(float measuredCurrent)
 {
-    if (m_state != STATE_OPERATING) {
+    if (!isControlEnabled()) {
         return;
     }
 
@@ -135,7 +159,7 @@ bool ForceCoilDriverModule::onPwmUpdate(float *value)
         return false;
     }
 
-    if (m_state != STATE_OPERATING) {
+    if (!isControlEnabled()) {
         return false;
     }
 

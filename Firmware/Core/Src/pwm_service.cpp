@@ -225,7 +225,6 @@ float PwmRampChannel::clampDuty(float duty) {
 // =======================================================================
 PwmService::PwmService()
     : m_channelCount(0U)
-    , m_state(ServiceState::READY)
 {
     for (uint8_t i = 0; i < PWM_SERVICE_MAX_CHANNELS; i++) {
         m_channels[i] = nullptr;
@@ -234,28 +233,18 @@ PwmService::PwmService()
     g_instance = this;
 }
 
-void PwmService::startService()
+void PwmService::onStart()
 {
-    if (m_state != ServiceState::READY) {
-        return;
-    }
-
-    m_state = ServiceState::OPERATING;
 }
 
-void PwmService::stopService()
+void PwmService::onStop()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
-    }
-
     for (uint8_t i = 0U; i < m_channelCount; ++i) {
         if (m_channels[i] != nullptr) {
             m_channels[i]->stop();
         }
     }
 
-    m_state = ServiceState::READY;
 }
 
 bool PwmService::addChannel(IPwmChannel* channel) {
@@ -277,7 +266,7 @@ bool PwmService::addChannel(IPwmChannel* channel) {
 
 IPwmChannel *PwmService::getChannel(TIM_HandleTypeDef* htim)
 {
-    if (g_instance == nullptr || g_instance->m_state != ServiceState::OPERATING) {
+    if (g_instance == nullptr || !g_instance->isOperating()) {
         return nullptr;
     }
 

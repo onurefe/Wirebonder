@@ -3,6 +3,7 @@
 
 #include "generic.h"
 #include "configuration.h"
+#include "process.hpp"
 
 // -----------------------------------------------------------------------
 // Class: Timer
@@ -32,22 +33,21 @@ private:
 // -----------------------------------------------------------------------
 // Class: TimerExpireService
 // -----------------------------------------------------------------------
-class TimerExpireService {
+class TimerExpireService : public Process {
 public:
     TimerExpireService();
 
     bool addTimer(Timer *timer, bool timeCritical = false);
-
-    void initService() {}
-    void startService();
-    void stopService();
-    void executeService();
 
     static void     tickFromISR();
     static uint32_t getTicks();
     static float    getTickFrequency();
 
 private:
+    void onStart() override;
+    void onStop() override;
+    void onExecute() override;
+
     Timer            *m_criticalTimers[TIMER_EXPIRE_SERVICE_MAX_HANDLES];
     uint8_t           m_numCriticalTimers;
 
@@ -56,7 +56,6 @@ private:
 
     volatile uint32_t m_globalTick;
     uint32_t          m_lastCallTick;
-    ServiceState      m_state;
 };
 
 #endif /* TIMER_EXPIRE_SERVICE_HPP */

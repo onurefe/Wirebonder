@@ -5,6 +5,7 @@
 #include "queue.hpp"
 #include "configuration.h"
 #include "generic.h"
+#include "process.hpp"
 #include <cstdint>
 
 // ---------------------------------------------------------------------------
@@ -27,10 +28,10 @@ class IoExpanderChannel {
 public:
     virtual ~IoExpanderChannel() = default;
 
-    // Called by startService() — enqueues initial configuration writes.
+    // Called when the owning process starts — enqueues initial writes.
     virtual bool initializePorts() = 0;
 
-    // Called by executeService() to determine if there is work to do.
+    // Called while the owning process executes to detect pending work.
     virtual bool hasPendingTransaction() const = 0;
 
     // Dequeue and return the next transaction to execute.
@@ -157,24 +158,22 @@ private:
 // ---------------------------------------------------------------------------
 // IoExpanderService — I2C bus scheduler
 // ---------------------------------------------------------------------------
-class IoExpanderService {
+class IoExpanderService : public Process {
 public:
     IoExpanderService(I2C_HandleTypeDef *hi2c);
 
     bool addExpander(IoExpanderChannel *expander);
 
-    void startService();
-    void stopService();
-
-    void executeService();
-
     bool isBusy() const { return m_busy; }
-    bool isOperating() const { return m_state == ServiceState::OPERATING; }
 
     void onI2cComplete(bool isRead);
     static IoExpanderService*   getServiceObject(I2C_HandleTypeDef *hi2c);
 
 private:
+    void onStart() override;
+    void onStop() override;
+    void onExecute() override;
+
     bool startReadTransaction(uint8_t deviceAddress, uint8_t registerAddress, uint8_t *data, uint8_t length);
     bool startWriteTransaction(uint8_t deviceAddress, uint8_t registerAddress, uint8_t *data, uint8_t length);
     void iterateExpanderPointer();
@@ -189,7 +188,6 @@ private:
 
     IoExpanderTransaction       m_activeTransaction;
     volatile bool               m_busy;
-    ServiceState                m_state;
 };
 
 #endif /* IO_EXPANDER_SERVICE_HPP */

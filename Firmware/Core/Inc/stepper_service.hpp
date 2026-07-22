@@ -5,6 +5,7 @@
 #include "stm32f4xx_hal.h"
 #include "generic.h"
 #include "configuration.h"
+#include "process.hpp"
 #include "fast_io.hpp"
 #include "queue.hpp"
 
@@ -64,28 +65,25 @@ private:
 // -----------------------------------------------------------------------
 // Class: StepperService
 // -----------------------------------------------------------------------
-class StepperService {
+class StepperService : public Process {
 public:
     StepperService(TIM_HandleTypeDef *htim, FastIO *enablePin, FastIO *resetPin);
 
     bool addChannel(StepperChannel *channel);
-
-    void initService()    {}
-    void startService();
-    void stopService();
-    void executeService() {}
 
     void handlePeriodElapsed(TIM_HandleTypeDef *htim);
 
     static void dispatchPeriodElapsed(TIM_HandleTypeDef *htim);
 
 private:
+    void onStart() override;
+    void onStop() override;
+
     TIM_HandleTypeDef *m_htim;
     FastIO            *m_enablePin;
     FastIO            *m_resetPin;
     StepperChannel    *m_channels[STEPPER_SERVICE_MAX_MOTOR_COUNT];
     uint8_t            m_numChannels;
-    ServiceState       m_state;
 };
 
 #endif /* STEPPER_SERVICE_HPP */

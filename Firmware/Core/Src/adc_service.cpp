@@ -380,7 +380,6 @@ AdcService::AdcService(
     , m_interleave(0)
     , m_bits(bits)
     , m_voltageRange(voltageRange)
-    , m_state(ServiceState::READY)
 {
     if (g_numControllers < ADC_SERVICE_MAX_HANDLES) {
         g_registry[g_numControllers++] = this;
@@ -390,7 +389,7 @@ AdcService::AdcService(
 AdcService *AdcService::getController(ADC_HandleTypeDef *hadc)
 {
     for (uint8_t i = 0; i < g_numControllers; i++) {
-        if (g_registry[i]->m_state == ServiceState::OPERATING &&
+        if (g_registry[i]->isOperating() &&
             g_registry[i]->m_hadc->Instance == hadc->Instance) return g_registry[i];
     }
     return nullptr;
@@ -412,36 +411,33 @@ bool AdcService::addChannel(IAdcChannel *channel)
     return true;
 }
 
-void AdcService::startService(uint16_t *buffer, uint32_t bufferSize)
+void AdcService::setBuffer(uint16_t *buffer, uint32_t bufferSize)
 {
-    if (m_state != ServiceState::READY) {
-        return;
-    }
+    if (!isReady() || buffer == nullptr || bufferSize == 0U) return;
+    m_buffer = buffer;
+    m_bufferSize = bufferSize;
+}
 
-    if (buffer) {
-        m_buffer     = buffer;
-        m_bufferSize = bufferSize;
+void AdcService::onStart()
+{
+    if (m_buffer == nullptr || m_bufferSize == 0U) {
+        setProcessError();
+        return;
     }
     
     HAL_ADC_Start_DMA(m_hadc, (uint32_t *)m_buffer, m_bufferSize);
     HAL_TIM_Base_Start(m_htim);
-    m_state = ServiceState::OPERATING;
 }
 
-void AdcService::stopService()
+void AdcService::onStop()
 {
-    if (m_state != ServiceState::OPERATING) {
-        return;
-    }
-
     HAL_ADC_Stop_DMA(m_hadc);
     HAL_TIM_Base_Stop(m_htim);
-    m_state = ServiceState::READY;
 }
 
 void AdcService::handleDmaInterrupt(bool secondHalf)
 {
-    if (m_state != ServiceState::OPERATING) {
+    if (!isOperating()) {
         return;
     }
 

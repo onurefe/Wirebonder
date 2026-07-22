@@ -3,6 +3,7 @@
 
 #include "io_expander_service.hpp"
 #include "timer_expire_service.hpp"
+#include "process.hpp"
 #include "generic.h"
 #include <cstdint>
 
@@ -26,6 +27,7 @@ public:
     virtual ~ButtonChannel() = default;
 
     bool addPressListenerCallback(void *context, PressCallback callback);
+    bool removePressListenerCallback(void *context, PressCallback callback);
 
     // Called by ControlPanelService with the latest 16-bit port state.
     // Fires the press callback on the LOW→HIGH transition of both bits.
@@ -45,6 +47,7 @@ private:
     uint16_t      m_mask;
     bool          m_wasPressed;
     bool          m_initialized;
+    uint32_t      m_lastChangeTick;   // debounce: last observed edge (ms)
     CallbackRegistration m_callbacks[kMaxCallbacks];
     uint8_t       m_callbackCount;
 };
@@ -84,10 +87,10 @@ private:
 //     and LED/cathode pins as outputs (direction bit = 0).
 //   - Set port initial output to 0x00 so cathode lines start LOW.
 //   - Register the injected timer with TimerExpireService (timeCritical = false).
-//   - Call startService() before entering the main loop.
-//   - Call executeService() every main-loop iteration for LED updates.
+//   - Start the process before entering the main loop.
+//   - Execute the process every main-loop iteration for LED updates.
 // ---------------------------------------------------------------------------
-class ControlPanelService {
+class ControlPanelService : public Process {
 public:
     using OutputWriteCallback = void (*)(void *context, uint8_t transactionId);
 
@@ -96,16 +99,16 @@ public:
     bool addButton(ButtonChannel *button);
     bool addLed(LedChannel *led);
 
-    void startService();
-    void stopService();
-    void executeService();
-    bool isOperating() const { return m_state == ServiceState::OPERATING; }
     bool ledOutputsMatch() const;
     void setOutputWriteListenerCallbacks(void *context,
                                          OutputWriteCallback queuedCallback,
                                          OutputWriteCallback completedCallback);
 
 private:
+    void onStart() override;
+    void onStop() override;
+    void onExecute() override;
+
     static void onPollTimerExpired(void *context, Timer *timer);
     static void onKeypadStateChanged(void *context, uint8_t port0, uint8_t port1);
     static void onExpanderWriteCompleted(void *context, uint8_t transactionId);
@@ -127,7 +130,6 @@ private:
     OutputWriteCallback m_outputWriteQueuedCallback;
     OutputWriteCallback m_outputWriteCompletedCallback;
     void                *m_outputWriteCallbackContext;
-    ServiceState   m_state;
 };
 
 #endif /* CONTROL_PANEL_SERVICE_HPP */

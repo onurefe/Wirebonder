@@ -14,7 +14,7 @@ LvdtSensorModule::LvdtSensorModule(SineGeneratorChannel* excitation, IQDemodulat
     , m_magB(0.0f)
     , m_updatedA(false)
     , m_updatedB(false)
-    , m_state(ServiceState::READY)
+    , m_measurementState(MeasurementState::Idle)
 {
 }
 
@@ -24,39 +24,56 @@ void LvdtSensorModule::addMeasurementListenerCallback(void* callbackContext, Mea
     m_callbackContext = callbackContext;   
 }
 
-void LvdtSensorModule::start() {
-    if (m_state != ServiceState::READY) {
+void LvdtSensorModule::onStart()
+{
+    if (m_excitation == nullptr || m_secondaryA == nullptr ||
+        m_secondaryB == nullptr) {
+        setProcessError();
         return;
     }
 
-    if (m_excitation != nullptr) {
-        if (m_secondaryA != nullptr) {
-            m_secondaryA->addMeasurementListenerCallback(this, &LvdtSensorModule::onMeasurementA);
-        }
-
-        if (m_secondaryB != nullptr) {
-            m_secondaryB->addMeasurementListenerCallback(this, &LvdtSensorModule::onMeasurementB);
-        }
-
-        m_excitation->start(
-            LVDT_MODULE_EXCITATION_AMPLITUDE,
-            LVDT_MODULE_EXCITATION_AVERAGE,
-            static_cast<float>(LVDT_MODULE_DRIVING_FREQUENCY) / static_cast<float>(DAC2_SAMPLING_FREQ));
-
-        m_state = ServiceState::OPERATING;
+    if (!m_secondaryA->addMeasurementListenerCallback(
+            this, &LvdtSensorModule::onMeasurementA) ||
+        !m_secondaryB->addMeasurementListenerCallback(
+            this, &LvdtSensorModule::onMeasurementB)) {
+        setProcessError();
     }
 }
 
-void LvdtSensorModule::stop() {
-    if (m_state != ServiceState::OPERATING) {
-        return;
+void LvdtSensorModule::onStop()
+{
+    stopMeasurement();
+}
+
+bool LvdtSensorModule::startMeasurement()
+{
+    if (!isOperating() || m_measurementState != MeasurementState::Idle) {
+        return false;
     }
 
-    if (m_excitation != nullptr) {
-        m_excitation->stop();
-    }
+    m_updatedA = false;
+    m_updatedB = false;
+    m_measurementState = MeasurementState::Measuring;
+    m_excitation->start(
+        LVDT_MODULE_EXCITATION_AMPLITUDE,
+        LVDT_MODULE_EXCITATION_AVERAGE,
+        static_cast<float>(LVDT_MODULE_DRIVING_FREQUENCY) /
+            static_cast<float>(DAC2_SAMPLING_FREQ));
+    return true;
+}
 
-    m_state = ServiceState::READY;
+void LvdtSensorModule::stopMeasurement()
+{
+    if (m_measurementState == MeasurementState::Idle) return;
+    m_excitation->stop();
+    m_updatedA = false;
+    m_updatedB = false;
+    m_measurementState = MeasurementState::Idle;
+}
+
+bool LvdtSensorModule::isMeasuring() const
+{
+    return m_measurementState == MeasurementState::Measuring;
 }
 
 void LvdtSensorModule::onMeasurementA(void* context, float re, float im) {
@@ -76,7 +93,7 @@ void LvdtSensorModule::onMeasurementB(void* context, float re, float im) {
 }
 
 void LvdtSensorModule::handleMeasurement(Secondary secondary, float re, float im) {
-    if (m_state != ServiceState::OPERATING) {
+    if (!isOperating() || !isMeasuring()) {
         return;
     }
 

@@ -7,11 +7,12 @@
 #include "complex.h"
 #include "configuration.h"
 #include "queue.hpp"
+#include "process.hpp"
 #include "pid_controller.hpp"
 #include "adc_service.hpp"
 #include "dac_service.hpp"
 
-class PllModule {
+class PllModule : public Process {
 public:
     enum class Event {
         BondingCompleted,
@@ -38,17 +39,20 @@ public:
 
     bool addEventListenerCallback(void *context, Callback cb);
 
-    // Recording starts at the next start() and stops when the buffer is
+    // Recording starts at the next beginTransfer() and stops when the buffer is
     // full; pass nullptr/0 to disable.
     void setTelemetryBuffer(TelemetrySample *buffer, uint16_t capacity);
     uint16_t getTelemetryCount() const;
+    float getBondingEnergy() const;
+    float getBondingDuration() const;
+    float getAveragePower() const;
 
-    void start(float centerFrequency,
-               float driveAmplitude,
-               float bondingEnergyJoules,
-               float maxBondingDurationSeconds);
-
-    void stop();
+    bool beginTransfer(float centerFrequency,
+                       float driveAmplitude,
+                       float bondingEnergyJoules,
+                       float maxBondingDurationSeconds);
+    void abortTransfer();
+    bool isTransferring() const;
 
     static void onVoltageMeasured(void *context, float re, float im);
     static void onCurrentMeasured(void *context, float re, float im);
@@ -56,6 +60,11 @@ public:
     static bool onSinusoidSample(void *context, float *amplitude, float *average, float *targetNormalizedGeneratorFrequency);
 
 private:
+    enum class TransferState : uint8_t { Idle, Transferring };
+
+    void onStart() override;
+    void onStop() override;
+
     struct CallbackRegistration {
         Callback callback;
         void *context;
@@ -74,7 +83,7 @@ private:
     IQDemodulatorChannel *m_currentDemodulator;
     PidController m_frequencyController;
 
-    ServiceState m_state;
+    TransferState m_transferState;
 
     CallbackRegistration m_callbacks[kMaxCallbacks];
     uint8_t m_callbackCount;

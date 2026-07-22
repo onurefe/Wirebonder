@@ -6,9 +6,10 @@
 #include "pid_controller.hpp"
 #include "adc_service.hpp"
 #include "pwm_service.hpp"
+#include "process.hpp"
 
 // -----------------------------------------------------------------------
-class ForceCoilDriverModule {
+class ForceCoilDriverModule : public Process {
     public:
         using CurrentListenerCallback = void (*)(void *context, float measuredCurrent);
 
@@ -21,8 +22,9 @@ class ForceCoilDriverModule {
         } Event;
 
         using ForceCoilCallback = void (*)(Event event);
-        void start(void);
-        void stop(void);
+        bool enableControl();
+        void disableControl();
+        bool isControlEnabled() const;
         void setCurrentSetpoint(float currentSetpoint);
         void addEventListenerCallback(ForceCoilCallback callback);
         bool addCurrentListenerCallback(void *context, CurrentListenerCallback callback);
@@ -30,6 +32,11 @@ class ForceCoilDriverModule {
         void disablePidBypass();
 
     private:
+        enum class ControlState : uint8_t { Disabled, Enabled };
+
+        void onStart() override;
+        void onStop() override;
+
         struct CurrentListenerRegistration {
             CurrentListenerCallback callback;
             void *context;
@@ -47,7 +54,7 @@ class ForceCoilDriverModule {
         PwmRampChannel *m_iDriveChannel;
         PidController m_pidCtrl;
 
-        State_t m_state;
+        ControlState m_controlState;
         ForceCoilCallback m_callback;
         CurrentListenerRegistration m_currentListenerCallbacks[kMaxCurrentListenerCallbacks];
         uint8_t m_currentListenerCallbackCount;
