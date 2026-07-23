@@ -6,7 +6,6 @@
 
 namespace {
 
-constexpr float kEditIncrement = 0.01f;
 constexpr uint8_t kProtocolCount = 4U;
 
 const char *bondingModeName(BondingMode mode)
@@ -26,7 +25,7 @@ uint16_t hotkeyParameterOffset(Menu::Hotkey hotkey, BondingMode mode)
     case Menu::Hotkey::Tail:
         return mode == BondingMode::TableTear
             ? offsetof(BonderConfig, yTailPosition)
-            : offsetof(BonderConfig, tailPosition);
+            : offsetof(BonderConfig, tailDisplacement);
     case Menu::Hotkey::Loop:
         return offsetof(BonderConfig, loopHeight);
     case Menu::Hotkey::Search:
@@ -276,10 +275,10 @@ void UserInterfaceModule::adjustByDescriptor(
     } else {
         float value;
         std::memcpy(&value, base + descriptor->offset, sizeof(value));
-        float changed = value * descriptor->scale + delta;
+        float changed = value * descriptor->scale + descriptor->displayOffset + delta;
         if (changed < descriptor->minDisplay) changed = descriptor->minDisplay;
         if (changed > descriptor->maxDisplay) changed = descriptor->maxDisplay;
-        value = changed / descriptor->scale;
+        value = (changed - descriptor->displayOffset) / descriptor->scale;
         std::memcpy(base + descriptor->offset, &value, sizeof(value));
     }
 
@@ -297,7 +296,7 @@ void UserInterfaceModule::adjustParameter(uint8_t screen,
     adjustByDescriptor(
         descriptor,
         static_cast<float>(sign) *
-            (descriptor->isInteger ? 1.0f : kEditIncrement));
+            (descriptor->isInteger ? 1.0f : descriptor->stepDisplay));
 }
 
 void UserInterfaceModule::adjustHotkey(Menu::Hotkey hotkey, int8_t sign)
@@ -311,7 +310,7 @@ void UserInterfaceModule::adjustHotkey(Menu::Hotkey hotkey, int8_t sign)
         m_menu.setNotificationMessage("Not used by protocol");
         return;
     }
-    adjustByDescriptor(descriptor, static_cast<float>(sign) * kEditIncrement);
+    adjustByDescriptor(descriptor, static_cast<float>(sign) * descriptor->stepDisplay);
 }
 
 void UserInterfaceModule::saveConfiguration()

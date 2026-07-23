@@ -30,26 +30,53 @@
 
 #define PLL_MODULE_FREQ_CORRECTION_QUEUE_DEPTH                       4
 
-/* Tuned from the bench-fitted transducer (fs = 59.7 kHz, Q = 333):
-   plant gain 2Q/fs = 0.0112 rad/Hz; dead time ~5 ms (correction queue +
-   demod window + transducer ring-in 2Q/ws ~ 1.8 ms) -> loop shaping gives
-   Kp ~ 41 Hz/rad. Integral kept slower than the formula optimum: during
-   capture the loop crosses the fs..fp phase plateau where plant gain is
-   low, and a fast integral winds up there. Filter smooths per-window
-   demodulation noise (~2 control periods).
-   MAX_DEVIATION is asymmetric on purpose: above fp (~+1 kHz from center)
-   the phase slope flips sign and the loop would be POSITIVE feedback,
-   running away upward; the clamp keeps the loop on the series branch. */
+/* BonderModule now retunes gain/integralTc/derivativeTc adaptively per bond
+   from the impedance scan's fitted transducer parameters (see
+   TransducerAnalyzer::frequencyPidTuning(), called from
+   BonderModule::computeOperatingPoint() and pushed via
+   PllModule::setFrequencyPidTuning()). The constants below remain the
+   constructor-time default and the fallback used whenever a scan's fit is
+   rejected (computeOperatingPoint falls back to the raw |Z|-dip center
+   frequency in that case, and deliberately leaves the PID untouched rather
+   than tune off a distrusted fit) — originally bench-derived from a single
+   reference transducer (fs = 59.7 kHz, Q = 333): plant gain 2Q/fs = 0.0112
+   rad/Hz; dead time ~5 ms (correction queue + demod window + transducer
+   ring-in 2Q/ws ~ 1.8 ms) -> loop shaping gave Kp ~ 41 Hz/rad. Integral kept
+   slower than the formula optimum: during capture the loop crosses the
+   fs..fp phase plateau where plant gain is low, and a fast integral winds
+   up there. Filter smooths per-window demodulation noise (~2 control
+   periods). MAX_DEVIATION is asymmetric on purpose: above fp (~+1 kHz from
+   center) the phase slope flips sign and the loop would be POSITIVE
+   feedback, running away upward; the clamp keeps the loop on the series
+   branch. */
 /* Kp = 40 limit-cycled at the resonance (bench: period-8 oscillation,
    +-70 Hz): loop gain Kp*K = 0.45/tick exceeds the ~0.35 stability limit
    of the ~3-tick loop delay (queue + demod + transducer ring-in).
-   Kp = 10 -> loop gain 0.11, ~3x margin. */
-#define PLL_MODULE_FREQ_PID_GAIN                                     10.0
-#define PLL_MODULE_FREQ_PID_INTEGRAL_TC                              0.05
+   Kp = 10 -> loop gain 0.11, ~3x margin.
+   Backed off further (Kp 10->5, Ti 0.05->0.08, filterTc 0.002->0.004) to
+   quiet audible ringing heard during the initial ring-up phase of bonding,
+   when the demodulated phase estimate is noisiest and the integrator is
+   freshly reset by beginTransfer() -> loop gain now ~0.055/tick, ~6x margin
+   under the Kp=40 limit-cycle point. */
+#define PLL_MODULE_FREQ_PID_GAIN                                     5.0
+#define PLL_MODULE_FREQ_PID_INTEGRAL_TC                              0.08
 #define PLL_MODULE_FREQ_PID_DERIVATIVE_TC                            0.0
-#define PLL_MODULE_FREQ_PID_FILTER_TC                                0.002
+#define PLL_MODULE_FREQ_PID_FILTER_TC                                0.004
 #define PLL_MODULE_FREQ_PID_MIN_DEVIATION                            -1000.0
 #define PLL_MODULE_FREQ_PID_MAX_DEVIATION                            500.0
+
+/* Loop-shaping targets fed to TransducerAnalyzer::frequencyPidTuning() for
+   the per-bond adaptive retune. Dead time is the correction queue plus half
+   a demodulation window (matches the queue+demod dead-time definition the
+   fixed constants above were originally derived from — ring-in is a
+   separate, per-transducer effect the fit does not model, same as before).
+   Phase margin/crossover fraction mirror the only prior art for this
+   formula (tests/test_transducer_analyzer.cpp): 60 deg margin, crossover at
+   1/deadTime. */
+#define PLL_MODULE_FREQ_PID_DEAD_TIME \
+    ((PLL_MODULE_FREQ_CORRECTION_QUEUE_DEPTH + 0.5f) / PLL_MODULE_CONTROL_FREQ)
+#define PLL_MODULE_FREQ_PID_TARGET_PHASE_MARGIN_RAD                  1.0471975512f /* 60 deg */
+#define PLL_MODULE_FREQ_PID_TARGET_CROSSOVER_FRACTION                1.0f
 
 /* Firmware operating mode ---------------------------------------------------- */
 #define FIRMWARE_MODE_NORMAL                                         0
@@ -67,7 +94,7 @@
 #define FIRMWARE_MODE_DEBUG_BONDER                                   12
 #define FIRMWARE_MODE_DEBUG_HOMING                                   13
 
-#define FIRMWARE_MODE                                                FIRMWARE_MODE_DEBUG_MOTOR_POSITION
+#define FIRMWARE_MODE                                                FIRMWARE_MODE_NORMAL
 
 /* Debug environment ids — assigned centrally, embedded in the upper half of
    the debugger command word so a mismatched host script / firmware image
@@ -111,12 +138,30 @@
 #define SCANNER_WARMUP_ITERATIONS                                    8
 
 /* ForceCoilDriverModule -----------------------------------------------------------*/
+/* Bench current(A)->force(g) fit (force_coil_calibration_fit.py against
+   Core/Inc/force_coil_current_to_gram.txt, R^2 = 0.9998, 25 points from
+   0.06-1.0A): grams = SCALE*current + OFFSET. Used both to convert a
+   BonderConfig force-in-grams value to the amps ForceCoilDriverModule
+   expects (BonderModule's SETFORCE handling) and, inverted, by the
+   configuration editor's grams range (below). */
+#define FORCE_COIL_CURRENT_TO_GRAMS_SCALE                            224.4487f
+#define FORCE_COIL_CURRENT_TO_GRAMS_OFFSET                           -1.2547f
+
 #define FORCE_COIL_MODULE_CURRENT_ERROR_TOLERANCE                    1e-2
 
 #define FORCE_COIL_MODULE_CONTROL_FREQUENCY                          1000
 
 #define FORCE_COIL_MODULE_V2I_CONVERSION_FACTOR                      1.2804097311139564
-#define FORCE_COIL_MODULE_ZERO_CURRENT_VOLTAGE                       0.41917057903
+/* Corrected 2026-07-23: bench showed a constant +0.0236A offset (true zero
+   current read as +0.0236A). measuredCurrent = V2I*(adcVolts - ZERO_V), so
+   a positive offset means the assumed zero-current voltage was too LOW, not
+   too high -- shifting it down (as done in a first pass) doubled the error
+   to +0.0470A instead of canceling it. Corrected direction: shifted up by
+   0.0470/V2I_CONVERSION_FACTOR = 0.036707V from that (wrong) intermediate
+   value. This constant is shared by every AnalogChannel instantiation
+   (robot.cpp, debug_environment_force_coil.cpp, debug_environment_bonder.cpp)
+   so the fix propagates everywhere from this one edit. */
+#define FORCE_COIL_MODULE_ZERO_CURRENT_VOLTAGE                       0.43744597903
 
 #define FORCE_COIL_MODULE_PID_GAIN                                   0.25f
 #define FORCE_COIL_MODULE_PID_INTEGRAL_TC                            0.005f
@@ -126,6 +171,15 @@
 
 #define FORCE_COIL_MODULE_PID_OUTPUT_MIN                             0.0
 #define FORCE_COIL_MODULE_PID_OUTPUT_MAX                             1.0
+
+/* Max rate the internal setpoint the PID chases is allowed to move, rather
+   than stepping directly to a new SETFORCE target (e.g. the 0.45A->0.10A
+   drop right after a weld). Starting point, needs bench validation: a full
+   first-bond-force-range step (~0.35A) ramps in ~35ms at this rate, well
+   inside the existing coolingTime/contactSettlingTime budget (0.1-0.25s
+   default), while removing the single-tick step that can kick the force
+   coil's mechanical lever. */
+#define FORCE_COIL_MODULE_SETPOINT_SLEW_RATE                         5.0f /* A/s */
 
 #define FORCE_COIL_MODULE_MIN_DUTY                                   0.0
 
@@ -146,16 +200,22 @@
 #define DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY                   0.5
 #define DCMOTOR_VELOCITY_MODULE_VOLTAGE_TO_DUTY_SCALE                (1.0f / 27.0f)
 
-/* TODO: Reduce preamplifier gain but increase position module proportionality 
-gain by the same factor. Changing position module limits can also be a viable option. */
-#define DCMOTOR_VELOCITY_MODULE_CONTROLLER_PREAMPLIFIER_GAIN         2.5e-3
+/* PID replaces the leaky-integrator compensator: the leaky integrator has a
+   single pole (13Hz at the old Ri/Rf/Cf) and no zero, so it only ever adds
+   phase lag. Kp matches the leaky integrator's old flat-band gain
+   (preampGain * Rf/Ri = 2.5e-3 * 121); Ti matches its old pole time constant
+   (Rf*Cf) so low-frequency behavior starts from the same place; Td adds lead
+   at Ti/4 to claw back phase margin through the 13-100Hz band where the
+   25Hz oscillation and the analog tach filter's poles (~64/157Hz) live.
+   Input filter corner is set near the analog tach filter's own 100Hz corner
+   so the D term doesn't amplify tachometer ripple. Tune on the bench. */
+#define DCMOTOR_VELOCITY_MODULE_PID_GAIN                             0.3025f
+#define DCMOTOR_VELOCITY_MODULE_PID_INTEGRAL_TC                      0.0121f
+#define DCMOTOR_VELOCITY_MODULE_PID_DERIVATIVE_TC                    0.003f
+#define DCMOTOR_VELOCITY_MODULE_PID_INPUT_FILTER_TC                  1.59e-3f
 
-#define DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_RI                  1e3
-#define DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_RF                  121e3
-#define DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_CF                  1e-7
-
-#define DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_CLAMP_MIN           -13.5
-#define DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_CLAMP_MAX           13.5
+#define DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MIN                       -13.5f
+#define DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MAX                       13.5f
 
 /* DcMotorPositionControllerModule (LVDT -> velocity correction) ------------*/
 #define DCMOTOR_POSITION_MODULE_CONTROL_FREQUENCY                    1000
@@ -163,9 +223,9 @@ gain by the same factor. Changing position module limits can also be a viable op
 
 #define DCMOTOR_POSITION_MODULE_PROPORTIONAL_GAIN                    100.0f
 
-#define DCMOTOR_POSITION_MODULE_OUTPUT_MIN                           -40.0f
-#define DCMOTOR_POSITION_MODULE_OUTPUT_MAX                           40.0f
-#define DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR                   2.0e-1f /* mm */
+#define DCMOTOR_POSITION_MODULE_OUTPUT_MIN                           -2.5f
+#define DCMOTOR_POSITION_MODULE_OUTPUT_MAX                           5.0f
+#define DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR                   1.0e-1f /* mm */
 
 /* RouterModule --------------------------------------------------------------*/
 #define ROUTER_MODULE_SEGMENT_RENDER_FREQUENCY                       100.
@@ -175,11 +235,13 @@ gain by the same factor. Changing position module limits can also be a viable op
 #define ROUTER_MODULE_T_AXIS_STEPS_PER_MM                            400.0f
 
 /* BonderModule --------------------------------------------------------------*/
-/* Force coil currents (A) */
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_CONSTANT_CURRENT            0.10
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_TRACKING_CURRENT            0.20
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_FIRST_BOND_CURRENT          0.30
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_SECOND_BOND_CURRENT         0.30
+/* Bonding force (grams). Values are the old amp defaults (0.05/0.20/0.25/0.25A)
+   run through the current->grams fit below, so behavior is unchanged from
+   before the grams conversion; re-tune in grams going forward. */
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_CONSTANT_FORCE_GRAMS        5.0f
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_TRACKING_FORCE_GRAMS        30.0f
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_FIRST_BOND_FORCE_GRAMS      25.0f
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_SECOND_BOND_FORCE_GRAMS     25.0f
 
 #define BONDER_MODULE_ZAXIS_WORKSPACE_SIZE                           9.0
 
@@ -188,36 +250,39 @@ gain by the same factor. Changing position module limits can also be a viable op
 #define BONDER_MODULE_DEFAULT_LOOP_HEIGHT                            5.0    /* apex of the wire loop                */
 #define BONDER_MODULE_DEFAULT_FIRST_SEARCH_HEIGHT                    3.5    /* first-bond controlled descent        */
 #define BONDER_MODULE_DEFAULT_SECOND_SEARCH_HEIGHT                   3.5    /* second-bond controlled descent       */
-#define BONDER_MODULE_DEFAULT_KINK_HEIGHT                            2.5    /* wire kink point, just above pad      */
+#define BONDER_MODULE_DEFAULT_KINK_HEIGHT                            4.0    /* wire kink point, just above pad      */
 #define BONDER_MODULE_DEFAULT_LOWEST_OVERTRAVEL                      (-0.3) /* maximum overtravel below pad surface */
 #define BONDER_MODULE_DEFAULT_MANUAL_LEVELING_RATE                   1.0    /* manual-mode Z jog rate (mm/s)        */
 #define BONDER_MODULE_DEFAULT_SECOND_Z_HEIGHT                        2.5    /* table-tear height for the Y tail/tear */
 
-/* Y/T logical positions (mm), relative to the router origin at startup.
-   BonderModule subtracts the mean of the configured T endpoints, so the
-   defaults below become tail=-0.75 mm and tear=+0.75 mm at runtime. */
-#define BONDER_MODULE_DEFAULT_TAIL_POSITION                          2.0  /* uncentered T tail endpoint           */
-#define BONDER_MODULE_DEFAULT_TEAR_POSITION                          3.5  /* uncentered T tear endpoint           */
-#define BONDER_MODULE_DEFAULT_Y_REVERSE_POSITION                     0.5  /* Y position during loop formation     */
-#define BONDER_MODULE_DEFAULT_Y_STEPBACK_POSITION                    0.8  /* Y position during second-bond prep   */
+/* Signed T-axis displacement (mm) from the router origin (T=0) -- entered
+   directly now, not auto-centered by BonderModule. Values keep the same
+   physical endpoints as the old centered defaults (tail=-0.75, tear=+0.75). */
+#define BONDER_MODULE_DEFAULT_TAIL_DISPLACEMENT                      0.0
+#define BONDER_MODULE_DEFAULT_TEAR_DISPLACEMENT                      0.0
+
+/* Magnitude (mm) moved in the negative Y direction from the current position
+   during loop formation (Opcode::YREVERSE) -- not an absolute position. */
+#define BONDER_MODULE_DEFAULT_Y_REVERSE_DISPLACEMENT                 0.0
+#define BONDER_MODULE_DEFAULT_Y_STEPBACK_POSITION                    5.0  /* Y position during second-bond prep   */
 #define BONDER_MODULE_DEFAULT_Y_TAIL_POSITION                        2.0  /* table-tear Y position forming the tail */
 #define BONDER_MODULE_DEFAULT_Y_TEAR_POSITION                        3.5  /* table-tear Y position for the wire tear */
 
 /* Ultrasonic bonding */
-#define BONDER_MODULE_DEFAULT_FIRST_BONDING_POWER                    0.4    /* first-bond electrical power (W)      */
-#define BONDER_MODULE_DEFAULT_SECOND_BONDING_POWER                   0.4    /* second-bond electrical power (W)     */
-#define BONDER_MODULE_DEFAULT_FIRST_BONDING_ENERGY                   0.020   /* first-bond energy (J)                */
-#define BONDER_MODULE_DEFAULT_SECOND_BONDING_ENERGY                  0.020   /* second-bond energy (J)               */
-#define BONDER_MODULE_DEFAULT_TAIL_ASSIST_POWER                      0.1    /* ultrasonic tail-assist power (W)     */
-#define BONDER_MODULE_DEFAULT_TAIL_ASSIST_ENERGY                     0.1   /* ultrasonic tail-assist energy (J)    */
+#define BONDER_MODULE_DEFAULT_FIRST_BONDING_POWER                    0.3    /* first-bond electrical power (W)      */
+#define BONDER_MODULE_DEFAULT_SECOND_BONDING_POWER                   0.3    /* second-bond electrical power (W)     */
+#define BONDER_MODULE_DEFAULT_FIRST_BONDING_ENERGY                   0.15   /* first-bond energy (J)                */
+#define BONDER_MODULE_DEFAULT_SECOND_BONDING_ENERGY                  0.15   /* second-bond energy (J)               */
+#define BONDER_MODULE_DEFAULT_TAIL_ASSIST_POWER                      0.200    /* ultrasonic tail-assist power (W)     */
+#define BONDER_MODULE_DEFAULT_TAIL_ASSIST_ENERGY                     0.050   /* ultrasonic tail-assist energy (J)    */
 #define BONDER_MODULE_DEFAULT_FORCE_SETUP_DURATION                   5.0     /* setup force-measurement hold (s)     */
-#define BONDER_MODULE_DEFAULT_MAX_BONDING_DURATION                   5.0    /* safety timeout (s)                   */
+#define BONDER_MODULE_DEFAULT_MAX_BONDING_DURATION                   1.0    /* safety timeout (s)                   */
 
 /* Timing (s) */
-#define BONDER_MODULE_DEFAULT_SETTLING_TIME                          0.1    /* wait after contact for force to settle */
-#define BONDER_MODULE_DEFAULT_COOLING_TIME                           0.1    /* wait after weld for bond to solidify   */
+#define BONDER_MODULE_DEFAULT_SETTLING_TIME                          0.2   /* wait after contact for force to settle */
+#define BONDER_MODULE_DEFAULT_COOLING_TIME                           0.01    /* wait after weld for bond to solidify   */
 #define BONDER_MODULE_DEFAULT_TAIL_RESTORE_DELAY                     0.1     /* delay before tail restore move         */
-#define BONDER_MODULE_DEFAULT_TEAR_STABILIZATION_TIME                0.05    /* wait after tear before restoring axes  */
+#define BONDER_MODULE_DEFAULT_TEAR_STABILIZATION_TIME                0.1    /* wait after tear before restoring axes  */
 
 /* Impedance scan sweep (passed to UsImpedanceScannerModule::Config).
    The tone step must stay on the capture window's coherence grid
@@ -478,9 +543,18 @@ gain by the same factor. Changing position module limits can also be a viable op
 #define KEYPAD_BTN_ADD_B              9U    /* IO1_0 */
 
 /* ConfigurationEditor — parameter display intervals ------------------*/
-/* Force coil currents (A) */
-#define CONFIGURATION_EDITOR_FORCE_CURRENT_MIN                         0.0f
-#define CONFIGURATION_EDITOR_FORCE_CURRENT_MAX                         2.0f
+/* Default +/- edit step for float parameters, in display units. */
+#define CONFIGURATION_EDITOR_STEP_DEFAULT                              0.01f
+
+/* Force coil bonding force: BonderConfig now stores this directly in grams
+   (see FORCE_COIL_CURRENT_TO_GRAMS_SCALE/OFFSET above for the amps<->grams
+   conversion, applied in BonderModule's SETFORCE handling), so the editor
+   needs no display scale/offset here, just the range and step. Range is
+   capped at the highest bench-calibrated point (1.0A/222.6g) rather than
+   the old raw current bound (2.0A) -- the fit isn't validated past there. */
+#define CONFIGURATION_EDITOR_FORCE_GRAMS_MIN                           0.0f
+#define CONFIGURATION_EDITOR_FORCE_GRAMS_MAX                           222.6f
+#define CONFIGURATION_EDITOR_FORCE_GRAMS_STEP                          1.0f
 
 /* Z-axis heights (mm) */
 #define CONFIGURATION_EDITOR_HEIGHT_MIN                                0.0f
@@ -490,8 +564,10 @@ gain by the same factor. Changing position module limits can also be a viable op
 #define CONFIGURATION_EDITOR_OVERTRAVEL_MIN                           -2.0f
 #define CONFIGURATION_EDITOR_OVERTRAVEL_MAX                            0.0f
 
-/* XY-axis displacements (mm) */
-#define CONFIGURATION_EDITOR_LARGE_DISPLACEMENT_MIN                    0.0f
+/* XY-axis displacements (mm). Signed range: T tail/tear (the only users of
+   this bound) are now entered as a signed offset from T=0, not a positive
+   endpoint that gets auto-centered. */
+#define CONFIGURATION_EDITOR_LARGE_DISPLACEMENT_MIN                    -10.0f
 #define CONFIGURATION_EDITOR_LARGE_DISPLACEMENT_MAX                    10.0f
 #define CONFIGURATION_EDITOR_SMALL_DISPLACEMENT_MIN                    0.0f
 #define CONFIGURATION_EDITOR_SMALL_DISPLACEMENT_MAX                    5.0f

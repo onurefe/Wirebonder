@@ -18,11 +18,14 @@ enum class BondingMode : uint8_t {
 struct BonderConfig {
     BondingMode bondingMode             = BondingMode::SemiAutomatic;
 
-    // Force coil currents (A)
-    float forceCoilConstantCurrent      = BONDER_MODULE_DEFAULT_FORCE_COIL_CONSTANT_CURRENT;
-    float forceCoilTrackingCurrent      = BONDER_MODULE_DEFAULT_FORCE_COIL_TRACKING_CURRENT;
-    float forceCoilFirstBondCurrent     = BONDER_MODULE_DEFAULT_FORCE_COIL_FIRST_BOND_CURRENT;
-    float forceCoilSecondBondCurrent    = BONDER_MODULE_DEFAULT_FORCE_COIL_SECOND_BOND_CURRENT;
+    // Bonding force (grams). Converted to force-coil current right before
+    // it reaches ForceCoilDriverModule (see BonderModule's SETFORCE
+    // handling) using the bench current->force fit
+    // (force_coil_calibration_fit.py against Core/Inc/force_coil_current_to_gram.txt).
+    float forceCoilConstantForce        = BONDER_MODULE_DEFAULT_FORCE_COIL_CONSTANT_FORCE_GRAMS;
+    float forceCoilTrackingForce        = BONDER_MODULE_DEFAULT_FORCE_COIL_TRACKING_FORCE_GRAMS;
+    float forceCoilFirstBondForce       = BONDER_MODULE_DEFAULT_FORCE_COIL_FIRST_BOND_FORCE_GRAMS;
+    float forceCoilSecondBondForce      = BONDER_MODULE_DEFAULT_FORCE_COIL_SECOND_BOND_FORCE_GRAMS;
 
     float resetHeight                   = BONDER_MODULE_DEFAULT_RESET_HEIGHT;
     float loopHeight                    = BONDER_MODULE_DEFAULT_LOOP_HEIGHT;
@@ -37,12 +40,16 @@ struct BonderConfig {
     // Table-tear mode: Z height held while the Y-axis forms and tears the tail.
     float secondZHeight                 = BONDER_MODULE_DEFAULT_SECOND_Z_HEIGHT;
 
-    // Y logical positions are measured from the router origin. The configured
-    // T endpoints are centered around zero by BonderModule while preserving
-    // the tail-to-tear distance.
-    float tailPosition                  = BONDER_MODULE_DEFAULT_TAIL_POSITION;
-    float tearPosition                  = BONDER_MODULE_DEFAULT_TEAR_POSITION;
-    float yReversePosition              = BONDER_MODULE_DEFAULT_Y_REVERSE_POSITION;
+    // Signed T-axis displacement from the router origin (T=0), entered
+    // directly rather than centered by BonderModule -- tail and tear are
+    // typically opposite-signed so the T axis travels symmetrically on
+    // either side of zero, but nothing enforces that; it's just where each
+    // move (Opcode::TMOVE) goes.
+    float tailDisplacement              = BONDER_MODULE_DEFAULT_TAIL_DISPLACEMENT;
+    float tearDisplacement              = BONDER_MODULE_DEFAULT_TEAR_DISPLACEMENT;
+    // Magnitude moved in the negative Y direction from wherever the axis
+    // currently sits (see Opcode::YREVERSE), not an absolute position.
+    float yReverseDisplacement          = BONDER_MODULE_DEFAULT_Y_REVERSE_DISPLACEMENT;
     float yStepbackPosition             = BONDER_MODULE_DEFAULT_Y_STEPBACK_POSITION;
 
     // Table-tear mode Y positions; the T-axis positions go unused there.

@@ -19,6 +19,7 @@ ForceCoilDriverModule::ForceCoilDriverModule(AnalogChannel *iSensChannel,
     , m_currentListenerCallbacks{}
     , m_currentListenerCallbackCount(0)
     , m_currentSetpoint(0.0f)
+    , m_targetSetpoint(0.0f)
     , m_targetDuty(FORCE_COIL_MODULE_MIN_DUTY)
     , m_newSetpoint(false)
 {}
@@ -49,6 +50,7 @@ bool ForceCoilDriverModule::enableControl()
     }
 
     m_currentSetpoint = 0.0f;
+    m_targetSetpoint = 0.0f;
     m_targetDuty = FORCE_COIL_MODULE_MIN_DUTY;
     m_newSetpoint = false;
 
@@ -70,6 +72,7 @@ void ForceCoilDriverModule::disableControl()
     m_pidCtrl.stop();
 
     m_currentSetpoint = 0.0f;
+    m_targetSetpoint = 0.0f;
     m_targetDuty = FORCE_COIL_MODULE_MIN_DUTY;
     m_newSetpoint = false;
     m_controlState = ControlState::Disabled;
@@ -86,7 +89,7 @@ void ForceCoilDriverModule::setCurrentSetpoint(float currentSetpoint)
         return;
     }
 
-    m_currentSetpoint = currentSetpoint;
+    m_targetSetpoint = currentSetpoint;
     m_newSetpoint = true;
 }
 
@@ -139,10 +142,14 @@ void ForceCoilDriverModule::onCurrentMeasured(float measuredCurrent)
             m_currentListenerCallbacks[i].context, measuredCurrent);
     }
 
+    advanceSetpointRamp();
     m_targetDuty = m_pidCtrl.execute(m_currentSetpoint, measuredCurrent);
 
     if (m_newSetpoint) {
-        float error = fabsf(measuredCurrent - m_currentSetpoint);
+        // Compared against the ultimate target, not the ramped intermediate:
+        // this only fires once the ramp has caught up and the PID has
+        // settled there, same observable contract as before the ramp existed.
+        float error = fabsf(measuredCurrent - m_targetSetpoint);
         if (error < FORCE_COIL_MODULE_CURRENT_ERROR_TOLERANCE) {
             m_newSetpoint = false;
 
@@ -150,6 +157,28 @@ void ForceCoilDriverModule::onCurrentMeasured(float measuredCurrent)
                 m_callback(Event::SetpointAchieved);
             }
         }
+    }
+}
+
+void ForceCoilDriverModule::advanceSetpointRamp()
+{
+    // Slew-limits the setpoint the PID chases, rather than stepping it
+    // directly: an instant reference step (e.g. dropping force right after
+    // a weld) drives a step in commanded duty within a single control tick,
+    // which can excite a transient overshoot/kick on the force-coil lever's
+    // own mechanical resonance right when the freshly-welded wire is most
+    // fragile. Ramping the reference removes that step without slowing down
+    // the PID's own response to disturbances at the (slowly moving) setpoint.
+    const float maxStep = FORCE_COIL_MODULE_SETPOINT_SLEW_RATE /
+        static_cast<float>(FORCE_COIL_MODULE_CONTROL_FREQUENCY);
+
+    const float delta = m_targetSetpoint - m_currentSetpoint;
+    if (delta > maxStep) {
+        m_currentSetpoint += maxStep;
+    } else if (delta < -maxStep) {
+        m_currentSetpoint -= maxStep;
+    } else {
+        m_currentSetpoint = m_targetSetpoint;
     }
 }
 

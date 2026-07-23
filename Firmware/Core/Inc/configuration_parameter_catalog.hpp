@@ -45,9 +45,11 @@ public:
     struct Descriptor {
         Parameter parameter;
         uint16_t offset;
-        float scale;
+        float scale;          // display = raw * scale + displayOffset
+        float displayOffset;  // raw     = (display - displayOffset) / scale
         float minDisplay;
         float maxDisplay;
+        float stepDisplay;    // +/- press size, in display units (float params only)
         uint8_t screenIndex;
         bool isInteger;
         uint8_t modeMask;

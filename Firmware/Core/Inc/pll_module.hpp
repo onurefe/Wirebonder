@@ -54,6 +54,13 @@ public:
     void abortTransfer();
     bool isTransferring() const;
 
+    // Retunes the frequency PID's P/I/D terms (e.g. from
+    // TransducerAnalyzer::frequencyPidTuning() on a freshly fitted
+    // transducer) ahead of the next beginTransfer(); filterTc and the
+    // deviation clamps stay at their configured values. No-op while a
+    // transfer is in progress.
+    void setFrequencyPidTuning(float gain, float integralTc, float derivativeTc);
+
     static void onVoltageMeasured(void *context, float re, float im);
     static void onCurrentMeasured(void *context, float re, float im);
     static bool onIqFrequencyRequested(void *context, float *targetNormalizedIQFrequency);

@@ -267,12 +267,12 @@ Timer Robot::m_lcdDelayTimer;
 // -----------------------------------------------------------------------------
 AdcService Robot::m_adc1Service(
     &hadc1, &htim2,
-    ADC1_BITS, ADC1_VOLTAGE_RANGE,
+    ADC1_BITS, ADC1_VOLTAGE_RANGE, ADC1_NUM_CONVERSIONS,
     Robot::m_adc1Buffer, 2 * ADC1_SAMPLES_PER_CHANNEL * ADC1_NUM_CONVERSIONS);
 
 AdcService Robot::m_adc2Service(
     &hadc2, &htim3,
-    ADC2_BITS, ADC2_VOLTAGE_RANGE,
+    ADC2_BITS, ADC2_VOLTAGE_RANGE, ADC2_NUM_CONVERSIONS,
     Robot::m_adc2Buffer, 2 * ADC2_SAMPLES_PER_CHANNEL * ADC2_NUM_CONVERSIONS);
 
 DacService     Robot::m_dacService(&hdac);
@@ -1072,10 +1072,6 @@ void Robot::onSetupButtonPressed()
 void Robot::onTestButtonPressed()
 {
     if (m_systemLocked) return;
-    if (m_manualClampOpen) {
-        m_userInterface.notifyUser("CLOSE CLAMP FIRST");
-        return;
-    }
     if (m_ultrasonicTestActive) {
         m_userInterface.notifyUser("TEST IN PROGRESS");
         return;
@@ -1112,11 +1108,12 @@ void Robot::onResetButtonPressed()
 void Robot::onClampOpenButtonPressed()
 {
     if (m_systemLocked) return;
-    if (m_ultrasonicTestActive) {
-        m_userInterface.notifyUser("TEST IN PROGRESS");
-        return;
-    }
-    if (m_bonder.isActive() && !m_bonder.isAwaitingStartTrigger()) {
+    // UltrasonicTestProtocol declares requiresMotionControl() == false and
+    // never touches the clamp opcode/Z-motor path, so it has no physical
+    // interaction with the clamp; exempt it from the generic "bonder busy"
+    // guard below instead of blocking the two unconditionally.
+    if (m_bonder.isActive() && !m_bonder.isAwaitingStartTrigger() &&
+        !m_ultrasonicTestActive) {
         m_userInterface.notifyUser("BONDER ACTIVE");
         return;
     }

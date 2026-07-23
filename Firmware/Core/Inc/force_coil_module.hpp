@@ -46,6 +46,7 @@ class ForceCoilDriverModule : public Process {
 
         void onCurrentMeasured(float measuredCurrent);
         bool onPwmUpdate(float *value);
+        void advanceSetpointRamp();
 
         static void iSensCallback(void *context, float value);
         static bool iDriveCallback(void *context, float *value);
@@ -59,7 +60,8 @@ class ForceCoilDriverModule : public Process {
         CurrentListenerRegistration m_currentListenerCallbacks[kMaxCurrentListenerCallbacks];
         uint8_t m_currentListenerCallbackCount;
 
-        float m_currentSetpoint;
+        float m_currentSetpoint;   // ramped value driving the PID this tick
+        float m_targetSetpoint;    // ultimate requested value (see setCurrentSetpoint)
         float m_targetDuty;
         bool m_newSetpoint;
 };

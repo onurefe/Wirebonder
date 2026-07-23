@@ -31,7 +31,7 @@ PwmRampChannel ForceCoilDebugEnvironment::m_forceCoilPwmChannel(
 
 AdcService ForceCoilDebugEnvironment::m_adc2Service(
     &hadc2, &htim3,
-    ADC2_BITS, ADC2_VOLTAGE_RANGE,
+    ADC2_BITS, ADC2_VOLTAGE_RANGE, ADC2_NUM_CONVERSIONS,
     ForceCoilDebugEnvironment::m_adc2Buffer,
     2 * ADC2_SAMPLES_PER_CHANNEL * ADC2_NUM_CONVERSIONS);
 

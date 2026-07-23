@@ -91,6 +91,8 @@ public:
         MZMOVE,      // arg: jog rate (mm/s); blocks until Z is at lowest
                      // overtravel and mask flags are set; consumes mask
         YMOVE,       // arg: position (mm); re-arms Y_MOVE_COMPLETED
+        YREVERSE,    // arg: displacement (mm); moves to
+                     // currentYPosition - displacement; re-arms Y_MOVE_COMPLETED
         TMOVE,       // arg: position (mm); re-arms T_MOVE_COMPLETED
         TIMER,       // arg: duration (s); re-arms TIMER_EXPIRED
         WAIT,        // mask: flags that must all be set; timeoutMs == 0 waits
@@ -102,7 +104,7 @@ public:
                      // operating point is computed when the scan finishes
         PLL,         // arg: energy (J); drives the last computed operating
                      // point; re-arms US_POWER_TRANSFERRED
-        SETFORCE,    // arg: current (A); re-arms FORCE_COIL_SETTLED
+        SETFORCE,    // arg: force (g); re-arms FORCE_COIL_SETTLED
         USREPORT,    // emits the latest scan/PLL result
         MZDOWN       // arg: jog rate (mm/s); moves down while the left button
                      // is held and completes when it is released
@@ -331,6 +333,7 @@ private:
     void     setZMotorPosition(float position);
     void     computeOperatingPoint(float targetPower);
     float    amplitudeForTargetPower(float realAdmittance, float targetPower);
+    static float forceGramsToAmps(float grams);
     uint8_t  findResonanceIndex();
     float    calculateCenterFrequency(uint8_t resonanceIndex);
     float    calculateDriveAmplitude(uint8_t resonanceIndex, float targetPower);

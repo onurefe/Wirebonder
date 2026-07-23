@@ -43,7 +43,7 @@ SineGeneratorChannel ToneGeneratorDebugEnvironment::m_ultrasonicDacChannel(
 
 AdcService ToneGeneratorDebugEnvironment::m_adc1Service(
     &hadc1, &htim2,
-    ADC1_BITS, ADC1_VOLTAGE_RANGE,
+    ADC1_BITS, ADC1_VOLTAGE_RANGE, ADC1_NUM_CONVERSIONS,
     ToneGeneratorDebugEnvironment::m_adc1Buffer,
     2 * ADC1_SAMPLES_PER_CHANNEL * ADC1_NUM_CONVERSIONS);
 

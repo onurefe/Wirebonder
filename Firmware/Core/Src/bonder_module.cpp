@@ -96,16 +96,6 @@ void BonderModule::configure(const Config& config)
 {
     m_config = config;
 
-    // Tail and tear are configured as a pair. Center the pair around the
-    // router origin so their separation is preserved while the T axis uses
-    // equal travel on opposite sides of zero instead of always moving in the
-    // positive direction. This transformation is idempotent, so configuring
-    // from an already-centered effective configuration is also safe.
-    const float tAxisMean =
-        0.5f * (m_config.tailPosition + m_config.tearPosition);
-    m_config.tailPosition -= tAxisMean;
-    m_config.tearPosition -= tAxisMean;
-
     if (m_config.numOfScannedFrequencies == 0U) {
         m_config.numOfScannedFrequencies = 1U;
     }
@@ -463,6 +453,11 @@ BonderModule::InstrStatus BonderModule::executeInstruction(const Instruction& in
         m_yAxisRouter->moveTo(resolveArg(instr));
         return InstrStatus::Done;
 
+    case Opcode::YREVERSE:
+        clearFlagsMask(EVENT_Y_MOVE_COMPLETED);
+        m_yAxisRouter->moveTo(m_yAxisRouter->getPosition() - resolveArg(instr));
+        return InstrStatus::Done;
+
     case Opcode::TMOVE:
         clearFlagsMask(EVENT_T_MOVE_COMPLETED);
         m_tAxisRouter->moveTo(resolveArg(instr));
@@ -520,7 +515,8 @@ BonderModule::InstrStatus BonderModule::executeInstruction(const Instruction& in
 
     case Opcode::SETFORCE:
         clearFlagsMask(EVENT_FORCE_COIL_SETTLED);
-        m_forceCoilControllerModule->setCurrentSetpoint(resolveArg(instr));
+        m_forceCoilControllerModule->setCurrentSetpoint(
+            forceGramsToAmps(resolveArg(instr)));
         return InstrStatus::Done;
 
     case Opcode::USREPORT:
@@ -764,6 +760,22 @@ void BonderModule::computeOperatingPoint(float targetPower)
         const complexf admittance =
             TransducerAnalyzer::admittance(parameters, m_centerFrequency);
         m_driveAmplitude = amplitudeForTargetPower(admittance.re, targetPower);
+
+        // Retune the PLL's frequency PID to this specific transducer. A
+        // trusted fit is required (same gate as above); an infeasible
+        // margin at these loop-shaping targets leaves the PLL on its
+        // current (constructor-default or last-good) gains rather than
+        // push a bad tuning in.
+        TransducerAnalyzer::FrequencyPidTuning tuning;
+        if (TransducerAnalyzer::frequencyPidTuning(
+                parameters,
+                PLL_MODULE_FREQ_PID_DEAD_TIME,
+                PLL_MODULE_FREQ_PID_TARGET_PHASE_MARGIN_RAD,
+                PLL_MODULE_FREQ_PID_TARGET_CROSSOVER_FRACTION,
+                tuning)) {
+            m_pllModule->setFrequencyPidTuning(
+                tuning.gain, tuning.integralTc, tuning.derivativeTc);
+        }
         return;
     }
 
@@ -780,6 +792,16 @@ float BonderModule::amplitudeForTargetPower(float realAdmittance, float targetPo
     float amplitude = sqrtf(targetPower / realAdmittance);
 
     return amplitude;
+}
+
+// BonderConfig stores bonding force in grams; ForceCoilDriverModule's PID
+// operates on amps. Converts right at the SETFORCE opcode, the one place
+// specific to force (resolveArg() itself is generic across every opcode's
+// argument and must not scale it).
+float BonderModule::forceGramsToAmps(float grams)
+{
+    return (grams - FORCE_COIL_CURRENT_TO_GRAMS_OFFSET) /
+        FORCE_COIL_CURRENT_TO_GRAMS_SCALE;
 }
 
 uint8_t BonderModule::findResonanceIndex()

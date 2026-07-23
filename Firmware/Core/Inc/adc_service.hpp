@@ -179,11 +179,18 @@ private:
 // -----------------------------------------------------------------------
 class AdcService : public Process {
 public:
+    // numConversions is the ADC's hardware conversion-sequence length (e.g.
+    // ADC2_NUM_CONVERSIONS) — the DMA interleave stride. It must reflect the
+    // full hardware sequence, not how many of those channels this particular
+    // AdcService instance happens to register: the raw buffer interleaves
+    // every physically-converted channel regardless of which ones a given
+    // debug environment cares about.
     AdcService(
         ADC_HandleTypeDef *hadc,
         TIM_HandleTypeDef *htim,
         uint8_t bits,
         float voltageRange,
+        uint8_t numConversions,
         uint16_t *buffer = nullptr,
         uint32_t bufferSize = 0
     );

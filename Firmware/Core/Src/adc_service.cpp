@@ -370,6 +370,7 @@ AdcService::AdcService(
         TIM_HandleTypeDef *htim,
         uint8_t bits,
         float voltageRange,
+        uint8_t numConversions,
         uint16_t *buffer,
         uint32_t bufferSize)
     : m_hadc(hadc)
@@ -377,7 +378,7 @@ AdcService::AdcService(
     , m_buffer(buffer)
     , m_bufferSize(bufferSize)
     , m_numChannels(0)
-    , m_interleave(0)
+    , m_interleave(numConversions)
     , m_bits(bits)
     , m_voltageRange(voltageRange)
 {
@@ -402,12 +403,6 @@ bool AdcService::addChannel(IAdcChannel *channel)
     }
 
     m_channels[m_numChannels++] = channel;
-
-    uint8_t needed_stride = static_cast<uint8_t>(channel->getConversionOrder() + 1);
-    if (needed_stride > m_interleave) {
-        m_interleave = needed_stride;
-    }
-
     return true;
 }
 

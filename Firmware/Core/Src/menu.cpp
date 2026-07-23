@@ -34,7 +34,7 @@ const char *parameterName(ConfigurationParameterCatalog::Parameter parameter)
     case Parameter::Search1:          return "Search 1";
     case Parameter::Power1:           return "Power 1";
     case Parameter::Energy1:          return "Energy 1";
-    case Parameter::Force1Current:    return "Force 1 I";
+    case Parameter::Force1Current:    return "Force 1 G";
     case Parameter::Stepback:         return "Stepback";
     case Parameter::KinkHeight:       return "Kink Height";
     case Parameter::Reverse:          return "Reverse";
@@ -42,7 +42,7 @@ const char *parameterName(ConfigurationParameterCatalog::Parameter parameter)
     case Parameter::Search2:          return "Search 2";
     case Parameter::Power2:           return "Power 2";
     case Parameter::Energy2:          return "Energy 2";
-    case Parameter::Force2Current:    return "Force 2 I";
+    case Parameter::Force2Current:    return "Force 2 G";
     case Parameter::Tail:             return "Tail";
     case Parameter::Tear:             return "Tear";
     case Parameter::ResetHeight:      return "Reset Height";
@@ -56,8 +56,8 @@ const char *parameterName(ConfigurationParameterCatalog::Parameter parameter)
     case Parameter::Cooling:          return "Cooling";
     case Parameter::TailDelay:        return "Tail Delay";
     case Parameter::TearStabilize:    return "Tear Stabil";
-    case Parameter::ConstantCurrent:  return "Constant I";
-    case Parameter::TrackingCurrent:  return "Tracking I";
+    case Parameter::ConstantCurrent:  return "Constant G";
+    case Parameter::TrackingCurrent:  return "Tracking G";
     case Parameter::ScanStart:        return "Scan Start";
     case Parameter::ScanStop:         return "Scan Stop";
     case Parameter::ScanPoints:       return "Scan Points";
@@ -757,7 +757,8 @@ void Menu::refillParameterPage()
         } else {
             float value;
             std::memcpy(&value, base + descriptor->offset, sizeof(value));
-            setFloatParameterRow(row, name, value * descriptor->scale);
+            setFloatParameterRow(row, name,
+                value * descriptor->scale + descriptor->displayOffset);
         }
     }
 

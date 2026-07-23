@@ -222,6 +222,22 @@ bool PllModule::isTransferring() const
     return m_transferState == TransferState::Transferring;
 }
 
+void PllModule::setFrequencyPidTuning(float gain, float integralTc, float derivativeTc)
+{
+    if (isTransferring()) {
+        return;
+    }
+
+    m_frequencyController.updateConfig(PidController::Config{
+        gain,
+        integralTc,
+        derivativeTc,
+        1.0f / static_cast<float>(PLL_MODULE_CONTROL_FREQ),
+        PLL_MODULE_FREQ_PID_FILTER_TC,
+        PLL_MODULE_FREQ_PID_MIN_DEVIATION,
+        PLL_MODULE_FREQ_PID_MAX_DEVIATION});
+}
+
 bool PllModule::onSinusoidSample(void *context, float *amplitude, float *average, float *targetNormalizedGeneratorFrequency)
 {
     PllModule *self = static_cast<PllModule *>(context);

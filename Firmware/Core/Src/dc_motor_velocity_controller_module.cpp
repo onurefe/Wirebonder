@@ -5,14 +5,14 @@ DcMotorVelocityControllerModule::DcMotorVelocityControllerModule(
     PwmRampChannel *pwmChannel)
     : m_tachometerChannel(tachometerChannel)
     , m_pwmChannel(pwmChannel)
-    , m_velocityLeakyIntegrator(LeakyIntegratorController::Config{
-        DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_RI,
-        DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_RF,
-        DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_CF,
-        DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_CLAMP_MIN,
-        DCMOTOR_VELOCITY_MODULE_LEAKY_INTEGRATOR_CLAMP_MAX,
+    , m_velocityPid(PidController::Config{
+        DCMOTOR_VELOCITY_MODULE_PID_GAIN,
+        DCMOTOR_VELOCITY_MODULE_PID_INTEGRAL_TC,
+        DCMOTOR_VELOCITY_MODULE_PID_DERIVATIVE_TC,
         1.0f / static_cast<float>(DCMOTOR_VELOCITY_MODULE_CONTROL_FREQUENCY),
-        DCMOTOR_VELOCITY_MODULE_CONTROLLER_PREAMPLIFIER_GAIN})
+        DCMOTOR_VELOCITY_MODULE_PID_INPUT_FILTER_TC,
+        DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MIN,
+        DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MAX})
     , m_controlState(ControlState::Disabled)
     , m_velocityListenerCallbacks{}
     , m_velocityListenerCallbackCount(0)
@@ -48,10 +48,10 @@ bool DcMotorVelocityControllerModule::enableControl()
 
     m_targetDuty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY;
 
-    m_velocityLeakyIntegrator.start();
+    m_velocityPid.start();
     m_controlState = ControlState::Enabled;
     if (!m_pwmChannel->start(DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY)) {
-        m_velocityLeakyIntegrator.stop();
+        m_velocityPid.stop();
         m_controlState = ControlState::Disabled;
         return false;
     }
@@ -63,7 +63,7 @@ void DcMotorVelocityControllerModule::disableControl()
     if (m_controlState != ControlState::Enabled) return;
 
     m_pwmChannel->stop();
-    m_velocityLeakyIntegrator.stop();
+    m_velocityPid.stop();
 
     m_targetDuty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY;
     m_controlState = ControlState::Disabled;
@@ -120,12 +120,12 @@ float DcMotorVelocityControllerModule::getVelocity() const
 
 void DcMotorVelocityControllerModule::enablePidBypass()
 {
-    m_velocityLeakyIntegrator.enableBypass();
+    m_velocityPid.enableBypass();
 }
 
 void DcMotorVelocityControllerModule::disablePidBypass()
 {
-    m_velocityLeakyIntegrator.disableBypass();
+    m_velocityPid.disableBypass();
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +170,7 @@ void DcMotorVelocityControllerModule::onTachometerMeasured(float velocity)
         }
     }
 
-    float drive = m_velocityLeakyIntegrator.execute(
+    float drive = m_velocityPid.execute(
         target_velocity,
         m_velocityMeasurement);
 

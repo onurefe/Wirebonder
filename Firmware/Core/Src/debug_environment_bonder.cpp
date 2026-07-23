@@ -198,13 +198,13 @@ PwmRampChannel BonderDebugEnvironment::m_zMotorPwmChannel(
 
 AdcService BonderDebugEnvironment::m_adc1Service(
     &hadc1, &htim2,
-    ADC1_BITS, ADC1_VOLTAGE_RANGE,
+    ADC1_BITS, ADC1_VOLTAGE_RANGE, ADC1_NUM_CONVERSIONS,
     BonderDebugEnvironment::m_adc1Buffer,
     2 * ADC1_SAMPLES_PER_CHANNEL * ADC1_NUM_CONVERSIONS);
 
 AdcService BonderDebugEnvironment::m_adc2Service(
     &hadc2, &htim3,
-    ADC2_BITS, ADC2_VOLTAGE_RANGE,
+    ADC2_BITS, ADC2_VOLTAGE_RANGE, ADC2_NUM_CONVERSIONS,
     BonderDebugEnvironment::m_adc2Buffer,
     2 * ADC2_SAMPLES_PER_CHANNEL * ADC2_NUM_CONVERSIONS);
 
