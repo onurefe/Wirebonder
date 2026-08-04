@@ -20,6 +20,7 @@ DcMotorVelocityControllerModule::DcMotorVelocityControllerModule(
     , m_velocityControllerCallbackCount(0)
     , m_velocityMeasurement(0.0f)
     , m_targetDuty(DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY)
+    , m_velocityOffset(0.0f)
 {}
 
 // ---------------------------------------------------------------------------
@@ -118,6 +119,16 @@ float DcMotorVelocityControllerModule::getVelocity() const
     return m_velocityMeasurement;
 }
 
+void DcMotorVelocityControllerModule::setVelocityOffset(float offset)
+{
+    m_velocityOffset = offset;
+}
+
+float DcMotorVelocityControllerModule::getVelocityOffset() const
+{
+    return m_velocityOffset;
+}
+
 void DcMotorVelocityControllerModule::enablePidBypass()
 {
     m_velocityPid.enableBypass();
@@ -152,7 +163,7 @@ void DcMotorVelocityControllerModule::onTachometerMeasured(float velocity)
         return;
     }
 
-    m_velocityMeasurement = velocity;
+    m_velocityMeasurement = velocity - m_velocityOffset;
 
     // Notify observers of the fresh measurement.
     for (uint8_t i = 0; i < m_velocityListenerCallbackCount; i++) {

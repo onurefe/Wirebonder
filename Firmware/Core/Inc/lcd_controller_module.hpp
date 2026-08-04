@@ -19,7 +19,6 @@
 //   LcdControllerModule lcd(&myPca9538, &lcdTimer);
 //   timerService.addTimer(&lcdTimer);
 //   lcd.start();    // enqueues the HD44780 init sequence; call before the main loop
-//   // inside main loop:
 //   lcd.execute();  // drives state machine
 class LcdControllerModule : public Process {
 public:

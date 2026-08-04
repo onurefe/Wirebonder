@@ -29,6 +29,11 @@ public:
     void enablePidBypass();
     void disablePidBypass();
 
+    // Runtime zero-velocity correction (Start Tach. Cal.), subtracted from
+    // every raw tachometer reading before it reaches the PID or listeners.
+    void setVelocityOffset(float offset);
+    float getVelocityOffset() const;
+
 private:
     enum class ControlState : uint8_t { Disabled, Enabled };
 
@@ -88,6 +93,7 @@ private:
 
     float m_velocityMeasurement;
     float m_targetDuty;
+    float m_velocityOffset;
 };
 
 #endif

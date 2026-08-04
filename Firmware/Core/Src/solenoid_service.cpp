@@ -106,6 +106,120 @@ void DirectSolenoidChannel::onTransitionTimer(void *context, Timer *timer)
 }
 
 // =======================================================================
+// PwmSolenoidChannel
+// =======================================================================
+PwmSolenoidChannel::PwmSolenoidChannel(DirectPwmChannel *pwmChannel,
+                                       Timer *timer,
+                                       float energizeTime,
+                                       float deenergizeTime,
+                                       float onDuty,
+                                       float offDuty)
+    : m_pwmChannel(pwmChannel)
+    , m_state(State::DEENERGIZED)
+    , m_targetState(State::DEENERGIZED)
+    , m_timer(timer)
+    , m_energizeTime(energizeTime)
+    , m_deenergizeTime(deenergizeTime)
+    , m_onDuty(onDuty)
+    , m_offDuty(offDuty)
+    , m_callback(nullptr)
+    , m_callbackContext(nullptr)
+{}
+
+void PwmSolenoidChannel::addStateListenerCallback(void *context, Callback cb)
+{
+    m_callbackContext = context;
+    m_callback        = cb;
+}
+
+void PwmSolenoidChannel::setOnDuty(float duty)
+{
+    m_onDuty = duty;
+
+    // Already holding: push the new duty out now. poll() only touches the PWM
+    // output on a state change, so an energized coil would otherwise keep the
+    // stale hold duty until the next energize cycle.
+    if (m_state == State::ENERGIZED || m_state == State::ENERGIZING) {
+        m_pwmChannel->setDuty(m_onDuty);
+    }
+}
+
+void PwmSolenoidChannel::energize()
+{
+    m_targetState = State::ENERGIZED;
+}
+
+void PwmSolenoidChannel::deenergize()
+{
+    m_targetState = State::DEENERGIZED;
+}
+
+void PwmSolenoidChannel::poll()
+{
+    if (isTransitioning()) {
+        return;
+    }
+
+    if (m_state != m_targetState) {
+        if (m_targetState == State::ENERGIZED) {
+            m_pwmChannel->setDuty(m_onDuty);
+            m_state = State::ENERGIZING;
+            m_timer->start(true, m_energizeTime);
+
+            return;
+        }
+
+        if (m_targetState == State::DEENERGIZED) {
+            m_pwmChannel->setDuty(m_offDuty);
+            m_state = State::DEENERGIZING;
+            m_timer->start(true, m_deenergizeTime);
+
+            return;
+        }
+    }
+}
+
+bool PwmSolenoidChannel::isTransitioning() const
+{
+    return m_state == State::ENERGIZING || m_state == State::DEENERGIZING;
+}
+
+PwmSolenoidChannel::State PwmSolenoidChannel::getState() const
+{
+    return m_state;
+}
+
+void PwmSolenoidChannel::start()
+{
+    m_timer->setExpirationListenerCallback(this, onTransitionTimer);
+    m_pwmChannel->start(m_offDuty);
+    m_state = State::DEENERGIZED;
+    m_targetState = State::DEENERGIZED;
+}
+
+void PwmSolenoidChannel::stop()
+{
+    m_pwmChannel->stop();
+    m_timer->stop();
+    m_state = State::DEENERGIZED;
+    m_targetState = State::DEENERGIZED;
+    m_timer->setExpirationListenerCallback(nullptr, nullptr);
+}
+
+void PwmSolenoidChannel::onTransitionTimer(void *context, Timer *timer)
+{
+    (void)timer;
+    PwmSolenoidChannel *self = static_cast<PwmSolenoidChannel *>(context);
+
+    self->m_state = (self->m_state == State::ENERGIZING) ? State::ENERGIZED
+                                                         : State::DEENERGIZED;
+
+    if (self->m_callback != nullptr) {
+        self->m_callback(self->m_callbackContext, self->m_state);
+    }
+}
+
+// =======================================================================
 // SolenoidService
 // =======================================================================
 SolenoidService::SolenoidService()

@@ -1,0 +1,99 @@
+\chapter{Glossary}
+\label{app:glossary}
+
+\begin{description}[leftmargin=!,labelwidth=32mm,style=nextline,font=\normalfont\bfseries]
+
+\item[Bond force] The downward load the tool holds against the pad while
+  welding, produced by the force coil and set in grams.
+
+\item[Configuration] A named set of the 31 bonding parameters --- a recipe.
+  Configurations belong to one bonding mode; the machine stores up to 32.
+
+\item[Constant force] The light holding force carried during descent and
+  between process steps. Enough to keep the bond lever controlled, not enough
+  to weld.
+
+\item[Contact sensor] The electrical connection between tool and workpiece.
+  The machine uses it to detect touchdown on the way down, and wire release on
+  the way up.
+
+\item[Energy] The total ultrasonic energy delivered into a weld, in
+  millijoules --- the \emph{dose}. Together with power it determines how long
+  the weld takes.
+
+\item[Force coil] The voice-coil actuator that produces bond force. Its
+  accuracy depends on the force calibration; see Chapter~\ref{ch:calibration}.
+
+\item[Homing] The Y axis's search for its limit switch at power-up,
+  establishing where zero is. The machine will not move until this succeeds.
+
+\item[Kink] The sharp bend formed at the heel of the first bond as the tool
+  rises, which starts the loop. Set by \menuitem{Kink Height}.
+
+\item[Loop] The arc of wire between the two bonds. Its apex is set by
+  \menuitem{Loop Height}.
+
+\item[LVDT] The sensor that measures Z height. It reads absolute position, so
+  the bond head never needs homing --- the machine knows where it is the
+  moment it powers up.
+
+\item[Non-stick] A bond that fails to weld: the wire lifts off the pad instead
+  of adhering.
+
+\item[Overtravel] How far \emph{below} the pad surface the machine aims the
+  tool. Always zero or negative. It is a direction to push in rather than a
+  height to arrive at --- the workpiece stops the descent.
+
+\item[Pad] The metallised area on the workpiece that the wire is bonded to.
+
+\item[Power] The electrical drive level for a weld, in milliwatts. Sets
+  ultrasonic \emph{amplitude} --- how hard the tool scrubs.
+
+\item[Q (quality factor)] A measure of how sharply the transducer resonates.
+  Reported by \keycap{TEST}. A falling Q over time points at a loosening horn
+  or a degrading stack.
+
+\item[Reset height] The parked Z height. The machine returns here after every
+  cycle and is driven here before every cycle starts.
+
+\item[Resonance] The frequency at which the transducer converts electrical
+  drive into mechanical motion most efficiently. The machine finds it by
+  sweeping the scan band before every weld.
+
+\item[Scan] The impedance sweep that locates resonance, run automatically
+  before each weld across \menuitem{Scan Start} to \menuitem{Scan Stop}.
+
+\item[Search height] The height the tool descends to quickly before beginning
+  its controlled search for the pad.
+
+\item[Stepback] The Y position the stage moves to while preparing the second
+  bond.
+
+\item[Tail] The length of wire left protruding from the tool after the wire is
+  torn, ready to start the next first bond. Too short and the next bond has no
+  wire to work with; too long and the loop is untidy.
+
+\item[Tail assist] A brief ultrasonic burst applied while the tail is
+  re-formed after the tear, which helps the wire feed cleanly.
+
+\item[Tear] The action that breaks the wire after the second bond. Performed
+  by the T axis in most modes, and by the Y stage in Table Tear mode.
+
+\item[Tracking force] The force loaded while the head searches for the pad,
+  before the full bond force is applied.
+
+\item[Transducer] The ultrasonic assembly that vibrates the tool. Driven at
+  its resonance by the machine.
+
+\item[T axis] The axis that feeds the wire tail and tears the wire. It has no
+  home switch, so all its moves are relative to wherever it currently sits.
+
+\item[Wedge (tool)] The tip that presses the wire onto the pad and transmits
+  ultrasonic energy into it.
+
+\item[Y axis] The stage that carries the workpiece. Homed at power-up.
+
+\item[Z axis] The bond head's vertical axis. Position is measured absolutely
+  by the LVDT.
+
+\end{description}

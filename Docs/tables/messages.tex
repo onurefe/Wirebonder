@@ -1,0 +1,155 @@
+% Every operator-visible message string, with cause and action.
+%
+% DERIVED FROM FIRMWARE. Refresh against:
+%   Firmware/Core/Src/robot.cpp                 (request names, outcomes, faults, reports)
+%   Firmware/Core/Src/user_interface_module.cpp (menu feedback)
+%   Firmware/Core/Src/menu.cpp                  (ERROR/WARNING headers, severity behaviour)
+
+% ------------------------------------------------------------- operations --
+
+\subsection*{Operation names}
+
+Operations announce themselves on the top line and report their outcome on the
+line below. These six names can appear:
+
+\begin{center}\small
+\begin{tabular}{@{}L{32mm}L{20mm}L{70mm}@{}}
+\toprule
+\textbf{Name} & \textbf{Severity} & \textbf{What it is} \\
+\midrule
+\msg{HOMING}      & critical & Y-axis reference search, run automatically at power-up \\
+\msg{BONDER INIT} & critical & Bond-head initialisation, run automatically after homing \\
+\msg{US TEST}     & normal   & Ultrasonic test, started with \keycap{TEST} \\
+\msg{FORCE TEST}  & normal   & Force calibration run, started with \keycap{SETUP} \\
+\msg{TACH. CAL.}  & normal   & Tachometer calibration, started from the Settings page \\
+\msg{BONDING}     & normal   & A bond cycle \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A \textbf{critical} operation that fails locks the machine. A \textbf{normal}
+one that fails only warns; you can retry it.
+
+\subsection*{Operation outcomes}
+
+\begin{center}\small
+\begin{tabular}{@{}L{42mm}L{80mm}@{}}
+\toprule
+\textbf{Message} & \textbf{Meaning} \\
+\midrule
+\msg{STARTED}             & The operation has begun. \\
+\msg{OPERATION SUCCEEDED} & It finished normally. \\
+\msg{OPERATION FAILED}    & It stopped early. A fault line above says why. \\
+\msg{CAN'T START}         & It could not begin --- normally because the machine is already locked. \\
+\msg{ERROR SYSTEM LOCKED} & A critical operation failed. The machine will not move again until it is reset. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ------------------------------------------------------------------ faults --
+
+\subsection*{Faults}
+
+When an operation fails, the reason appears above the outcome line.
+
+\begin{center}\small
+\begin{tabular}{@{}L{40mm}L{40mm}L{45mm}@{}}
+\toprule
+\textbf{Message} & \textbf{Cause} & \textbf{What to do} \\
+\midrule
+
+\msg{LOW BONDING POWER} &
+The requested ultrasonic energy was not delivered before \menuitem{Bond Timeout}
+expired, or the scan could not find resonance. &
+Run \keycap{TEST}. If the reported frequency is outside
+\menuitem{Scan Start}--\menuitem{Scan Stop}, widen the window. Otherwise check
+the transducer and its cable, then raise \menuitem{Power} or lower
+\menuitem{Energy}. \\
+\addlinespace
+
+\msg{COIL CURR. UNSTABLE} &
+The force coil could not reach or hold its commanded force. &
+Check the coil wiring and that the bond lever moves freely. Reduce the
+commanded force. If it persists at every force, the coil drive needs service. \\
+\addlinespace
+
+\msg{Z POS. NOT SETTLED} &
+The Z axis did not reach its commanded height, or the position loop dropped
+out. &
+Check that nothing is obstructing the bond head. Verify \menuitem{Reset Height}
+and \menuitem{Overtravel} are inside the Z travel. Run tachometer calibration. \\
+\addlinespace
+
+\msg{TIMEOUT} &
+The machine waited for an expected event that never arrived --- most often a
+touchdown that never happened or a button that was never released. &
+Confirm the workpiece is within reach at the search height and that the contact
+sensor is connected. Retry the cycle. \\
+
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ------------------------------------------------------------------ system --
+
+\subsection*{System messages}
+
+\begin{center}\small
+\begin{tabular}{@{}L{40mm}L{85mm}@{}}
+\toprule
+\textbf{Message} & \textbf{Meaning and what to do} \\
+\midrule
+\msg{BUSY! TRY LATER} &
+You pressed \keycap{SETUP}, \keycap{TEST} or \keycap{CLAMP OPEN}, or started
+tachometer calibration, while the machine was already running something. Wait
+for the current operation to finish and press again. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Ultrasonic test report}
+
+\keycap{TEST} reports three lines, shown for ten seconds:
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}L{88mm}@{}}
+\toprule
+\textbf{Line} & \textbf{Meaning} \\
+\midrule
+\msg{Freq:58.123 kHz} & Series resonance found by the sweep. Must fall between
+                        \menuitem{Scan Start} and \menuitem{Scan Stop}. \\
+\msg{Q:12.3}          & Quality factor of the transducer. Watch this over time;
+                        a falling Q signals a loosening horn or a failing stack. \\
+\msg{Power:0.5 W}     & Power actually delivered during the test. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% -------------------------------------------------------------------- menu --
+
+\subsection*{Menu messages}
+
+These confirm or reject something you did in the menus. All clear on their own
+or on the next key press.
+
+\begin{center}\small
+\begin{tabular}{@{}L{42mm}L{80mm}@{}}
+\toprule
+\textbf{Message} & \textbf{Meaning} \\
+\midrule
+\msg{Configuration saved}   & The active configuration was written to memory. \\
+\msg{Configuration added}   & A new configuration was created. \\
+\msg{Settings saved}        & The Settings page was written to memory. \\
+\msg{Force offset saved}    & Your gauge reading was stored as the force correction. \\
+\msg{Save failed}           & The configuration could not be written. Storage may be full --- 32 configurations is the limit. \\
+\msg{Load failed}           & The configuration could not be read. \\
+\msg{Add failed}            & The configuration could not be created. Storage is likely full. \\
+\msg{Delete failed}         & The configuration could not be removed. \\
+\msg{Cannot delete DEFAULT} & \menuitem{DEFAULT} is permanent. Delete one of your own configurations instead. \\
+\msg{Not used by protocol}  & You pressed a hotkey for a parameter the active bonding mode does not use. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\derivedfrom{\texttt{robot.cpp}, \texttt{user\_interface\_module.cpp},
+             \texttt{menu.cpp}}

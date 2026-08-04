@@ -175,6 +175,38 @@ private:
 };
 
 // -----------------------------------------------------------------------
+// Class: AdcTickSyncChannel
+// -----------------------------------------------------------------------
+// Carries no measurement data of its own. Registering it with an AdcService
+// gives other peripherals (e.g. a DAC trigger timer that isn't hardware-
+// synchronized to the ADC's trigger timer) a way to align an action to the
+// ADC's tick boundary: the listener callback fires once per
+// samplesPerChannel batch, from inside the same DMA ISR that drives the
+// rest of that AdcService's channels, at the same cadence as
+// PLL_MODULE_CONTROL_FREQ.
+class AdcTickSyncChannel : public IAdcChannel {
+public:
+    using TickListenerCallback = void (*)(void *context);
+
+    AdcTickSyncChannel();
+
+    bool addTickListenerCallback(void *context, TickListenerCallback cb);
+    void process(InterleavedBuffer &buffer, uint32_t numSamples, uint8_t bits, float voltageRange) override;
+    uint16_t getConversionOrder() const override;
+
+private:
+    struct CallbackRegistration {
+        TickListenerCallback callback;
+        void *context;
+    };
+
+    static constexpr uint8_t kMaxCallbacks = 4U;
+
+    CallbackRegistration m_callbacks[kMaxCallbacks];
+    uint8_t m_callbackCount;
+};
+
+// -----------------------------------------------------------------------
 // Class: AdcService
 // -----------------------------------------------------------------------
 class AdcService : public Process {

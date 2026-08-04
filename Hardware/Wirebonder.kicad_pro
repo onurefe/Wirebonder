@@ -829,7 +829,7 @@
         "uuid": "f24e74c8-d708-4a5d-9595-a58e65bd17b2"
       }
     ],
-    "used_designators": "",
+    "used_designators": "#PWR1,L2,D11-12",
     "variants": []
   },
   "sheets": [

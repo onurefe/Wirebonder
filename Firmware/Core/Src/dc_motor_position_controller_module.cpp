@@ -10,16 +10,31 @@ DcMotorPositionControllerModule::DcMotorPositionControllerModule(
     , m_hasPositionMeasurement(false)
     , m_setpointControllerCallbacks{}
     , m_setpointControllerCallbackCount(0)
+    , m_velocityListenerCallbacks{}
+    , m_velocityListenerCallbackCount(0)
+    , m_positionListenerCallbacks{}
+    , m_positionListenerCallbackCount(0)
     , m_eventCallback(nullptr)
     , m_eventCallbackContext(nullptr)
     , m_positionMeasurement(0.0f)
     , m_lvdtMagnitudeA(0.0f)
     , m_lvdtMagnitudeB(0.0f)
+    , m_outputMin(-ZMOTOR_MAX_DOWNWARD_SPEED_DEFAULT)
+    , m_outputMax(ZMOTOR_MAX_UPWARD_SPEED_DEFAULT)
 {}
 
 // ---------------------------------------------------------------------------
 // Public-Interface
 // ---------------------------------------------------------------------------
+
+void DcMotorPositionControllerModule::setOutputLimits(float minVelocity,
+                                                      float maxVelocity)
+{
+    if (minVelocity > maxVelocity) return;
+
+    m_outputMin = minVelocity;
+    m_outputMax = maxVelocity;
+}
 
 void DcMotorPositionControllerModule::onStart()
 {
@@ -100,6 +115,52 @@ void DcMotorPositionControllerModule::addEventListenerCallback(
     m_eventCallback = callback;
 }
 
+bool DcMotorPositionControllerModule::addVelocityListenerCallback(
+    void *context, VelocityListenerCallback callback)
+{
+    if (callback == nullptr) {
+        return false;
+    }
+
+    for (uint8_t i = 0; i < m_velocityListenerCallbackCount; i++) {
+        if (m_velocityListenerCallbacks[i].context == context &&
+            m_velocityListenerCallbacks[i].callback == callback) {
+            return true;
+        }
+    }
+
+    if (m_velocityListenerCallbackCount >= kMaxVelocityListenerCallbacks) {
+        return false;
+    }
+
+    m_velocityListenerCallbacks[m_velocityListenerCallbackCount++] =
+        VelocityListenerRegistration{callback, context};
+    return true;
+}
+
+bool DcMotorPositionControllerModule::addPositionListenerCallback(
+    void *context, PositionListenerCallback callback)
+{
+    if (callback == nullptr) {
+        return false;
+    }
+
+    for (uint8_t i = 0; i < m_positionListenerCallbackCount; i++) {
+        if (m_positionListenerCallbacks[i].context == context &&
+            m_positionListenerCallbacks[i].callback == callback) {
+            return true;
+        }
+    }
+
+    if (m_positionListenerCallbackCount >= kMaxPositionListenerCallbacks) {
+        return false;
+    }
+
+    m_positionListenerCallbacks[m_positionListenerCallbackCount++] =
+        PositionListenerRegistration{callback, context};
+    return true;
+}
+
 float DcMotorPositionControllerModule::getPosition() const
 {
     return m_positionMeasurement;
@@ -175,6 +236,11 @@ bool DcMotorPositionControllerModule::controlUpdateCallback(void *context, float
     return static_cast<DcMotorPositionControllerModule *>(context)->onControlUpdate(targetVelocity);
 }
 
+void DcMotorPositionControllerModule::velocityMeasuredCallback(void *context, float velocity)
+{
+    static_cast<DcMotorPositionControllerModule *>(context)->onVelocityMeasured(velocity);
+}
+
 // ---------------------------------------------------------------------------
 // Peripheral-Event-Handlers
 // ---------------------------------------------------------------------------
@@ -191,6 +257,19 @@ void DcMotorPositionControllerModule::onLvdtMeasured(float position, float magA,
     m_lvdtMagnitudeA = magA;
     m_lvdtMagnitudeB = magB;
     m_hasPositionMeasurement = true;
+
+    for (uint8_t i = 0; i < m_positionListenerCallbackCount; i++) {
+        m_positionListenerCallbacks[i].callback(
+            m_positionListenerCallbacks[i].context, m_positionMeasurement);
+    }
+}
+
+void DcMotorPositionControllerModule::onVelocityMeasured(float velocity)
+{
+    for (uint8_t i = 0; i < m_velocityListenerCallbackCount; i++) {
+        m_velocityListenerCallbacks[i].callback(
+            m_velocityListenerCallbacks[i].context, velocity);
+    }
 }
 
 bool DcMotorPositionControllerModule::onControlUpdate(float *targetVelocity)
@@ -233,11 +312,16 @@ bool DcMotorPositionControllerModule::onControlUpdate(float *targetVelocity)
 
 void DcMotorPositionControllerModule::registerPeripheralCallbacks()
 {
-    m_lvdtSensorModule->addMeasurementListenerCallback(this, 
+    m_lvdtSensorModule->addMeasurementListenerCallback(this,
         &DcMotorPositionControllerModule::lvdtCallback);
 
     if (!m_velocityController->addVelocityControllerCallback(
             this, &DcMotorPositionControllerModule::controlUpdateCallback)) {
+        setProcessError();
+    }
+
+    if (!m_velocityController->addVelocityListenerCallback(
+            this, &DcMotorPositionControllerModule::velocityMeasuredCallback)) {
         setProcessError();
     }
 }
@@ -249,12 +333,12 @@ bool DcMotorPositionControllerModule::isControlEnabled() const
 
 float DcMotorPositionControllerModule::clampOutput(float rawOutput) const
 {
-    if (rawOutput > DCMOTOR_POSITION_MODULE_OUTPUT_MAX) {
-        return DCMOTOR_POSITION_MODULE_OUTPUT_MAX;
+    if (rawOutput > m_outputMax) {
+        return m_outputMax;
     }
 
-    if (rawOutput < DCMOTOR_POSITION_MODULE_OUTPUT_MIN) {
-        return DCMOTOR_POSITION_MODULE_OUTPUT_MIN;
+    if (rawOutput < m_outputMin) {
+        return m_outputMin;
     }
 
     return rawOutput;

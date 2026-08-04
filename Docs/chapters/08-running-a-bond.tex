@@ -1,0 +1,93 @@
+\chapter{Running a Bond}
+\label{ch:running}
+
+\section{Before you start}
+
+\begin{enumerate}[leftmargin=*]
+\item The machine has homed successfully and shows no error.
+\item A configuration is loaded --- you are on the Parameter Edit page, not the
+  configuration list.
+\item The workpiece is secured and within reach at the search height.
+\item A tail of wire protrudes from the tool.
+\end{enumerate}
+
+\begin{wbnote}
+The machine only accepts a bond trigger when it is idle. If it is running
+something else, or an error is latched, the mouse does nothing at all --- there
+is no message. Check the display.
+\end{wbnote}
+
+\section{The button rhythm}
+
+In the three automatic modes the pattern is the same for both bonds:
+
+\begin{center}
+\textbf{press and hold} $\rightarrow$ machine moves into position $\rightarrow$
+\textbf{release} $\rightarrow$ machine descends and welds
+\end{center}
+
+The release is the commitment. While you hold the button the head has moved to
+its search height but will not descend, so you can take as long as you like to
+line up. Let go when you are happy.
+
+Between the two bonds the machine waits at \menuitem{Loop Height}
+indefinitely. There is no timeout on your reaction --- take the time you need
+to position the second pad.
+
+\section{What happens automatically}
+
+Before any cycle begins, the machine always returns itself to a known state:
+force off, clamp closed, head at \menuitem{Reset Height}, and every pending
+button press discarded.
+
+\begin{wbnote}
+That last point is why a button you pressed while the machine was busy does not
+cause a surprise cycle afterwards. Every cycle starts from a fresh, deliberate
+press.
+\end{wbnote}
+
+\section{Stopping}
+
+There is no pause and no cancel. Once a phase is running it runs to completion
+or it faults.
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{Between the two bonds}, the machine is simply waiting. It will
+  wait forever. Nothing is at risk.
+\item \textbf{Mid-weld}, the weld finishes in at most \menuitem{Bond Timeout}.
+\item \textbf{If you must stop immediately}, press \keycap{RESET}. The machine
+  restarts and re-homes. The wire will be left in whatever state it was in ---
+  clear it before bonding again.
+\end{itemize}
+
+\begin{wbwarning}
+\keycap{RESET} is a restart, not an emergency stop. See Chapter~\ref{ch:safety}.
+\end{wbwarning}
+
+\section{Reading the ultrasonic report}
+
+After each weld the machine briefly reports what it measured --- resonant
+frequency, Q, and delivered power. Glance at it. A frequency that has drifted
+towards the edge of your scan window, or a Q that has fallen since yesterday,
+predicts bond problems before they show up in pull tests.
+
+\section{If a cycle fails}
+
+The machine shows which operation failed and why. The four faults and what to
+do about them are in Chapter~\ref{ch:messages}.
+
+A failed bond cycle is a warning, not an error: clear the message, fix the
+cause, and bond again. Only homing and initialisation lock the machine.
+
+\section{Routine checks}
+
+\TODO{Write the shift routine for this shop: what to check at start of shift
+(run \keycap{TEST} and record frequency and Q, verify force calibration,
+inspect the tool), how often to re-run \keycap{SETUP}, the pull-test schedule
+and its acceptance criteria, and when the tool must be changed.}
+
+\section{Loading wire}
+
+\TODO{Write the wire loading procedure with photographs: threading the spool,
+routing through the guides and clamp, setting tension, forming the initial tail
+and its correct length, and what to do after a wire break mid-cycle.}

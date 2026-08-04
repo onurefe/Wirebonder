@@ -4,11 +4,13 @@
 PllModule::PllModule(SineGeneratorChannel *sinusoid,
     IQDemodulatorChannel *voltageDemodulator,
     IQDemodulatorChannel *currentDemodulator,
+    AdcTickSyncChannel *tickSync,
     float samplingFrequency,
     float controlFrequency)
     : m_sinusoid(sinusoid)
     , m_voltageDemodulator(voltageDemodulator)
     , m_currentDemodulator(currentDemodulator)
+    , m_tickSync(tickSync)
     , m_frequencyController(PidController::Config{
         PLL_MODULE_FREQ_PID_GAIN,
         PLL_MODULE_FREQ_PID_INTEGRAL_TC,
@@ -17,6 +19,7 @@ PllModule::PllModule(SineGeneratorChannel *sinusoid,
         PLL_MODULE_FREQ_PID_FILTER_TC,
         PLL_MODULE_FREQ_PID_MIN_DEVIATION,
         PLL_MODULE_FREQ_PID_MAX_DEVIATION})
+    , m_pendingStart(false)
     , m_transferState(TransferState::Idle)
     , m_callbacks{}
     , m_callbackCount(0)
@@ -103,7 +106,7 @@ float PllModule::getAveragePower() const
 void PllModule::onStart()
 {
     if (m_sinusoid == nullptr || m_voltageDemodulator == nullptr ||
-        m_currentDemodulator == nullptr) {
+        m_currentDemodulator == nullptr || m_tickSync == nullptr) {
         setProcessError();
         return;
     }
@@ -117,7 +120,9 @@ void PllModule::onStart()
         !m_currentDemodulator->addFrequencyControllerCallback(
             this, &PllModule::onIqFrequencyRequested) ||
         !m_sinusoid->addWaveformControllerCallback(
-            this, &PllModule::onSinusoidSample)) {
+            this, &PllModule::onSinusoidSample) ||
+        !m_tickSync->addTickListenerCallback(
+            this, &PllModule::onTickSync)) {
         setProcessError();
     }
 }
@@ -167,8 +172,9 @@ bool PllModule::beginTransfer(
     m_bondingEnergy = 0.0f;
 
     m_freqQueue.clear();
-    m_freqQueue.enqueue(0.0f);
-    m_freqQueue.enqueue(0.0f);
+    for (uint16_t i = 0; i < PLL_MODULE_FREQ_CORRECTION_DELAY_TICKS; i++) {
+        m_freqQueue.enqueue(0.0f);
+    }
 
     m_telemetryCount = 0;
 
@@ -192,11 +198,14 @@ bool PllModule::beginTransfer(
     m_voltageDemodulator->enable();
     m_currentDemodulator->enable();
 
-    // Mid-rail average: the DAC cannot output below 0 V, and the sine
-    // generator's clipping guard rewrites amplitude/average otherwise.
-    m_sinusoid->start(m_driveAmplitude,
-                      0.5f * DAC1_VOLTAGE_RANGE,
-                      m_centerFrequency / m_samplingFrequency);
+    // TIM4 (the DAC's trigger timer) isn't hardware-synchronized to TIM2
+    // (the ADC's), and is stopped/restarted every transfer, so starting it
+    // here directly would leave it at a random phase relative to the ADC's
+    // tick grid. Instead, arm the start and let onTickSync() actually call
+    // m_sinusoid->start() from within the next ADC tick ISR, which bounds
+    // the phase offset to a single, deterministic tick instead of an
+    // arbitrary one.
+    m_pendingStart = true;
     return true;
 }
 
@@ -204,6 +213,7 @@ void PllModule::abortTransfer()
 {
     if (m_transferState != TransferState::Transferring) return;
 
+    m_pendingStart = false;
     m_sinusoid->stop();
 
     m_voltageDemodulator->disable();
@@ -262,6 +272,23 @@ bool PllModule::onSinusoidSample(void *context, float *amplitude, float *average
     }
 
     return true;
+}
+
+void PllModule::onTickSync(void *context)
+{
+    PllModule *self = static_cast<PllModule *>(context);
+
+    if (self == nullptr || !self->m_pendingStart) {
+        return;
+    }
+
+    self->m_pendingStart = false;
+
+    // Mid-rail average: the DAC cannot output below 0 V, and the sine
+    // generator's clipping guard rewrites amplitude/average otherwise.
+    self->m_sinusoid->start(self->m_driveAmplitude,
+                            0.5f * DAC1_VOLTAGE_RANGE,
+                            self->m_centerFrequency / self->m_samplingFrequency);
 }
 
 void PllModule::onVoltageMeasured(void *context, float re, float im)

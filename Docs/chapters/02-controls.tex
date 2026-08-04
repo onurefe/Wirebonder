@@ -1,0 +1,73 @@
+\chapter{Controls and Indicators}
+\label{ch:controls}
+
+You drive the machine with three things: the keypad, the mouse, and the
+display. The keypad edits recipes and runs utilities; the mouse runs bonds; the
+display tells you what is happening.
+
+\figureplaceholder{Photograph of the control panel with the left navigation
+keys, the right machine buttons and the four indicator lamps labelled.}
+
+\section{The mouse}
+
+The mouse has two buttons and is how you actually bond. It does not move a
+cursor.
+
+\begin{center}\small
+\begin{tabular}{@{}L{26mm}L{95mm}@{}}
+\toprule
+\textbf{Button} & \textbf{What it does} \\
+\midrule
+Right & Starts a bond cycle, and triggers each phase within it. In Manual mode,
+        also drives the head \emph{up}. \\
+Left  & Drives the head \emph{down} in Manual mode. Does nothing in the other
+        modes. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{wbnote}
+The right button is used both for pressing and for releasing. In the automatic
+modes the press starts the phase and the \emph{release} begins the descent ---
+so the machine waits for you to let go before it commits to moving. Hold the
+button while you position yourself, release when you are ready.
+\end{wbnote}
+
+\begin{wbnote}
+The right button is also what you hold during a force calibration run
+(Chapter~\ref{ch:calibration}), not the left.
+\end{wbnote}
+
+\section{The keypad}
+
+\input{tables/keymap}
+
+\section{The indicator lamps}
+
+Four lamps report machine state. All four are off at power-up.
+
+\begin{center}\small
+\begin{tabular}{@{}L{26mm}L{95mm}@{}}
+\toprule
+\textbf{Lamp} & \textbf{Lit when} \\
+\midrule
+\keycap{TEST}       & An ultrasonic test is running. \\
+\keycap{SETUP}      & A force calibration run is in progress. \\
+\keycap{CLAMP OPEN} & The wire clamp is open. \\
+\keycap{MANUAL}     & The loaded configuration is a Manual-mode one. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{wbnote}
+The \keycap{TEST} and \keycap{SETUP} lamps follow what the machine is actually
+doing, not what you asked for. If a run fails, its lamp goes out --- it cannot
+be left stranded on.
+\end{wbnote}
+
+\section{Lighting}
+
+The \keycap{LIGHT} button switches the area light on and off. Its brightness,
+and the spotlight's, are set on the Settings page
+(Chapter~\ref{ch:settings}). The spotlight has no panel button; it is switched
+on the Settings page too.

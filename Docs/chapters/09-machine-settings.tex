@@ -1,0 +1,47 @@
+\chapter{Machine Settings}
+\label{ch:settings}
+
+The Settings page holds values that belong to the machine rather than to any
+recipe: lighting, axis speeds, clamp voltage, and the calibration entries.
+They apply whichever configuration is loaded.
+
+\section{Getting there}
+
+From the configuration list, press \keycap{SAVE}. Press \keycap{ESC/DEL} to
+leave.
+
+\begin{wbnote}
+\keycap{SAVE} opens the Settings page from the configuration list, and saves
+the Settings page once you are on it. It does two different jobs depending on
+where you are.
+\end{wbnote}
+
+\section{The settings}
+
+\input{tables/settings}
+
+\section{Choosing axis speeds}
+
+\menuitem{Up Speed} and \menuitem{Down Speed} cap how fast the bond head
+moves.
+
+\begin{description}[leftmargin=!,labelwidth=30mm,style=nextline,font=\normalfont\ttfamily]
+\item[Up Speed] Mostly affects cycle time. Raise it until the loop starts to
+  show signs of being disturbed by the acceleration, then back off.
+\item[Down Speed] Affects bond quality. The head must be able to stop cleanly
+  on contact; too fast and it overshoots into the pad before the force loop
+  catches it. Slower is safer. The default of 5\,mm/s is a reasonable starting
+  point.
+\end{description}
+
+\begin{wbwarning}
+Raising \menuitem{Down Speed} substantially increases the impact energy at
+touchdown and can crater pads. Change it in small steps and verify bond quality
+after each change.
+\end{wbwarning}
+
+\section{Clamp voltage}
+
+\menuitem{Clamp Volt} sets how hard the wire clamp holds. Use the lowest
+voltage that reliably holds the wire through the tear: the solenoid runs cooler
+and lasts longer. Raise it if the wire slips during the tear.

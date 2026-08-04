@@ -8,15 +8,6 @@
 
 BonderModule *BonderModule::s_instance = nullptr;
 
-// Drives the machine to the idle posture and holds the VM until Z has
-// actually reached reset height; only then does protocol pc 0 execute.
-const BonderModule::Instruction BonderModule::kResetPrologue[4] = {
-    {Opcode::SETFORCE, nullptr, 0U, 0U},
-    {Opcode::CLAMPCLOSE, nullptr, 0U, 0U},
-    {Opcode::ZMOVE, &BonderConfig::resetHeight, 0U, 0U},
-    {Opcode::WAIT, nullptr, EVENT_Z_POSITION_REACHED,
-     BonderProtocol::WAIT_TIMEOUT_MS},
-};
 
 // =============================================================================
 // Public interface
@@ -28,7 +19,7 @@ BonderModule::BonderModule(DcMotorPositionControllerModule *zMotorController,
                            RouterChannel *tAxisRouter,
                            PllModule *pll,
                            UsImpedanceScannerModule *impedanceScanner,
-                           DirectSolenoidChannel *clampSolenoid,
+                           SolenoidChannel *clampSolenoid,
                            PinMonitorChannel *contactSensorMonitor,
                            Timer *timer)
     : m_config{}
@@ -43,29 +34,28 @@ BonderModule::BonderModule(DcMotorPositionControllerModule *zMotorController,
     , m_programLength(0U)
     , m_protocolRequiresMotionControl(true)
     , m_motionControlEnabled(false)
-    , m_inPrologue(false)
     , m_pc(0U)
     , m_instrStarted(false)
     , m_waitStartTick(0U)
-    , m_armGatePc(0U)
-    , m_armGateValid(false)
 
     // Hardware event and error flags
     , m_eventFlags(0U)
 
-    , m_clampCommandTarget(DirectSolenoidChannel::State::DEENERGIZED)
+    , m_clampCommandTarget(SolenoidChannel::State::DEENERGIZED)
 
-    // Manual Z-leveling jog state
-    , m_manualZTarget(0.0f)
-    , m_manualLevelingLastTick(0U)
+    // Manual Z-drive button state
     , m_raiseButtonHeld(false)
     , m_lowerButtonHeld(false)
+    , m_manualDriveDir(ManualDriveDir::None)
 
     // External notifications
     , m_stateChangedCallback(nullptr)
     , m_errorCallback(nullptr)
+    , m_eventCallbackContext(nullptr)
     , m_ultrasonicReportCallback(nullptr)
     , m_ultrasonicReportCallbackContext(nullptr)
+    , m_tachCalReportCallback(nullptr)
+    , m_tachCalReportCallbackContext(nullptr)
     , m_telemetryCallback(nullptr)
     , m_telemetryCallbackContext(nullptr)
 
@@ -84,6 +74,12 @@ BonderModule::BonderModule(DcMotorPositionControllerModule *zMotorController,
     , m_voltagePhasors{}
     , m_currentPhasors{}
     , m_impedances{}
+
+    // Tach-cal sampling
+    , m_tachSamplingActive(false)
+    , m_tachVelocitySum(0.0f)
+    , m_tachSampleCount(0U)
+    , m_tachPositionAtSampleStart(0.0f)
 
     // Z-controller setpoint supplied by the VM
     , m_zMotorPositionSetpoint(0.0f)
@@ -118,9 +114,11 @@ const BonderModule::Config& BonderModule::getConfig() const
     return m_config;
 }
 
-void BonderModule::addEventListenerCallbacks(BonderStateChangedCallback stateCb,
+void BonderModule::addEventListenerCallbacks(void *context,
+                                             BonderStateChangedCallback stateCb,
                                              BonderErrorCallback errorCb)
 {
+    m_eventCallbackContext = context;
     m_stateChangedCallback = stateCb;
     m_errorCallback = errorCb;
 }
@@ -130,6 +128,13 @@ void BonderModule::setUltrasonicReportListenerCallback(
 {
     m_ultrasonicReportCallbackContext = context;
     m_ultrasonicReportCallback = callback;
+}
+
+void BonderModule::setTachCalReportListenerCallback(
+    void *context, TachCalReportCallback callback)
+{
+    m_tachCalReportCallbackContext = context;
+    m_tachCalReportCallback = callback;
 }
 
 void BonderModule::setTelemetryListenerCallback(void *context,
@@ -145,14 +150,12 @@ BonderModule::VmStatus BonderModule::getVmStatus() const
     status.running = (m_activityState == ActivityState::Running);
     // During the reset prologue the VM has not entered the protocol yet;
     // report pc 0 with the prologue instruction it is actually executing.
-    status.pc = m_inPrologue ? 0U : m_pc;
+    status.pc = m_pc;
     status.eventFlags = collectEventFlags();
 
     if (status.running) {
         const Instruction *instr = nullptr;
-        if (m_inPrologue) {
-            instr = &kResetPrologue[m_pc];
-        } else if (m_program != nullptr && m_pc < m_programLength) {
+        if (m_program != nullptr && m_pc < m_programLength) {
             instr = &m_program[m_pc];
         }
         if (instr != nullptr) {
@@ -178,6 +181,11 @@ void BonderModule::notifyLeftButton(bool pressed)
                           : EVENT_LEFT_BUTTON_RELEASED);
 }
 
+void BonderModule::notifyClampToggle()
+{
+    setEventFlags(EVENT_CLAMP_TOGGLE_REQUESTED);
+}
+
 void BonderModule::onStart()
 {
     if (m_zMotorControllerModule == nullptr ||
@@ -200,7 +208,9 @@ void BonderModule::onStart()
         m_impedanceScannerModule->addScanCompleteListenerCallback(
             this, &BonderModule::onImpedanceScanned) &&
         m_zMotorControllerModule->addPositionSetpointControllerCallback(
-            this, &BonderModule::onZMotorPositionSetpoint);
+            this, &BonderModule::onZMotorPositionSetpoint) &&
+        m_zMotorControllerModule->addVelocityListenerCallback(
+            this, &BonderModule::onZVelocityMeasured);
     m_zMotorControllerModule->addEventListenerCallback(
         this, &BonderModule::onZMotorEvent);
     m_clampSolenoid->addStateListenerCallback(
@@ -211,44 +221,51 @@ void BonderModule::onStart()
 
 bool BonderModule::setProtocol(const BonderProtocol& protocol)
 {
-    const bool engaged = (m_activityState == ActivityState::Running);
-    if (engaged && !isAwaitingStartTrigger()) {
+    // Only meant for starting fresh from Idle; the running program cannot be
+    // swapped underneath the VM.
+    if (m_activityState == ActivityState::Running) {
         return false;
     }
 
     m_program = protocol.getProtocolPtr();
     m_programLength = protocol.getProtocolSize();
     m_protocolRequiresMotionControl = protocol.requiresMotionControl();
+    return true;
+}
 
-    // Locate the first instruction that blocks on operator input; parked
-    // there, the machine counts as armed-but-not-engaged (see
-    // isAwaitingStartTrigger()).
-    m_armGateValid = false;
-    m_armGatePc = 0U;
-    for (uint8_t i = 0U; i < m_programLength; ++i) {
-        const Instruction& instr = m_program[i];
-        const bool operatorWait =
-            (instr.opcode == Opcode::WAIT) &&
-            ((instr.mask & (EVENT_RIGHT_BUTTON_PRESSED |
-                            EVENT_LEFT_BUTTON_PRESSED)) != 0U);
-        if (operatorWait || instr.opcode == Opcode::MZMOVE ||
-            instr.opcode == Opcode::MZDOWN) {
-            m_armGatePc = i;
-            m_armGateValid = true;
-            break;
+bool BonderModule::setMotionControlEnabled(bool enabled)
+{
+    if (enabled == m_motionControlEnabled) {
+        return true;
+    }
+
+    if (enabled) {
+        if (!m_forceCoilControllerModule->enableControl()) {
+            return false;
         }
+        if (!m_zMotorControllerModule->enableControl()) {
+            m_forceCoilControllerModule->disableControl();
+            return false;
+        }
+    } else {
+        m_zMotorControllerModule->disableControl();
+        m_forceCoilControllerModule->disableControl();
+    }
+    m_motionControlEnabled = enabled;
+    return true;
+}
+
+bool BonderModule::activateProgram(bool requiresMotionControl)
+{
+    if (!setMotionControlEnabled(requiresMotionControl)) {
+        return false;
     }
 
-    if (engaged) {
-        // Retasked while armed: the machine stays engaged and re-enters the
-        // new program through the reset prologue, so its pc 0 also starts
-        // from the idle posture with no stale event latches.
-        clearAllFlags();
-        m_pc = 0U;
-        m_instrStarted = false;
-        m_zMotorSetpointActive = false;
-        m_inPrologue = m_motionControlEnabled;
-    }
+    m_protocolRequiresMotionControl = requiresMotionControl;
+    m_pc = 0U;
+    m_instrStarted = false;
+    m_zMotorSetpointActive = false;
+
     return true;
 }
 
@@ -259,28 +276,14 @@ bool BonderModule::engage()
         return false;
     }
 
-    if (m_protocolRequiresMotionControl) {
-        if (!m_forceCoilControllerModule->enableControl()) {
-            return false;
-        }
-        if (!m_zMotorControllerModule->enableControl()) {
-            m_forceCoilControllerModule->disableControl();
-            return false;
-        }
-    }
-    m_motionControlEnabled = m_protocolRequiresMotionControl;
-
     clearAllFlags();
-    m_pc = 0U;
-    m_instrStarted = false;
-    m_zMotorSetpointActive = false;
-    // The reset prologue drives the machine to the idle posture before pc 0;
-    // protocols without motion control have no posture to establish.
-    m_inPrologue = m_motionControlEnabled;
+    if (!activateProgram(m_protocolRequiresMotionControl)) {
+        return false;
+    }
     m_activityState = ActivityState::Running;
 
     if (m_stateChangedCallback != nullptr) {
-        m_stateChangedCallback(false);
+        m_stateChangedCallback(m_eventCallbackContext, false);
     }
     return true;
 }
@@ -294,13 +297,12 @@ void BonderModule::disengage()
     m_forceCoilControllerModule->disableControl();
     m_motionControlEnabled = false;
     m_activityState = ActivityState::Idle;
-    m_inPrologue = false;
     m_pc = 0U;
     m_instrStarted = false;
     m_zMotorSetpointActive = false;
 
     if (m_stateChangedCallback != nullptr) {
-        m_stateChangedCallback(true);
+        m_stateChangedCallback(m_eventCallbackContext, true);
     }
 }
 
@@ -352,15 +354,12 @@ void BonderModule::executeVM()
     const uint16_t instructionBound =
         static_cast<uint16_t>(m_programLength) + kResetPrologueLength;
     for (uint16_t executed = 0U; executed <= instructionBound; ++executed) {
-        const Instruction& instr =
-            m_inPrologue ? kResetPrologue[m_pc] : m_program[m_pc];
+        const Instruction& instr = m_program[m_pc];
 
         const uint32_t errorFlags = collectEventFlags() & kErrorFlagsMask;
         if (errorFlags != 0U) {
-            if (!m_inPrologue) {
-                fireTelemetry(instr, false);
-            }
-
+            fireTelemetry(instr, false);
+            
             Error error = Error::UnableToSetPosition;
             if (errorFlags & EVENT_FORCE_COIL_ERROR) {
                 error = Error::UnableToSetForceCoilCurrent;
@@ -370,22 +369,7 @@ void BonderModule::executeVM()
                 error = Error::ProtocolTimeout;
             }
 
-            emergencyStop();
-            m_activityState = ActivityState::Idle;
-            m_zMotorControllerModule->disableControl();
-            m_forceCoilControllerModule->disableControl();
-            m_motionControlEnabled = false;
-            m_inPrologue = false;
-            m_pc = 0U;
-            m_instrStarted = false;
-            m_zMotorSetpointActive = false;
-
-            if (m_errorCallback != nullptr) {
-                m_errorCallback(error);
-            }
-            if (m_stateChangedCallback != nullptr) {
-                m_stateChangedCallback(true);
-            }
+            failVm(error);
             return;
         }
 
@@ -393,28 +377,15 @@ void BonderModule::executeVM()
             return;
         }
 
-        if (!m_inPrologue) {
-            fireTelemetry(instr, true);
-        }
+        fireTelemetry(instr, true);
 
         // Blocking instructions consume the flags they waited on.
-        if (instr.opcode == Opcode::WAIT || instr.opcode == Opcode::MZMOVE) {
+        if (instr.opcode == Opcode::WAIT || instr.opcode == Opcode::MZDRIVE) {
             clearFlagsMask(instr.mask);
         }
 
         m_instrStarted = false;
         m_pc = static_cast<uint8_t>(m_pc + 1U);
-
-        if (m_inPrologue) {
-            if (m_pc >= kResetPrologueLength) {
-                // Idle posture established: enter the protocol at pc 0 with
-                // no stale event latches.
-                m_inPrologue = false;
-                m_pc = 0U;
-                clearAllFlags();
-            }
-            continue;
-        }
 
         if (m_pc >= m_programLength) {
             m_activityState = ActivityState::Idle;
@@ -427,10 +398,29 @@ void BonderModule::executeVM()
             }
 
             if (m_stateChangedCallback != nullptr) {
-                m_stateChangedCallback(true);
+                m_stateChangedCallback(m_eventCallbackContext, true);
             }
             return;
         }
+    }
+}
+
+void BonderModule::failVm(Error error)
+{
+    emergencyStop();
+    m_activityState = ActivityState::Idle;
+    m_zMotorControllerModule->disableControl();
+    m_forceCoilControllerModule->disableControl();
+    m_motionControlEnabled = false;
+    m_pc = 0U;
+    m_instrStarted = false;
+    m_zMotorSetpointActive = false;
+
+    if (m_errorCallback != nullptr) {
+        m_errorCallback(m_eventCallbackContext, error);
+    }
+    if (m_stateChangedCallback != nullptr) {
+        m_stateChangedCallback(m_eventCallbackContext, true);
     }
 }
 
@@ -442,11 +432,11 @@ BonderModule::InstrStatus BonderModule::executeInstruction(const Instruction& in
         setZMotorPosition(resolveArg(instr));
         return InstrStatus::Done;
 
-    case Opcode::MZMOVE:
-        return executeMzMove(instr);
+    case Opcode::MZDRIVE:
+        return executeMzDrive(instr);
 
-    case Opcode::MZDOWN:
-        return executeMzDown(instr);
+    case Opcode::MZSETUP:
+        return executeMzSetup(instr);
 
     case Opcode::YMOVE:
         clearFlagsMask(EVENT_Y_MOVE_COMPLETED);
@@ -460,7 +450,13 @@ BonderModule::InstrStatus BonderModule::executeInstruction(const Instruction& in
 
     case Opcode::TMOVE:
         clearFlagsMask(EVENT_T_MOVE_COMPLETED);
-        m_tAxisRouter->moveTo(resolveArg(instr));
+        // A null arg means "return to origin" (used to home the axis at the
+        // end of a T-move sequence) and stays absolute. A real field
+        // (tailDisplacement/tearDisplacement) is non-negative travel added
+        // to wherever the axis currently sits.
+        m_tAxisRouter->moveTo(instr.arg != nullptr
+            ? m_tAxisRouter->getPosition() + resolveArg(instr)
+            : resolveArg(instr));
         return InstrStatus::Done;
 
     case Opcode::TIMER:
@@ -488,10 +484,10 @@ BonderModule::InstrStatus BonderModule::executeInstruction(const Instruction& in
         return InstrStatus::Done;
 
     case Opcode::CLAMPOPEN:
-        return executeClampCommand(DirectSolenoidChannel::State::ENERGIZED);
+        return executeClampCommand(SolenoidChannel::State::ENERGIZED);
 
     case Opcode::CLAMPCLOSE:
-        return executeClampCommand(DirectSolenoidChannel::State::DEENERGIZED);
+        return executeClampCommand(SolenoidChannel::State::DEENERGIZED);
 
     case Opcode::SCAN:
         clearFlagsMask(EVENT_SCAN_COMPLETED | EVENT_US_POWER_ERROR);
@@ -516,7 +512,7 @@ BonderModule::InstrStatus BonderModule::executeInstruction(const Instruction& in
     case Opcode::SETFORCE:
         clearFlagsMask(EVENT_FORCE_COIL_SETTLED);
         m_forceCoilControllerModule->setCurrentSetpoint(
-            forceGramsToAmps(resolveArg(instr)));
+            forceGramsToAmps(correctedForceGrams(resolveArg(instr))));
         return InstrStatus::Done;
 
     case Opcode::USREPORT:
@@ -531,51 +527,89 @@ BonderModule::InstrStatus BonderModule::executeInstruction(const Instruction& in
                 m_ultrasonicReportCallbackContext, report);
         }
         return InstrStatus::Done;
+
+    case Opcode::TACHMOVE:
+        clearFlagsMask(EVENT_Z_POSITION_REACHED);
+        setZMotorPosition(ZMOTOR_TACH_CAL_POSITION_MM);
+        return InstrStatus::Done;
+
+    case Opcode::TACHSAMPLE:
+        clearFlagsMask(EVENT_TIMER_EXPIRED);
+        m_timer->start(true, ZMOTOR_TACH_CAL_SAMPLE_DURATION_S);
+        m_tachVelocitySum = 0.0f;
+        m_tachSampleCount = 0U;
+        m_tachPositionAtSampleStart = m_zMotorControllerModule->getPosition();
+        m_tachSamplingActive = true;
+        return InstrStatus::Done;
+
+    case Opcode::TACHREPORT:
+        if (m_tachCalReportCallback != nullptr) {
+            const float tachAverage = m_tachSampleCount > 0U
+                ? m_tachVelocitySum / static_cast<float>(m_tachSampleCount)
+                : 0.0f;
+            // Ground-truth average velocity from the independent LVDT
+            // position measurement, so real motion during an imperfect hold
+            // isn't misattributed to tachometer offset. Reduces to
+            // `tachAverage` exactly when position held perfectly still.
+            const float positionDelta =
+                m_zMotorControllerModule->getPosition() -
+                m_tachPositionAtSampleStart;
+            const float trueAverageVelocity =
+                positionDelta / ZMOTOR_TACH_CAL_SAMPLE_DURATION_S;
+            const float offsetResidual = tachAverage - trueAverageVelocity;
+            m_tachCalReportCallback(m_tachCalReportCallbackContext, offsetResidual);
+        }
+        return InstrStatus::Done;
     }
 
     return InstrStatus::Done;
 }
 
-BonderModule::InstrStatus BonderModule::executeMzMove(const Instruction& instr)
+BonderModule::InstrStatus BonderModule::executeMzDrive(const Instruction& instr)
 {
     if (!m_instrStarted) {
-        // Take over from the current height so the tool does not jump when
-        // the operator gains control.
+        // Do not command a move on entry: stay put until a button is
+        // pressed, since the axis is already parked wherever the previous
+        // step left it.
         clearFlagsMask(EVENT_Z_POSITION_REACHED);
-        m_manualZTarget = (BONDER_MODULE_ZAXIS_WORKSPACE_SIZE / 2.0f) -
-                          m_zMotorControllerModule->getPosition();
-        setZMotorPosition(m_manualZTarget);
-        m_manualLevelingLastTick = HAL_GetTick();
+        m_manualDriveDir = ManualDriveDir::None;
         m_instrStarted = true;
     }
-
-    const uint32_t tick = HAL_GetTick();
-    const float dt =
-        static_cast<float>(tick - m_manualLevelingLastTick) * 1.0e-3f;
-    m_manualLevelingLastTick = tick;
 
     const bool lowerHeld = m_lowerButtonHeld.load();
     const bool raiseHeld = m_raiseButtonHeld.load();
 
-    if (lowerHeld != raiseHeld) {
-        const float rate = resolveArg(instr);
-        float target = m_manualZTarget + (raiseHeld ? rate : -rate) * dt;
-
-        if (target < m_config.lowestOvertravel) {
-            target = m_config.lowestOvertravel;
-        }
-        if (target > m_config.resetHeight) {
-            target = m_config.resetHeight;
-        }
-
-        if (target != m_manualZTarget) {
-            m_manualZTarget = target;
-            setZMotorPosition(m_manualZTarget);
-        }
+    ManualDriveDir dir = ManualDriveDir::None;
+    if (lowerHeld && !raiseHeld) {
+        dir = ManualDriveDir::Lower;
+    } else if (raiseHeld && !lowerHeld) {
+        dir = ManualDriveDir::Raise;
     }
 
     const float measuredHeight = (BONDER_MODULE_ZAXIS_WORKSPACE_SIZE / 2.0f) -
                                  m_zMotorControllerModule->getPosition();
+
+    if (dir != m_manualDriveDir) {
+        m_manualDriveDir = dir;
+
+        float target;
+        switch (dir) {
+        case ManualDriveDir::Lower:
+            target = m_config.lowestOvertravel;
+            break;
+        case ManualDriveDir::Raise:
+            target = resolveArg(instr);
+            break;
+        case ManualDriveDir::None:
+        default:
+            // Stop in place: re-command the currently measured height so a
+            // release cancels whatever move is in flight.
+            target = measuredHeight;
+            break;
+        }
+        setZMotorPosition(target);
+    }
+
     const bool atLowestOvertravel =
         fabsf(measuredHeight - m_config.lowestOvertravel) <
         DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR;
@@ -587,43 +621,61 @@ BonderModule::InstrStatus BonderModule::executeMzMove(const Instruction& instr)
     return InstrStatus::Running;
 }
 
-BonderModule::InstrStatus BonderModule::executeMzDown(
-    const Instruction& instr)
+BonderModule::InstrStatus BonderModule::executeMzSetup(const Instruction& instr)
 {
     if (!m_instrStarted) {
-        // Continue from the measured height so entering setup cannot command
-        // a discontinuous Z jump.
+        // Do not command a move on entry: stay put until a button is
+        // pressed, since the axis is already parked wherever the previous
+        // step left it.
         clearFlagsMask(EVENT_Z_POSITION_REACHED);
-        m_manualZTarget = (BONDER_MODULE_ZAXIS_WORKSPACE_SIZE / 2.0f) -
-                          m_zMotorControllerModule->getPosition();
-        setZMotorPosition(m_manualZTarget);
-        m_manualLevelingLastTick = HAL_GetTick();
+        m_manualDriveDir = ManualDriveDir::None;
         m_instrStarted = true;
     }
 
-    const uint32_t tick = HAL_GetTick();
-    const float dt =
-        static_cast<float>(tick - m_manualLevelingLastTick) * 1.0e-3f;
-    m_manualLevelingLastTick = tick;
+    const bool lowerHeld = m_lowerButtonHeld.load();
+    const bool raiseHeld = m_raiseButtonHeld.load();
 
-    if (!m_lowerButtonHeld.load()) {
+    ManualDriveDir dir = ManualDriveDir::None;
+    if (lowerHeld && !raiseHeld) {
+        dir = ManualDriveDir::Lower;
+    } else if (raiseHeld && !lowerHeld) {
+        dir = ManualDriveDir::Raise;
+    }
+
+    if (dir != m_manualDriveDir) {
+        m_manualDriveDir = dir;
+
+        float target;
+        switch (dir) {
+        case ManualDriveDir::Lower:
+            target = m_config.lowestOvertravel;
+            break;
+        case ManualDriveDir::Raise:
+            target = resolveArg(instr);
+            break;
+        case ManualDriveDir::None:
+        default:
+            // Stop in place: re-command the currently measured height so a
+            // release or opposing press cancels whatever move is in flight.
+            target = (BONDER_MODULE_ZAXIS_WORKSPACE_SIZE / 2.0f) -
+                     m_zMotorControllerModule->getPosition();
+            break;
+        }
+        setZMotorPosition(target);
+    }
+
+    // Unlike MZDRIVE, completion tracks the left button directly rather than
+    // position: the operator decides by feel when contact is made, not the
+    // VM by measured height.
+    if (!lowerHeld) {
         return InstrStatus::Done;
-    }
-
-    float target = m_manualZTarget - resolveArg(instr) * dt;
-    if (target < m_config.lowestOvertravel) {
-        target = m_config.lowestOvertravel;
-    }
-    if (target != m_manualZTarget) {
-        m_manualZTarget = target;
-        setZMotorPosition(m_manualZTarget);
     }
 
     return InstrStatus::Running;
 }
 
 BonderModule::InstrStatus BonderModule::executeClampCommand(
-    DirectSolenoidChannel::State target)
+    SolenoidChannel::State target)
 {
     clearFlagsMask(EVENT_CLAMP_SETTLED);
     m_clampCommandTarget = target;
@@ -634,7 +686,7 @@ BonderModule::InstrStatus BonderModule::executeClampCommand(
         return InstrStatus::Done;
     }
 
-    if (target == DirectSolenoidChannel::State::ENERGIZED) {
+    if (target == SolenoidChannel::State::ENERGIZED) {
         m_clampSolenoid->energize();
     } else {
         m_clampSolenoid->deenergize();
@@ -773,8 +825,16 @@ void BonderModule::computeOperatingPoint(float targetPower)
                 PLL_MODULE_FREQ_PID_TARGET_PHASE_MARGIN_RAD,
                 PLL_MODULE_FREQ_PID_TARGET_CROSSOVER_FRACTION,
                 tuning)) {
+            // Back the loop-shaped gain off by the safety margin, and clamp
+            // the integral up to its floor: the formula's optimum is faster
+            // than the capture transient tolerates (see
+            // PLL_MODULE_FREQ_PID_MIN_INTEGRAL_TC).
+            const float gain =
+                tuning.gain / PLL_MODULE_FREQ_PID_GAIN_SAFETY_MARGIN;
+            const float integralTc =
+                fmaxf(tuning.integralTc, PLL_MODULE_FREQ_PID_MIN_INTEGRAL_TC);
             m_pllModule->setFrequencyPidTuning(
-                tuning.gain, tuning.integralTc, tuning.derivativeTc);
+                gain, integralTc, tuning.derivativeTc);
         }
         return;
     }
@@ -798,6 +858,18 @@ float BonderModule::amplitudeForTargetPower(float realAdmittance, float targetPo
 // operates on amps. Converts right at the SETFORCE opcode, the one place
 // specific to force (resolveArg() itself is generic across every opcode's
 // argument and must not scale it).
+// Applies the Setup-measured calibration offset (what the operator's gauge
+// read minus what was commanded) to a requested force.
+float BonderModule::correctedForceGrams(float grams) const
+{
+    // Zero means "coil off" and has to stay exactly zero — the offset trims
+    // real setpoints, it must never turn a release into a push.
+    if (grams <= 0.0f) return 0.0f;
+
+    const float corrected = grams - m_config.forceCoilForceOffset;
+    return corrected > 0.0f ? corrected : 0.0f;
+}
+
 float BonderModule::forceGramsToAmps(float grams)
 {
     return (grams - FORCE_COIL_CURRENT_TO_GRAMS_OFFSET) /
@@ -916,8 +988,30 @@ void BonderModule::onZMotorEvent(void *context,
     }
 }
 
+void BonderModule::onZVelocityMeasured(void *context, float velocity)
+{
+    BonderModule *self = static_cast<BonderModule *>(context);
+    if (self != nullptr) {
+        self->handleZVelocityMeasured(velocity);
+    }
+}
+
+void BonderModule::handleZVelocityMeasured(float velocity)
+{
+    if (!m_tachSamplingActive) {
+        return;
+    }
+
+    m_tachVelocitySum += velocity;
+    m_tachSampleCount++;
+
+    if ((collectEventFlags() & EVENT_TIMER_EXPIRED) != 0U) {
+        m_tachSamplingActive = false;
+    }
+}
+
 void BonderModule::onClampStateChanged(void *context,
-                                       DirectSolenoidChannel::State state)
+                                       SolenoidChannel::State state)
 {
     BonderModule *self = static_cast<BonderModule *>(context);
     if (state == self->m_clampCommandTarget) {

@@ -1,0 +1,72 @@
+\chapter{The Display}
+\label{ch:display}
+
+The display is four lines of twenty characters. Everything the machine tells
+you has to fit in that space, so the layout is consistent and worth learning.
+
+\section{Reading a parameter screen}
+
+\begin{lcdscreen}
+\begin{lcdverb}
+Mod:S DEFAULT   1/6
+*Search 1      3.50
+ Power 1        500
+ Energy 1        50
+\end{lcdverb}
+\end{lcdscreen}
+
+\begin{description}[leftmargin=!,labelwidth=30mm,style=nextline]
+\item[Top line] Context. \menuitem{Mod:S} is the bonding mode ---
+  \menuitem{S}~Semi Auto, \menuitem{M}~Manual, \menuitem{T}~Table Tear,
+  \menuitem{L}~Lange Cplr. Then the loaded configuration's name, then which of
+  the six parameter screens you are on.
+\item[The \texttt{*}] Marks the row your key presses will act on. Move it with
+  $\uparrow$ and $\downarrow$.
+\item[Left of each row] The parameter name.
+\item[Right of each row] Its value, right-aligned.
+\end{description}
+
+\section{Screens taller than the display}
+
+Several screens have more rows than the display can show. The display scrolls
+to follow the \texttt{*} pointer rather than paging.
+
+\begin{wbnote}
+When you scroll past the third row, the top line scrolls away with everything
+else --- you lose sight of the mode, the configuration name and the screen
+number until you scroll back up. This is normal. Press $\uparrow$ to bring the
+header back.
+\end{wbnote}
+
+\section{How values are shown}
+
+The number of decimal places follows the parameter's step size, so a value is
+never shown more precisely than you can actually set it.
+
+\begin{center}\small
+\begin{tabular}{@{}L{26mm}L{26mm}L{60mm}@{}}
+\toprule
+\textbf{Step} & \textbf{Shown as} & \textbf{Example} \\
+\midrule
+1 or larger & whole numbers & \menuitem{Power 1} at \menuitem{500} \\
+0.1         & one decimal   & \menuitem{Scan Start} at \menuitem{58.0} \\
+0.01        & two decimals  & \menuitem{Search 1} at \menuitem{3.50} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Units are not printed on screen --- there is no room. They are listed in
+Chapter~\ref{ch:parameters}.
+
+\section{Messages}
+
+A message replaces the whole screen while it is showing, then the previous
+screen returns. How a message clears tells you how serious it is; see
+Chapter~\ref{ch:messages}.
+
+\begin{lcdscreen}
+\begin{lcdverb}
+WARNING
+BUSY! TRY LATER
+\end{lcdverb}
+\end{lcdscreen}

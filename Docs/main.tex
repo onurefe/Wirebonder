@@ -1,0 +1,76 @@
+\documentclass{wirebonder-manual}
+
+\input{product}
+
+\title{\productname\ Operator's Manual}
+\author{\manufacturer}
+\date{\docdate}
+
+\hypersetup{
+  pdftitle={Wirebonder Operator's Manual},
+  pdfsubject={Ultrasonic wedge wire bonder -- operating instructions}
+}
+
+\begin{document}
+
+% ------------------------------------------------------------ front matter --
+\frontmatter
+
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+{\Huge\bfseries \productname\par}
+\vspace{6pt}
+{\Large \productdescriptor\par}
+\vspace{2cm}
+{\LARGE Operator's Manual\par}
+\vspace{3cm}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Model         & \modelnumber \\
+Firmware      & \fwversion \\
+Document      & \docrevision \\
+Date          & \docdate \\
+\bottomrule
+\end{tabular}
+\vfill
+{\large \manufacturer\par}
+\end{titlepage}
+
+\include{chapters/00-about}
+\include{chapters/00-safety}
+
+\tableofcontents
+
+% ------------------------------------------------------------- main matter --
+\mainmatter
+
+\part{Getting to Know the Machine}
+\include{chapters/01-overview}
+\include{chapters/02-controls}
+\include{chapters/03-display}
+\include{chapters/04-powerup}
+
+\part{Operating}
+\include{chapters/05-navigation}
+\include{chapters/06-configurations}
+\include{chapters/07-bonding-modes}
+\include{chapters/08-running-a-bond}
+\include{chapters/09-machine-settings}
+
+\part{Setup and Tuning}
+\include{chapters/10-calibration}
+\include{chapters/11-good-bonds}
+
+\part{Reference}
+\include{chapters/12-parameter-reference}
+\include{chapters/13-messages}
+\include{chapters/14-specifications}
+\include{chapters/15-quickref}
+
+% -------------------------------------------------------------- back matter --
+\appendix
+\include{chapters/A-glossary}
+\include{chapters/B-defaults}
+
+\end{document}

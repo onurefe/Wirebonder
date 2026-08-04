@@ -16,6 +16,17 @@ constexpr uint8_t kFloatDecimals = 3U;
 constexpr char kNameCharacters[] =
     " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
 
+// Step multiplier by hold duration. Highest threshold first; a hold shorter
+// than every entry steps by one. Adding a decade is one row.
+struct RepeatStage {
+    uint32_t heldMs;
+    uint16_t scale;
+};
+constexpr RepeatStage kRepeatStages[] = {
+    {KEYPAD_BTN_REPEAT_X100_MS, 100U},
+    {KEYPAD_BTN_REPEAT_X10_MS,   10U},
+};
+
 char bondingModeCode(BondingMode mode)
 {
     switch (mode) {
@@ -47,7 +58,6 @@ const char *parameterName(ConfigurationParameterCatalog::Parameter parameter)
     case Parameter::Tear:             return "Tear";
     case Parameter::ResetHeight:      return "Reset Height";
     case Parameter::Overtravel:       return "Overtravel";
-    case Parameter::ManualZRate:      return "Manual Z Rate";
     case Parameter::SecondZHeight:    return "Second Z Hgt";
     case Parameter::TableTail:        return "Table Tail";
     case Parameter::TableTear:        return "Table Tear";
@@ -135,6 +145,35 @@ Menu::Menu(PageRenderer *renderer,
     , m_nameEntryMode(1U, 0U, 20U)
     , m_nameEntryName(2U, 0U, 20U)
     , m_nameEntryCursor(3U, 0U, 20U)
+    , m_saveAsPage(3U)
+    , m_saveAsTitle(0U, 0U, 20U, "SAVE AS")
+    , m_saveAsName(1U, 0U, 20U)
+    , m_saveAsCursor(2U, 0U, 20U)
+    , m_settingsPage(1U + kSettingsRowCount)
+    , m_settingsHeader(0U, 0U, 20U, "SETTINGS")
+    , m_settingsNames{
+          {1U, kNameColumn, kNameWidth, "Clamp Volt"},
+          {2U, kNameColumn, kNameWidth, "Area Light"},
+          {3U, kNameColumn, kNameWidth, "Spotlight"},
+          {4U, kNameColumn, kNameWidth, "Up Speed"},
+          {5U, kNameColumn, kNameWidth, "Down Speed"},
+          {6U, kNameColumn, kNameWidth, "Setup Force"},
+          {7U, kNameColumn, kNameWidth, "Spot On"},
+          {8U, kNameColumn, 19U, "Start Tach. Cal."}}
+    , m_settingsValues{
+          {1U, kValueColumn, kValueWidth, 1U},
+          {2U, kValueColumn, kValueWidth, 0U},
+          {3U, kValueColumn, kValueWidth, 0U},
+          {4U, kValueColumn, kValueWidth, 1U},
+          {5U, kValueColumn, kValueWidth, 1U},
+          {6U, kValueColumn, kValueWidth, 1U}}
+    , m_settingsSpotlightOnValue(kSettingsSpotOnRow, kValueColumn, kValueWidth)
+    , m_forceMeasurementPage(4U)
+    , m_forceMeasurementTitle(0U, 0U, 20U, "FORCE SETUP")
+    , m_forceMeasurementName(1U, 0U, 12U, "Measured Gr")
+    , m_forceMeasurementValue(1U, kValueColumn, kValueWidth, 1U)
+    , m_forceMeasurementHint(3U, 0U, 20U, "ENTER=save ESC=exit")
+    , m_pageBeforeForceMeasurement(nullptr)
     , m_deleteConfirmPage(4U)
     , m_deleteTarget(0U, 0U, 20U)
     , m_deleteQuestion(1U, 0U, 20U, "Are you sure?")
@@ -166,6 +205,27 @@ Menu::Menu(PageRenderer *renderer,
     m_nameEntryPage.addWidget(&m_nameEntryName);
     m_nameEntryPage.addWidget(&m_nameEntryCursor);
 
+    m_saveAsPage.addWidget(&m_saveAsTitle);
+    m_saveAsPage.addWidget(&m_saveAsName);
+    m_saveAsPage.addWidget(&m_saveAsCursor);
+
+    m_settingsPage.addWidget(&m_settingsHeader);
+    for (uint8_t row = 0U; row < kSettingsLevelRowCount; ++row) {
+        m_settingsPage.addWidget(&m_settingsNames[row]);
+        m_settingsPage.addWidget(&m_settingsValues[row]);
+    }
+    m_settingsPage.addWidget(&m_settingsNames[kSettingsLevelRowCount]);
+    m_settingsPage.addWidget(&m_settingsSpotlightOnValue);
+    // kSettingsTachCalRow is the 1-based row number (m_pointerRow's
+    // convention, matched in handleEnter()); the array index is 0-based, so
+    // the last element is kSettingsRowCount - 1.
+    m_settingsPage.addWidget(&m_settingsNames[kSettingsRowCount - 1U]);
+
+    m_forceMeasurementPage.addWidget(&m_forceMeasurementTitle);
+    m_forceMeasurementPage.addWidget(&m_forceMeasurementName);
+    m_forceMeasurementPage.addWidget(&m_forceMeasurementValue);
+    m_forceMeasurementPage.addWidget(&m_forceMeasurementHint);
+
     m_deleteConfirmPage.addWidget(&m_deleteTarget);
     m_deleteConfirmPage.addWidget(&m_deleteQuestion);
     m_deleteConfirmPage.addWidget(&m_deleteAnswers);
@@ -178,47 +238,70 @@ Menu::Menu(PageRenderer *renderer,
         renderer->registerPage(&m_parameterPage);
         renderer->registerPage(&m_configurationSelectPage);
         renderer->registerPage(&m_nameEntryPage);
+        renderer->registerPage(&m_saveAsPage);
+        renderer->registerPage(&m_settingsPage);
+        renderer->registerPage(&m_forceMeasurementPage);
         renderer->registerPage(&m_deleteConfirmPage);
         renderer->registerPage(&m_messagePage);
     }
 
+    // A null repeat callback leaves the button press-only. Save, Load, Enter,
+    // Add and Escape/Delete are deliberately in that group: one hold must
+    // never save, load, delete or confirm more than once.
     struct ButtonBinding {
         ButtonChannel *button;
-        ButtonChannel::PressCallback callback;
+        ButtonChannel::PressCallback press;
+        ButtonChannel::ProlongedPressCallback repeat;
     };
     const ButtonBinding bindings[] = {
-        {m_buttons.up, onButton_<&Menu::handleUp>},
-        {m_buttons.down, onButton_<&Menu::handleDown>},
-        {m_buttons.left, onButton_<&Menu::handleLeft>},
-        {m_buttons.right, onButton_<&Menu::handleRight>},
-        {m_configurationButtons.plus, onButton_<&Menu::handlePlus>},
-        {m_configurationButtons.minus, onButton_<&Menu::handleMinus>},
-        {m_configurationButtons.save, onButton_<&Menu::handleSave>},
-        {m_configurationButtons.load, onButton_<&Menu::handleLoad>},
-        {m_configurationButtons.enter, onButton_<&Menu::handleEnter>},
-        {m_configurationButtons.add, onButton_<&Menu::handleAdd>},
+        {m_buttons.up, onButton_<&Menu::handleUp>,
+         onRepeatButton_<&Menu::handleUp>},
+        {m_buttons.down, onButton_<&Menu::handleDown>,
+         onRepeatButton_<&Menu::handleDown>},
+        {m_buttons.left, onButton_<&Menu::handleLeft>,
+         onRepeatButton_<&Menu::handleLeft>},
+        {m_buttons.right, onButton_<&Menu::handleRight>,
+         onRepeatButton_<&Menu::handleRight>},
+        {m_configurationButtons.plus, onButton_<&Menu::handlePlus>,
+         onRepeatButton_<&Menu::handlePlus>},
+        {m_configurationButtons.minus, onButton_<&Menu::handleMinus>,
+         onRepeatButton_<&Menu::handleMinus>},
+        {m_configurationButtons.save, onButton_<&Menu::handleSave>, nullptr},
+        {m_configurationButtons.load, onButton_<&Menu::handleLoad>, nullptr},
+        {m_configurationButtons.enter, onButton_<&Menu::handleEnter>, nullptr},
+        {m_configurationButtons.add, onButton_<&Menu::handleAdd>, nullptr},
         {m_configurationButtons.escapeDelete,
-         onButton_<&Menu::handleEscapeDelete>},
+         onButton_<&Menu::handleEscapeDelete>, nullptr},
         {m_configurationButtons.tailPlus,
-         onHotkeyButton_<Hotkey::Tail, 1>},
+         onHotkeyButton_<Hotkey::Tail, 1>,
+         onRepeatHotkeyButton_<Hotkey::Tail, 1>},
         {m_configurationButtons.tailMinus,
-         onHotkeyButton_<Hotkey::Tail, -1>},
+         onHotkeyButton_<Hotkey::Tail, -1>,
+         onRepeatHotkeyButton_<Hotkey::Tail, -1>},
         {m_configurationButtons.loopPlus,
-         onHotkeyButton_<Hotkey::Loop, 1>},
+         onHotkeyButton_<Hotkey::Loop, 1>,
+         onRepeatHotkeyButton_<Hotkey::Loop, 1>},
         {m_configurationButtons.loopMinus,
-         onHotkeyButton_<Hotkey::Loop, -1>},
+         onHotkeyButton_<Hotkey::Loop, -1>,
+         onRepeatHotkeyButton_<Hotkey::Loop, -1>},
         {m_configurationButtons.searchPlus,
-         onHotkeyButton_<Hotkey::Search, 1>},
+         onHotkeyButton_<Hotkey::Search, 1>,
+         onRepeatHotkeyButton_<Hotkey::Search, 1>},
         {m_configurationButtons.searchMinus,
-         onHotkeyButton_<Hotkey::Search, -1>},
+         onHotkeyButton_<Hotkey::Search, -1>,
+         onRepeatHotkeyButton_<Hotkey::Search, -1>},
         {m_configurationButtons.stepPlus,
-         onHotkeyButton_<Hotkey::Step, 1>},
+         onHotkeyButton_<Hotkey::Step, 1>,
+         onRepeatHotkeyButton_<Hotkey::Step, 1>},
         {m_configurationButtons.stepMinus,
-         onHotkeyButton_<Hotkey::Step, -1>},
+         onHotkeyButton_<Hotkey::Step, -1>,
+         onRepeatHotkeyButton_<Hotkey::Step, -1>},
     };
     for (const ButtonBinding& binding : bindings) {
-        if (binding.button != nullptr) {
-            binding.button->addPressListenerCallback(this, binding.callback);
+        if (binding.button == nullptr) continue;
+        binding.button->addPressListenerCallback(this, binding.press);
+        if (binding.repeat != nullptr) {
+            binding.button->addProlongedPressListenerCallback(this, binding.repeat);
         }
     }
 }
@@ -239,6 +322,14 @@ void Menu::fireRequest(const Request& request)
 // Dismisses an active message and reports whether the press was consumed
 // doing so. Errors are latched: the press is swallowed but the message
 // stays, locking the keypad until the machine is reset.
+uint16_t Menu::stepScaleForHold(uint32_t heldMs)
+{
+    for (const RepeatStage& stage : kRepeatStages) {
+        if (heldMs >= stage.heldMs) return stage.scale;
+    }
+    return 1U;
+}
+
 bool Menu::acknowledgeMessage()
 {
     if (!isMessageActive()) return false;
@@ -248,98 +339,134 @@ bool Menu::acknowledgeMessage()
     return true;
 }
 
-void Menu::handleUp()
+void Menu::handleUp(const InputEvent& input)
 {
     const Page *page = m_renderer != nullptr
         ? m_renderer->activePage() : nullptr;
-    if (page == &m_nameEntryPage) {
+    if (page == &m_nameEntryPage || page == &m_saveAsPage) {
         changeNameCharacter(1);
     } else if (page == &m_deleteConfirmPage) {
         chooseDeleteAnswer(true);
+    } else if (page == &m_forceMeasurementPage) {
+        adjustForceMeasurement(1, input);
     } else {
         movePointer(-1);
     }
 }
 
-void Menu::handleDown()
+void Menu::handleDown(const InputEvent& input)
 {
     const Page *page = m_renderer != nullptr
         ? m_renderer->activePage() : nullptr;
-    if (page == &m_nameEntryPage) {
+    if (page == &m_nameEntryPage || page == &m_saveAsPage) {
         changeNameCharacter(-1);
     } else if (page == &m_deleteConfirmPage) {
         chooseDeleteAnswer(false);
+    } else if (page == &m_forceMeasurementPage) {
+        adjustForceMeasurement(-1, input);
     } else {
         movePointer(1);
     }
 }
 
-void Menu::handleLeft()
+// Left/Right repeat only where they walk the name cursor. On the parameter
+// page they flip screens and reset the pointer row, and on the selector they
+// reload every stored configuration from EEPROM — neither belongs on a key
+// the operator is holding down. The first press still works everywhere.
+bool Menu::declineCursorRepeat(const InputEvent& input, const Page *page) const
+{
+    return input.repeat && page != &m_nameEntryPage && page != &m_saveAsPage;
+}
+
+void Menu::handleLeft(const InputEvent& input)
 {
     const Page *page = m_renderer != nullptr
         ? m_renderer->activePage() : nullptr;
+    if (declineCursorRepeat(input, page)) return;
+
     if (page == &m_parameterPage) {
         changeParameterScreen(-1);
     } else if (page == &m_configurationSelectPage) {
         fireRequest({RequestType::SelectionProtocolChanged,
                      -1, 0U, 0U, Hotkey::Tail, nullptr});
         resetNavigation();
-    } else if (page == &m_nameEntryPage) {
+    } else if (page == &m_nameEntryPage || page == &m_saveAsPage) {
         moveNameCursor(-1);
     } else if (page == &m_deleteConfirmPage) {
         chooseDeleteAnswer(true);
     }
 }
 
-void Menu::handleRight()
+void Menu::handleRight(const InputEvent& input)
 {
     const Page *page = m_renderer != nullptr
         ? m_renderer->activePage() : nullptr;
+    if (declineCursorRepeat(input, page)) return;
+
     if (page == &m_parameterPage) {
         changeParameterScreen(1);
     } else if (page == &m_configurationSelectPage) {
         fireRequest({RequestType::SelectionProtocolChanged,
                      1, 0U, 0U, Hotkey::Tail, nullptr});
         resetNavigation();
-    } else if (page == &m_nameEntryPage) {
+    } else if (page == &m_nameEntryPage || page == &m_saveAsPage) {
         moveNameCursor(1);
     } else if (page == &m_deleteConfirmPage) {
         chooseDeleteAnswer(false);
     }
 }
 
-void Menu::handlePlus()
+void Menu::handlePlus(const InputEvent& input)
 {
     const Page *page = m_renderer != nullptr
         ? m_renderer->activePage() : nullptr;
     if (page == &m_parameterPage) {
-        adjustParameter(1);
-    } else if (page == &m_nameEntryPage) {
+        adjustParameter(1, input);
+    } else if (page == &m_nameEntryPage || page == &m_saveAsPage) {
         changeNameCharacter(1);
+    } else if (page == &m_settingsPage) {
+        adjustSetting(1, input);
+    } else if (page == &m_forceMeasurementPage) {
+        adjustForceMeasurement(1, input);
     }
 }
 
-void Menu::handleMinus()
+void Menu::handleMinus(const InputEvent& input)
 {
     const Page *page = m_renderer != nullptr
         ? m_renderer->activePage() : nullptr;
     if (page == &m_parameterPage) {
-        adjustParameter(-1);
-    } else if (page == &m_nameEntryPage) {
+        adjustParameter(-1, input);
+    } else if (page == &m_nameEntryPage || page == &m_saveAsPage) {
         changeNameCharacter(-1);
+    } else if (page == &m_settingsPage) {
+        adjustSetting(-1, input);
+    } else if (page == &m_forceMeasurementPage) {
+        adjustForceMeasurement(-1, input);
     }
 }
 
-void Menu::handleSave()
+void Menu::handleSave(const InputEvent& input)
 {
-    if (m_renderer == nullptr ||
-        m_renderer->activePage() != &m_parameterPage) return;
-    fireRequest({RequestType::SaveConfiguration,
-                 0, 0U, 0U, Hotkey::Tail, nullptr});
+    (void)input;  // press-only button
+    const Page *page = m_renderer != nullptr
+        ? m_renderer->activePage() : nullptr;
+    if (page == &m_parameterPage) {
+        fireRequest({RequestType::SaveConfiguration,
+                     0, 0U, 0U, Hotkey::Tail, nullptr});
+    } else if (page == &m_configurationSelectPage) {
+        beginSettings();
+    } else if (page == &m_settingsPage) {
+        fireRequest({RequestType::SaveSettings,
+                     0, 0U, 0U, Hotkey::Tail, nullptr});
+    } else if (page == &m_forceMeasurementPage) {
+        submitForceMeasurement();
+    }
 }
 
-void Menu::handleLoad()
+void Menu::handleLoad(const InputEvent& input)
 {
+    (void)input;  // press-only button
     const Page *page = m_renderer != nullptr
         ? m_renderer->activePage() : nullptr;
     if (page == &m_parameterPage) {
@@ -349,57 +476,77 @@ void Menu::handleLoad()
     }
 }
 
-void Menu::handleEnter()
+void Menu::handleEnter(const InputEvent& input)
 {
+    (void)input;  // press-only button
     const Page *page = m_renderer != nullptr
         ? m_renderer->activePage() : nullptr;
     if (page == &m_configurationSelectPage) {
         loadPointedConfiguration();
     } else if (page == &m_nameEntryPage) {
         submitNewConfiguration();
+    } else if (page == &m_saveAsPage) {
+        submitSaveAs();
     } else if (page == &m_deleteConfirmPage) {
         submitDeleteConfirmation();
+    } else if (page == &m_forceMeasurementPage) {
+        submitForceMeasurement();
+    } else if (page == &m_settingsPage && m_pointerRow == kSettingsSpotOnRow) {
+        fireRequest({RequestType::ToggleSpotlight,
+                     0, 0U, 0U, Hotkey::Tail, nullptr});
+    } else if (page == &m_settingsPage && m_pointerRow == kSettingsTachCalRow) {
+        fireRequest({RequestType::StartTachCal,
+                     0, 0U, 0U, Hotkey::Tail, nullptr});
     }
 }
 
-void Menu::handleAdd()
+void Menu::handleAdd(const InputEvent& input)
 {
+    (void)input;  // press-only button
     const Page *page = m_renderer != nullptr
         ? m_renderer->activePage() : nullptr;
-    if (page == &m_parameterPage || page == &m_configurationSelectPage) {
+    if (page == &m_configurationSelectPage) {
         beginNameEditor();
     }
 }
 
-void Menu::handleEscapeDelete()
+void Menu::handleEscapeDelete(const InputEvent& input)
 {
+    (void)input;  // press-only button
     const Page *page = m_renderer != nullptr
         ? m_renderer->activePage() : nullptr;
     if (page == &m_parameterPage) {
         beginSelection();
     } else if (page == &m_configurationSelectPage) {
         beginDeleteConfirmation();
-    } else if (page == &m_nameEntryPage ||
-               page == &m_deleteConfirmPage) {
+    } else if (page == &m_nameEntryPage || page == &m_deleteConfirmPage) {
         showPage(&m_configurationSelectPage);
+    } else if (page == &m_saveAsPage) {
+        showPage(&m_parameterPage);
+    } else if (page == &m_settingsPage) {
+        showPage(&m_configurationSelectPage);
+    } else if (page == &m_forceMeasurementPage) {
+        leaveForceMeasurement();
     }
 }
 
-void Menu::adjustParameter(int8_t sign)
+void Menu::adjustParameter(int8_t sign, const InputEvent& input)
 {
     if (m_renderer == nullptr ||
         m_renderer->activePage() != &m_parameterPage ||
         m_pointerRow == PageRenderer::kNoPointer) return;
     fireRequest({RequestType::AdjustParameter, sign, m_parameterScreen,
                  static_cast<uint8_t>(m_pointerRow - 1U),
-                 Hotkey::Tail, nullptr});
+                 Hotkey::Tail, nullptr, 0.0f,
+                 input.repeat, input.stepScale});
 }
 
-void Menu::adjustHotkey(Hotkey hotkey, int8_t sign)
+void Menu::adjustHotkey(Hotkey hotkey, int8_t sign, const InputEvent& input)
 {
     if (m_renderer == nullptr ||
         m_renderer->activePage() != &m_parameterPage) return;
-    fireRequest({RequestType::AdjustHotkey, sign, 0U, 0U, hotkey, nullptr});
+    fireRequest({RequestType::AdjustHotkey, sign, 0U, 0U, hotkey, nullptr, 0.0f,
+                 input.repeat, input.stepScale});
 }
 
 void Menu::beginSelection()
@@ -412,13 +559,97 @@ void Menu::beginSelection()
 void Menu::beginNameEditor()
 {
     std::memset(m_newName, ' ', kEditableNameLength);
-    constexpr char initialName[] = "NEW CONFIG";
+    constexpr char initialName[] = "NEWCONFIG";
     std::memcpy(m_newName, initialName, sizeof(initialName) - 1U);
     m_newName[kEditableNameLength] = '\0';
     m_nameCursor = 0U;
     setNameEntryText(m_newName);
     setNameEntryCursor(m_nameCursor);
     showPage(&m_nameEntryPage);
+}
+
+void Menu::beginSaveAs()
+{
+    std::memset(m_newName, ' ', kEditableNameLength);
+    constexpr char initialName[] = "NEWCONFIG";
+    std::memcpy(m_newName, initialName, sizeof(initialName) - 1U);
+    m_newName[kEditableNameLength] = '\0';
+    m_nameCursor = 0U;
+    setSaveAsText(m_newName);
+    setSaveAsCursor(m_nameCursor);
+    showPage(&m_saveAsPage);
+}
+
+void Menu::promptSaveAsName()
+{
+    beginSaveAs();
+}
+
+void Menu::beginSettings()
+{
+    showPage(&m_settingsPage);
+}
+
+void Menu::adjustSetting(int8_t sign, const InputEvent& input)
+{
+    if (m_renderer == nullptr ||
+        m_renderer->activePage() != &m_settingsPage ||
+        m_pointerRow == PageRenderer::kNoPointer ||
+        m_pointerRow > kSettingsLevelRowCount) return;  // action rows: Enter only
+    fireRequest({RequestType::AdjustSetting, sign, 0U,
+                 static_cast<uint8_t>(m_pointerRow - 1U),
+                 Hotkey::Tail, nullptr, 0.0f,
+                 input.repeat, input.stepScale});
+}
+
+void Menu::promptForceMeasurement(float initialGrams)
+{
+    if (m_renderer == nullptr) return;
+
+    // The prompt is raised right after the Setup protocol reports completion,
+    // so the notification for it is usually still up and activePage() is the
+    // message page. What has to come back on submit/Escape is the page the
+    // message will restore to, not the message itself.
+    m_pageBeforeForceMeasurement = isMessageActive()
+        ? m_pageBeforeMessage
+        : m_renderer->activePage();
+
+    m_forceMeasurementValue.setValue(initialGrams);
+    showPage(&m_forceMeasurementPage);
+}
+
+// The measured force never leaves the menu until it is submitted, so the hold
+// scaling is applied here rather than travelling through a Request.
+void Menu::adjustForceMeasurement(int8_t sign, const InputEvent& input)
+{
+    float value = m_forceMeasurementValue.value() +
+        static_cast<float>(sign) * static_cast<float>(input.stepScale) *
+        FORCE_SETUP_MEASURED_FORCE_STEP;
+    if (value < FORCE_SETUP_MEASURED_FORCE_MIN) {
+        value = FORCE_SETUP_MEASURED_FORCE_MIN;
+    }
+    if (value > FORCE_SETUP_MEASURED_FORCE_MAX) {
+        value = FORCE_SETUP_MEASURED_FORCE_MAX;
+    }
+    m_forceMeasurementValue.setValue(value);
+}
+
+void Menu::submitForceMeasurement()
+{
+    Request request{RequestType::SaveForceMeasurement,
+                    0, 0U, 0U, Hotkey::Tail, nullptr,
+                    m_forceMeasurementValue.value()};
+    fireRequest(request);
+    leaveForceMeasurement();
+}
+
+void Menu::leaveForceMeasurement()
+{
+    Page *restore = m_pageBeforeForceMeasurement != nullptr
+        ? m_pageBeforeForceMeasurement
+        : &m_configurationSelectPage;
+    m_pageBeforeForceMeasurement = nullptr;
+    showPage(restore);
 }
 
 void Menu::beginDeleteConfirmation()
@@ -438,7 +669,11 @@ void Menu::moveNameCursor(int delta)
     if (cursor < 0) cursor = 0;
     if (cursor >= kEditableNameLength) cursor = kEditableNameLength - 1;
     m_nameCursor = static_cast<uint8_t>(cursor);
-    setNameEntryCursor(m_nameCursor);
+    if (m_renderer != nullptr && m_renderer->activePage() == &m_saveAsPage) {
+        setSaveAsCursor(m_nameCursor);
+    } else {
+        setNameEntryCursor(m_nameCursor);
+    }
 }
 
 void Menu::changeNameCharacter(int delta)
@@ -454,7 +689,11 @@ void Menu::changeNameCharacter(int delta)
     }
     current = (current + characterCount + delta) % characterCount;
     m_newName[m_nameCursor] = kNameCharacters[current];
-    setNameEntryText(m_newName);
+    if (m_renderer != nullptr && m_renderer->activePage() == &m_saveAsPage) {
+        setSaveAsText(m_newName);
+    } else {
+        setNameEntryText(m_newName);
+    }
 }
 
 void Menu::chooseDeleteAnswer(bool yes)
@@ -490,6 +729,19 @@ void Menu::submitNewConfiguration()
     if (m_newName[0] == '\0') return;
 
     fireRequest({RequestType::AddConfiguration,
+                 0, 0U, 0U, Hotkey::Tail, m_newName});
+    showPage(&m_parameterPage);
+}
+
+void Menu::submitSaveAs()
+{
+    // Trim trailing spaces before handing the name over.
+    int end = kEditableNameLength - 1;
+    while (end >= 0 && m_newName[end] == ' ') --end;
+    m_newName[end + 1] = '\0';
+    if (m_newName[0] == '\0') return;
+
+    fireRequest({RequestType::SaveConfigurationAs,
                  0, 0U, 0U, Hotkey::Tail, m_newName});
     showPage(&m_parameterPage);
 }
@@ -550,18 +802,43 @@ void Menu::showMessagePage(const char *message, MessageKind kind)
 
     if (kind == MessageKind::Error) {
         m_messageRows[0].setText("ERROR");
-        m_messageRows[1].setText(message);
+        layoutMessageRows(message, 1U);
     } else if (kind == MessageKind::Warning) {
         m_messageRows[0].setText("WARNING");
-        m_messageRows[1].setText(message);
+        layoutMessageRows(message, 1U);
     } else {
-        m_messageRows[0].setText(message);
-        m_messageRows[1].setText("");
-    }
-    for (uint8_t row = 2U; row < kMessageRowCount; ++row) {
-        m_messageRows[row].setText("");
+        layoutMessageRows(message, 0U);
     }
     presentMessagePage(kind);
+}
+
+void Menu::layoutMessageRows(const char *message, uint8_t startRow)
+{
+    uint8_t row = startRow;
+    const char *line = message;
+    while (line != nullptr && row < kMessageRowCount) {
+        const char *lineEnd = strchr(line, '\n');
+        if (lineEnd == nullptr) {
+            m_messageRows[row].setText(line);
+            line = nullptr;
+        } else {
+            // setText needs a terminated string, so copy the line out;
+            // anything past the row width is dropped by the widget.
+            char buffer[TextWidget::kMaxTextLength + 1U];
+            size_t length = static_cast<size_t>(lineEnd - line);
+            if (length > TextWidget::kMaxTextLength) {
+                length = TextWidget::kMaxTextLength;
+            }
+            memcpy(buffer, line, length);
+            buffer[length] = '\0';
+            m_messageRows[row].setText(buffer);
+            line = lineEnd + 1;
+        }
+        ++row;
+    }
+    for (; row < kMessageRowCount; ++row) {
+        m_messageRows[row].setText("");
+    }
 }
 
 void Menu::presentMessagePage(MessageKind kind)
@@ -635,6 +912,9 @@ uint8_t Menu::selectableRowCount() const
         }
         return count;
     }
+    if (page == &m_settingsPage) {
+        return kSettingsRowCount;
+    }
     return 0U;
 }
 
@@ -686,13 +966,14 @@ void Menu::changeParameterScreen(int delta)
 void Menu::scrollWindowToPointer()
 {
     if (m_pointerRow == PageRenderer::kNoPointer) return;
-    uint8_t windowStart = m_renderer->windowStart();
-    if (m_pointerRow < windowStart) {
-        windowStart = m_pointerRow;
-    } else if (m_pointerRow >= windowStart + PageRenderer::kVisibleRows) {
-        windowStart = static_cast<uint8_t>(
-            m_pointerRow - (PageRenderer::kVisibleRows - 1U));
-    }
+
+    // Recomputed from pointerRow alone (not the previous windowStart) so the
+    // header row reappears once the pointer scrolls back within the first
+    // window, regardless of how far down it had previously scrolled.
+    const uint8_t windowStart = m_pointerRow < PageRenderer::kVisibleRows
+        ? 0U
+        : static_cast<uint8_t>(
+              m_pointerRow - (PageRenderer::kVisibleRows - 1U));
     m_renderer->setWindowStart(windowStart);
 }
 
@@ -758,7 +1039,8 @@ void Menu::refillParameterPage()
             float value;
             std::memcpy(&value, base + descriptor->offset, sizeof(value));
             setFloatParameterRow(row, name,
-                value * descriptor->scale + descriptor->displayOffset);
+                value * descriptor->scale + descriptor->displayOffset,
+                ConfigurationParameterCatalog::displayDecimals(descriptor));
         }
     }
 
@@ -770,10 +1052,12 @@ void Menu::refillParameterPage()
     }
 }
 
-void Menu::setFloatParameterRow(uint8_t row, const char *name, float value)
+void Menu::setFloatParameterRow(uint8_t row, const char *name, float value,
+                                uint8_t decimals)
 {
     if (row >= kParameterRowCount) return;
     m_parameterNames[row].setText(name);
+    m_parameterFloatValues[row].setDecimals(decimals);
     m_parameterFloatValues[row].setValue(value);
     m_parameterFloatValues[row].setVisible(true);
     m_parameterIntegerValues[row].setVisible(false);
@@ -846,6 +1130,37 @@ void Menu::setNameEntryCursor(uint8_t position)
         text[1U + position] = '^';
     }
     m_nameEntryCursor.setText(text);
+}
+
+void Menu::setSaveAsText(const char *name)
+{
+    char text[21];
+    snprintf(text, sizeof(text), "[%-10.10s]",
+             name != nullptr ? name : "");
+    m_saveAsName.setText(text);
+}
+
+void Menu::setSaveAsCursor(uint8_t position)
+{
+    // The caret sits under the bracketed name; column 0 holds '['.
+    char text[21];
+    std::memset(text, ' ', 20U);
+    text[20] = '\0';
+    if (position < 10U) {
+        text[1U + position] = '^';
+    }
+    m_saveAsCursor.setText(text);
+}
+
+void Menu::setSettingsValues(const MachineSettingsData& data)
+{
+    m_settingsValues[0].setValue(data.clampSolenoidVoltage);
+    m_settingsValues[1].setValue(data.areaLightLevel);
+    m_settingsValues[2].setValue(data.spotlightLevel);
+    m_settingsValues[3].setValue(data.zMotorMaxUpwardSpeed);
+    m_settingsValues[4].setValue(data.zMotorMaxDownwardSpeed);
+    m_settingsValues[5].setValue(data.forceSetupTrackingForce);
+    m_settingsSpotlightOnValue.setText(data.spotlightOn ? "On" : "Off");
 }
 
 void Menu::setDeleteTarget(const char *name)

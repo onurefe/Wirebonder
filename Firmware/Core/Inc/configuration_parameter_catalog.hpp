@@ -24,7 +24,6 @@ public:
         Tear,
         ResetHeight,
         Overtravel,
-        ManualZRate,
         SecondZHeight,
         TableTail,
         TableTear,
@@ -49,14 +48,14 @@ public:
         float displayOffset;  // raw     = (display - displayOffset) / scale
         float minDisplay;
         float maxDisplay;
-        float stepDisplay;    // +/- press size, in display units (float params only)
+        float stepDisplay;    // +/- press size, in display units (whole numbers for integer params)
         uint8_t screenIndex;
         bool isInteger;
         uint8_t modeMask;
     };
 
     static constexpr uint8_t kScreenCount = 6U;
-    static constexpr uint8_t kParameterCount = 32U;
+    static constexpr uint8_t kParameterCount = 31U;
 
     static uint8_t screenParameterCount(uint8_t screen, BondingMode mode);
     static const Descriptor *at(uint8_t screen,
@@ -64,6 +63,9 @@ public:
                                 BondingMode mode);
     static const Descriptor *byOffset(uint16_t offset);
     static bool isAvailable(const Descriptor *descriptor, BondingMode mode);
+    // Digits after the point, derived from the step: showing more than a
+    // press can change is noise, showing fewer hides the press entirely.
+    static uint8_t displayDecimals(const Descriptor *descriptor);
 
 private:
     static uint8_t modeBit(BondingMode mode);

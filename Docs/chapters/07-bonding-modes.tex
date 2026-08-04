@@ -1,0 +1,164 @@
+\chapter{Bonding Modes}
+\label{ch:modes}
+
+The machine has four bonding modes. All four make two welds and a loop; they
+differ in who controls the descent and how the wire is torn.
+
+You choose a mode by choosing a configuration --- each configuration belongs to
+one mode. Switch modes with $\leftarrow$ and $\rightarrow$ on the configuration
+list, or press \keycap{MANUAL} to jump straight to Manual.
+
+\section{Choosing a mode}
+
+\begin{center}\small
+\begin{tabular}{@{}L{24mm}L{24mm}L{24mm}L{44mm}@{}}
+\toprule
+\textbf{Mode} & \textbf{Descent} & \textbf{Tear by} & \textbf{Use it for} \\
+\midrule
+Semi Auto  & automatic & T axis & Normal production work \\
+Manual     & you drive & T axis & Setting up, awkward geometry, one-offs \\
+Table Tear & automatic & Y stage & Work where the T axis cannot reach \\
+Lange Cplr & automatic & T axis & Bonds needing a drag into the second weld \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Semi Auto}
+
+The reference mode. You trigger each of the two bonds; everything else is
+automatic.
+
+\subsection*{First bond}
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Press and hold} the right mouse button. The machine loads
+  tracking force and moves the head to \menuitem{Search 1}.
+\item \textbf{Release}. The head descends toward \menuitem{Overtravel} under
+  the light constant force, stopping when it touches the pad.
+\item The machine waits \menuitem{Contact Stl}, ramps to \menuitem{Force 1 G},
+  waits again, then finds resonance and delivers \menuitem{Energy 1} at
+  \menuitem{Power 1}.
+\item Force drops back to constant and the machine waits \menuitem{Cooling}.
+\end{enumerate}
+
+\subsection*{Loop}
+
+\begin{enumerate}[leftmargin=*,resume]
+\item The clamp opens and the head rises to \menuitem{Kink Height}, forming the
+  kink. It waits for the wire to release.
+\item The T axis feeds \menuitem{Tail} of wire.
+\item The Y stage backs off by \menuitem{Reverse}.
+\item The head rises to \menuitem{Loop Height} and waits for you --- for as
+  long as you need. The clamp stays open while it waits, so the wire is never
+  held rigid.
+\end{enumerate}
+
+\subsection*{Second bond}
+
+\begin{enumerate}[leftmargin=*,resume]
+\item \textbf{Press and hold} the right button again. The clamp pulses closed
+  and open to take up slack. The head moves to \menuitem{Search 2} and the
+  stage to \menuitem{Stepback}.
+\item \textbf{Release}. The head descends and touches down.
+\item Settle, ramp to \menuitem{Force 2 G}, settle, then \menuitem{Energy 2} at
+  \menuitem{Power 2}. Cool.
+\end{enumerate}
+
+\subsection*{Tear and tail}
+
+\begin{enumerate}[leftmargin=*,resume]
+\item The clamp closes and the T axis moves \menuitem{Tear}, breaking the wire.
+\item The head returns to \menuitem{Reset Height} and waits
+  \menuitem{Tail Delay}.
+\item The T axis returns to its origin while a burst of \menuitem{Tail Energy}
+  at \menuitem{Tail Power} assists the wire feed, forming the fresh tail.
+\item The stage returns to its origin. The cycle is over.
+\end{enumerate}
+
+\section{Manual}
+
+You drive the descents yourself with the mouse buttons. Use it when the
+automatic search cannot be trusted --- unusual heights, delicate parts, or
+while setting a job up.
+
+\begin{center}\small
+\begin{tabular}{@{}L{26mm}L{95mm}@{}}
+\toprule
+\textbf{Button} & \textbf{Action} \\
+\midrule
+Left held  & Head moves down \\
+Right held & Head moves up \\
+Neither    & Head stops where it is \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The rest of the cycle --- the settle, the weld, the kink, the tail, the tear
+--- runs automatically exactly as in Semi Auto.
+
+Differences from Semi Auto:
+
+\begin{itemize}[leftmargin=*]
+\item \menuitem{Search 1}, \menuitem{Search 2}, \menuitem{Stepback} and
+  \menuitem{Overtravel} are hidden --- you are the search.
+\item The Y stage makes a single kink stroke: it backs off by
+  \menuitem{Reverse} at the very start of the cycle and returns to its origin
+  at the kink, rather than backing off after the kink.
+\item There is no clamp slack pulse before the second bond.
+\end{itemize}
+
+\begin{wbwarning}
+In Manual mode nothing limits how far down you drive the head except the end of
+its travel. Lower it gently and watch the work.
+\end{wbwarning}
+
+\section{Table Tear}
+
+Identical to Semi Auto up to the end of the second weld. The T axis then stays
+still and the Y stage forms and tears the tail instead.
+
+\begin{enumerate}[leftmargin=*]
+\item After the second weld, the head moves to \menuitem{Second Z Hgt} and
+  waits for the wire to release.
+\item The stage moves to \menuitem{Table Tail}, forming the tail.
+\item The clamp closes.
+\item The stage moves to \menuitem{Table Tear}, tearing the wire.
+\item The machine waits \menuitem{Tear Stabil}, then the stage and head return
+  together.
+\end{enumerate}
+
+\begin{wbnote}
+\menuitem{Table Tail} and \menuitem{Table Tear} are absolute stage positions,
+unlike \menuitem{Tail} and \menuitem{Tear} which are relative travels. Setting
+them is therefore more direct: the numbers mean where the stage goes, not how
+far it moves.
+\end{wbnote}
+
+There is no ultrasonic tail assist in this mode --- ultrasonics are used only
+for the two welds.
+
+\section{Lange Cplr}
+
+Semi Auto with two changes, for bonds that need the tool to drag as it lands:
+
+\begin{itemize}[leftmargin=*]
+\item After the kink, the stage does \emph{not} back off. The head goes
+  straight from \menuitem{Kink Height} to \menuitem{Loop Height}.
+\item During the second-bond descent, the stage moves by \menuitem{Reverse}
+  \emph{at the same time} as the head comes down, so the tool scrubs into
+  position as it lands.
+\end{itemize}
+
+Everything else --- the triggers, the welds, the T-axis tear, the tail assist
+--- is as Semi Auto.
+
+\TODO{Describe when Lange Coupling is the right choice in this shop's work,
+with an example device or geometry, and give a starting value for
+\menuitem{Reverse} in that mode. The firmware defaults \menuitem{Reverse} to
+zero, which makes Lange Coupling behave almost identically to Semi Auto until
+somebody sets it.}
+
+\section{What each mode shows}
+
+The parameter screens change with the mode --- a parameter the mode cannot use
+is hidden rather than shown and ignored. See Appendix~\ref{app:defaults}.

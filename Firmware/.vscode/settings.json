@@ -9,10 +9,10 @@
         "*.hpp": "cpp"
     },
     "cmake.configureArgs": [
-        "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/cmake/arm-none-eabi.cmake",
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
     ],
     "cmake.buildDirectory": "${workspaceFolder}/build",
     "cmake.generator": "Unix Makefiles",
+    "cmake.kit": "ARM GCC (arm-none-eabi)",
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
 }

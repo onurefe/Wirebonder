@@ -1,0 +1,87 @@
+\chapter{Powering Up}
+\label{ch:powerup}
+
+\begin{wbwarning}
+The machine begins moving on its own as soon as it is switched on. Clear the
+stage and keep hands away before applying power.
+\end{wbwarning}
+
+\section{What you will see}
+
+The configuration list appears first, then the machine reports two operations
+in turn:
+
+\begin{enumerate}[leftmargin=*]
+\item \msg{HOMING} --- \msg{STARTED}. The Y stage travels to find its limit
+  switch. If the switch is already made, the stage first backs off and
+  approaches again, so the reference is always taken from the same direction.
+\item \msg{HOMING} --- \msg{OPERATION SUCCEEDED}.
+\item \msg{BONDER INIT} --- \msg{STARTED}. The bond head initialises.
+\item \msg{BONDER INIT} --- \msg{OPERATION SUCCEEDED}.
+\end{enumerate}
+
+The machine is then ready. Load a configuration and you can bond.
+
+\begin{wbnote}
+Only the Y axis is homed. Z measures its height absolutely and needs no
+reference, and the T axis works in relative moves throughout.
+\end{wbnote}
+
+\section{If homing fails}
+
+Homing and initialisation are the two operations the machine treats as
+critical. If either fails you will see:
+
+\begin{lcdscreen}
+\begin{lcdverb}
+ERROR
+HOMING
+ERROR SYSTEM LOCKED
+\end{lcdverb}
+\end{lcdscreen}
+
+The machine will not move and the keypad is locked. This is deliberate --- a
+machine that does not know where its stage is must not travel.
+
+\begin{enumerate}[leftmargin=*]
+\item Check that nothing is obstructing the Y stage.
+\item Remove anything resting on the stage or in its path.
+\item Press \keycap{RESET} to restart and home again.
+\end{enumerate}
+
+If it fails repeatedly with a clear path, the limit switch or its wiring needs
+service.
+
+\section{What is remembered between sessions}
+
+\begin{center}\small
+\begin{tabular}{@{}L{50mm}L{72mm}@{}}
+\toprule
+\textbf{Remembered} & \textbf{Not remembered} \\
+\midrule
+All saved configurations & Which configuration was loaded --- the machine
+                           starts at the list \\
+The Settings page, once saved & Unsaved parameter edits \\
+The force offset from \keycap{SETUP} & The area light on/off state \\
+The tachometer offset & Clamp open/closed state \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{wbwarning}
+Parameter edits are lost at power-down unless you press \keycap{SAVE}. The same
+applies to the Settings page. If you have spent time developing a recipe, save
+it before switching off.
+\end{wbwarning}
+
+\section{Starting work}
+
+\begin{enumerate}[leftmargin=*]
+\item Wait for homing and initialisation to finish.
+\item On the configuration list, use $\leftarrow$ and $\rightarrow$ to pick the
+  bonding mode you want.
+\item Move the \texttt{*} to your configuration and press \keycap{ENTER}.
+\item Check the parameters on the six screens.
+\item Press \keycap{TEST} to confirm the transducer is healthy.
+\item Bond a test piece before starting production.
+\end{enumerate}

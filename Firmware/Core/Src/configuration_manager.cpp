@@ -16,25 +16,28 @@ bool ConfigurationManager::initialize()
     m_count = 0U;
     m_ready = false;
 
-    // New configuration fields are appended to BonderConfig. Accept both
-    // earlier prefix-only record sizes; value-initializing StoredRecord below
-    // supplies defaults for fields absent from an older record. A later save
-    // writes the current full record format.
-    constexpr uint32_t kLegacyStoredRecordSize =
+    // New configuration fields are only ever appended to BonderConfig, so any
+    // record written by an earlier firmware is a valid prefix of the current
+    // one: accept every length from the oldest known layout up to the current
+    // full record. loadObject() copies just the stored bytes, and the
+    // value-initialized StoredRecord below leaves BonderConfig's default
+    // member initializers in place for whatever the record is missing. A
+    // later save rewrites it in the current format.
+    //
+    // Anchored on a field rather than a literal so the bound tracks the
+    // struct; pinning it to a named field that could later be removed is what
+    // made this check brittle before.
+    constexpr uint32_t kOldestStoredRecordSize =
         offsetof(StoredRecord, config) +
         offsetof(BonderConfig, tailAssistPower);
-    constexpr uint32_t kTailAssistStoredRecordSize =
-        offsetof(StoredRecord, config) +
-        offsetof(BonderConfig, forceSetupDuration);
 
     EepromEmulator::ObjectCursor cursor = m_eeprom->beginObjectEnumeration();
     EepromEmulator::ObjectInfo info{};
     while (m_eeprom->getNextObject(cursor, info)) {
         if (info.id < kObjectIdBase ||
             info.id >= kObjectIdBase + kMaxConfigurations ||
-            (info.length != sizeof(StoredRecord) &&
-             info.length != kTailAssistStoredRecordSize &&
-             info.length != kLegacyStoredRecordSize)) {
+            info.length < kOldestStoredRecordSize ||
+            info.length > sizeof(StoredRecord)) {
             continue;
         }
         StoredRecord record{};

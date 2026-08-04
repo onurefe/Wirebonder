@@ -34,17 +34,12 @@ struct BonderConfig {
     float kinkHeight                    = BONDER_MODULE_DEFAULT_KINK_HEIGHT;
     float lowestOvertravel              = BONDER_MODULE_DEFAULT_LOWEST_OVERTRAVEL;
 
-    // Manual-mode Z jog rate (mm/s), applied while a mouse button is held.
-    float manualLevelingRate            = BONDER_MODULE_DEFAULT_MANUAL_LEVELING_RATE;
-
     // Table-tear mode: Z height held while the Y-axis forms and tears the tail.
     float secondZHeight                 = BONDER_MODULE_DEFAULT_SECOND_Z_HEIGHT;
 
-    // Signed T-axis displacement from the router origin (T=0), entered
-    // directly rather than centered by BonderModule -- tail and tear are
-    // typically opposite-signed so the T axis travels symmetrically on
-    // either side of zero, but nothing enforces that; it's just where each
-    // move (Opcode::TMOVE) goes.
+    // Non-negative T-axis travel added to wherever the axis sits when each
+    // move (Opcode::TMOVE) starts -- the tear move's actual endpoint depends
+    // on where the tail move left the axis, not a fixed T coordinate.
     float tailDisplacement              = BONDER_MODULE_DEFAULT_TAIL_DISPLACEMENT;
     float tearDisplacement              = BONDER_MODULE_DEFAULT_TEAR_DISPLACEMENT;
     // Magnitude moved in the negative Y direction from wherever the axis
@@ -79,7 +74,13 @@ struct BonderConfig {
     float tailAssistPower             = BONDER_MODULE_DEFAULT_TAIL_ASSIST_POWER;
     float tailAssistEnergy            = BONDER_MODULE_DEFAULT_TAIL_ASSIST_ENERGY;
 
-    // Fixed-duration force measurement used by the Setup protocol. Kept out
-    // of the normal configuration editor, but persisted with the profile.
-    float forceSetupDuration          = BONDER_MODULE_DEFAULT_FORCE_SETUP_DURATION;
+    // Machine-wide values mirrored in from MachineSettingsData rather than
+    // edited or owned per profile: Robot stamps both on the copy it hands to
+    // BonderModule::configure() (see Robot::configureBonderModule()), so
+    // whatever a persisted record happens to carry here is always
+    // overwritten before the VM can read it. They live in BonderConfig
+    // because protocol operands are BonderConfig member pointers and the
+    // force correction is applied against m_config.
+    float forceSetupTrackingForce     = FORCE_SETUP_TRACKING_FORCE_DEFAULT;
+    float forceCoilForceOffset        = FORCE_COIL_FORCE_OFFSET_DEFAULT;
 };

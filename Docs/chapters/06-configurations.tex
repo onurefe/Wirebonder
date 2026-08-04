@@ -1,0 +1,92 @@
+\chapter{Configurations}
+\label{ch:configurations}
+
+A configuration is a named recipe --- one complete set of the 31 bonding
+parameters. You will normally keep one per job: per wire type, per device, per
+pad metallisation.
+
+The machine stores up to 32 configurations in total.
+
+\section{Configurations belong to a mode}
+
+Each configuration belongs to one bonding mode, and the list only shows the
+configurations for the mode you are viewing. Use $\leftarrow$ and $\rightarrow$
+on the configuration list to switch modes.
+
+\begin{wbnote}
+This means a Semi Auto recipe and a Manual recipe can share a name without
+clashing --- they are different configurations in different lists.
+\end{wbnote}
+
+\section{DEFAULT}
+
+Every mode has a configuration called \menuitem{DEFAULT}, created automatically
+the first time the machine runs. It is your fallback.
+
+\begin{wbnote}
+\menuitem{DEFAULT} cannot be deleted --- the machine answers
+\msg{Cannot delete DEFAULT} --- and pressing \keycap{SAVE} while it is loaded
+opens Save As instead of overwriting it. This is deliberate: it guarantees
+there is always one known-good starting point to fall back to.
+\end{wbnote}
+
+To use \menuitem{DEFAULT} as a starting point, load it, make your changes, then
+press \keycap{SAVE} and give the result a new name.
+
+\section{Creating a configuration}
+
+\begin{enumerate}[leftmargin=*]
+\item From the configuration list, select the mode you want with $\leftarrow$
+  and $\rightarrow$.
+\item Press \keycap{ADD}.
+\item Type a name and press \keycap{ENTER}.
+\end{enumerate}
+
+The new configuration is created with factory default values
+(Appendix~\ref{app:defaults}) and loaded ready for editing.
+
+\section{Loading}
+
+Move the \texttt{*} to the configuration you want and press \keycap{ENTER} or
+\keycap{LOAD}. The parameter editor opens with it loaded.
+
+\section{Saving}
+
+Press \keycap{SAVE} on the Parameter Edit page. The machine confirms with
+\msg{Configuration saved}.
+
+\begin{wbwarning}
+Nothing is saved automatically. Edits live only in memory until you press
+\keycap{SAVE}, and are lost at power-down. Loading another configuration
+discards them too, without warning.
+\end{wbwarning}
+
+If the loaded configuration is \menuitem{DEFAULT}, \keycap{SAVE} opens Save As
+so you can store the result under a new name.
+
+\section{Deleting}
+
+From the configuration list, move the \texttt{*} to the configuration and press
+\keycap{ESC/DEL}. Answer \menuitem{Y} and press \keycap{ENTER}.
+
+\begin{wbwarning}
+There is no undo. A deleted configuration is gone.
+\end{wbwarning}
+
+\section{When storage is full}
+
+With 32 configurations stored, creating another fails with \msg{Add failed} and
+saving a new name fails with \msg{Save failed}. Delete something you no longer
+need.
+
+\TODO{If a house convention for naming configurations exists --- by wire
+diameter, device type, customer or job number --- describe it here, with
+worked examples. A consistent scheme matters because names are limited to ten
+characters.}
+
+\section{Recommended practice}
+
+\TODO{Write the site's recipe-control practice: who is permitted to change a
+qualified configuration, how changes are recorded, how a recipe is re-qualified
+after a tool or wire change, and how configurations are backed up given that
+the machine has no export function.}

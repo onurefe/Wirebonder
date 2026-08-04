@@ -1,0 +1,185 @@
+% Bonding parameter reference -- all 31 parameters, grouped by the six
+% Parameter Edit screens.
+%
+% DERIVED FROM FIRMWARE. Refresh against:
+%   Firmware/Core/Src/configuration_parameter_catalog.cpp  (screen, mode mask, scale)
+%   Firmware/Core/Inc/configuration.h                      (min/max/step, defaults)
+%   Firmware/Core/Src/menu.cpp                             (display names)
+%   Firmware/Core/Inc/bonder_config.hpp                    (field -> default mapping)
+%
+% Min/max/step/default are DISPLAY values (raw * scale). Power, energy and
+% timing are stored in SI (W, J, s) and shown in mW, mJ, ms.
+%
+% Mode column: S = Semi Auto, M = Manual, T = Table Tear, L = Lange Cplr.
+% A parameter not available in the active mode is hidden from its screen.
+
+\newcommand{\ptable}[1]{%
+  \begin{center}\small
+  \begin{tabular}{@{}L{28mm}L{10mm}R{16mm}R{16mm}R{13mm}R{16mm}L{16mm}@{}}
+  \toprule
+  \textbf{Name} & \textbf{Unit} & \textbf{Minimum} & \textbf{Maximum} &
+  \textbf{Step} & \textbf{Default} & \textbf{Modes} \\
+  \midrule
+  #1
+  \bottomrule
+  \end{tabular}
+  \end{center}}
+
+% ------------------------------------------------------------- screen 1/6 --
+
+\subsection*{Screen 1/6 --- First bond}
+
+\ptable{
+\menuitem{Search 1}  & mm & 0.00 & 20.00 & 0.01 & 3.50 & S \ T \ L \\
+\menuitem{Power 1}   & mW & 0    & 1000  & 10   & 500  & all \\
+\menuitem{Energy 1}  & mJ & 0    & 1000  & 1    & 50   & all \\
+\menuitem{Force 1 G} & g  & 0    & 150   & 1    & 35   & all \\
+}
+
+\begin{description}[leftmargin=!,labelwidth=26mm,style=nextline,font=\normalfont\ttfamily]
+\item[Search 1] Height the tool descends to under tracking force before it
+  begins its controlled search for the pad. Lower it to shorten cycle time;
+  raise it if the tool risks striking the workpiece on the way in.
+\item[Power 1] Electrical drive power for the first weld. Sets ultrasonic
+  \emph{amplitude} --- how hard the tool scrubs.
+\item[Energy 1] Total ultrasonic energy delivered into the first weld. Sets the
+  \emph{dose}. Together with \menuitem{Power 1} this implies the weld time,
+  which is capped by \menuitem{Bond Timeout}.
+\item[Force 1 G] Bond force held during the first weld.
+\end{description}
+
+% ------------------------------------------------------------- screen 2/6 --
+
+\subsection*{Screen 2/6 --- Loop formation}
+
+\ptable{
+\menuitem{Stepback}    & mm & 0.00  & 5.00  & 0.01 & 5.00 & S \ T \ L \\
+\menuitem{Kink Height} & mm & -2.00 & 5.00  & 0.01 & 4.00 & all \\
+\menuitem{Reverse}     & mm & 0.00  & 5.00  & 0.01 & 0.00 & all \\
+\menuitem{Loop Height} & mm & 0.00  & 20.00 & 0.01 & 5.00 & all \\
+}
+
+\begin{description}[leftmargin=!,labelwidth=26mm,style=nextline,font=\normalfont\ttfamily]
+\item[Stepback] Y position the stage moves to while preparing the second bond.
+\item[Kink Height] Intermediate Z height the head rises to immediately after
+  the first weld, forming the kink at the heel of the bond. Reached before the
+  tail is fed.
+\item[Reverse] Distance the Y stage backs off, measured from wherever it
+  currently sits. Zero by default. Semi Auto, Manual and Table Tear apply it
+  after the kink, before the loop rises; Lange Coupling instead applies it
+  during the second-bond descent, producing the drag that mode is used for.
+\item[Loop Height] Z apex between the two bonds --- the top of the wire loop.
+\end{description}
+
+% ------------------------------------------------------------- screen 3/6 --
+
+\subsection*{Screen 3/6 --- Second bond}
+
+\ptable{
+\menuitem{Search 2}  & mm & 0.00 & 20.00 & 0.01 & 3.50 & S \ T \ L \\
+\menuitem{Power 2}   & mW & 0    & 1000  & 10   & 700  & all \\
+\menuitem{Energy 2}  & mJ & 0    & 1000  & 1    & 70   & all \\
+\menuitem{Force 2 G} & g  & 0    & 150   & 1    & 35   & all \\
+\menuitem{Tail}      & mm & 0.00 & 10.00 & 0.01 & 4.50 & S \ M \ L \\
+\menuitem{Tear}      & mm & 0.00 & 10.00 & 0.01 & 4.50 & S \ M \ L \\
+}
+
+\begin{description}[leftmargin=!,labelwidth=26mm,style=nextline,font=\normalfont\ttfamily]
+\item[Search 2] As \menuitem{Search 1}, for the second bond.
+\item[Power 2] Ultrasonic amplitude for the second weld. Defaults higher than
+  \menuitem{Power 1} because the second bond is made through the wire.
+\item[Energy 2] Ultrasonic dose for the second weld.
+\item[Force 2 G] Bond force held during the second weld.
+\item[Tail] T-axis travel that feeds the wire tail after the first bond. This
+  is a \emph{relative} move added to wherever the T axis currently sits, not an
+  absolute coordinate. In Table Tear mode the equivalent is
+  \menuitem{Table Tail}.
+\item[Tear] T-axis travel that tears the wire after the second weld, again
+  relative to the axis's current position. Because it follows \menuitem{Tail},
+  the endpoint depends on where the tail move left the axis.
+\end{description}
+
+% ------------------------------------------------------------- screen 4/6 --
+
+\subsection*{Screen 4/6 --- Heights and positions}
+
+\ptable{
+\menuitem{Reset Height} & mm & 0.00  & 20.00 & 0.01 & 8.00  & all \\
+\menuitem{Overtravel}   & mm & -2.00 & 0.00  & 0.01 & -0.30 & S \ T \ L \\
+\menuitem{Second Z Hgt} & mm & 0.00  & 20.00 & 0.01 & 2.50  & T \\
+\menuitem{Table Tail}   & mm & 0.00  & 5.00  & 0.01 & 2.00  & T \\
+\menuitem{Table Tear}   & mm & 0.00  & 5.00  & 0.01 & 3.50  & T \\
+}
+
+\begin{description}[leftmargin=!,labelwidth=26mm,style=nextline,font=\normalfont\ttfamily]
+\item[Reset Height] Parked Z height. The machine returns here at the end of
+  every cycle and is driven here before every cycle begins.
+\item[Overtravel] Z target \emph{below} the pad surface, so the descent is a
+  direction to push in rather than a position to arrive at --- the workpiece
+  stops the tool. Always zero or negative. Make it less negative if the tool
+  digs in; more negative if it fails to reach low pads.
+\item[Second Z Hgt] Table Tear mode only. Z height held while the Y stage forms
+  and tears the tail.
+\item[Table Tail] Table Tear mode only. Y position that forms the tail.
+\item[Table Tear] Table Tear mode only. Y position that tears the wire.
+\end{description}
+
+% ------------------------------------------------------------- screen 5/6 --
+
+\subsection*{Screen 5/6 --- Timing}
+
+\ptable{
+\menuitem{Bond Timeout} & ms & 0 & 60000 & 100 & 5000 & all \\
+\menuitem{Contact Stl}  & ms & 0 & 5000  & 10  & 100  & all \\
+\menuitem{Cooling}      & ms & 0 & 5000  & 10  & 10   & all \\
+\menuitem{Tail Delay}   & ms & 0 & 5000  & 10  & 1000 & S \ M \ L \\
+\menuitem{Tear Stabil}  & ms & 0 & 5000  & 10  & 100  & T \\
+}
+
+\begin{description}[leftmargin=!,labelwidth=26mm,style=nextline,font=\normalfont\ttfamily]
+\item[Bond Timeout] Safety ceiling on ultrasonic delivery. If the requested
+  energy has not been delivered within this time the weld is abandoned and the
+  machine reports \msg{LOW BONDING POWER}. This is a fault limit, not a
+  process setting --- it should never be reached in normal bonding.
+\item[Contact Stl] Dwell after touchdown and again after the force ramp,
+  letting the force settle before ultrasonics start.
+\item[Cooling] Dwell after the weld, before the force is released, letting the
+  bond solidify.
+\item[Tail Delay] Dwell after the tear, before the tail is restored.
+\item[Tear Stabil] Table Tear mode only. Dwell after the tear, before the axes
+  are restored.
+\end{description}
+
+% ------------------------------------------------------------- screen 6/6 --
+
+\subsection*{Screen 6/6 --- Force and ultrasonic setup}
+
+\ptable{
+\menuitem{Constant G}  & g   & 0    & 150  & 1   & 15   & all \\
+\menuitem{Tracking G}  & g   & 0    & 150  & 1   & 30   & all \\
+\menuitem{Scan Start}  & kHz & 50.0 & 70.0 & 0.1 & 58.0 & all \\
+\menuitem{Scan Stop}   & kHz & 50.0 & 70.0 & 0.1 & 62.0 & all \\
+\menuitem{Scan Points} & ---  & 8    & 32   & 1   & 16   & all \\
+\menuitem{Tail Power}  & mW  & 0    & 1000 & 10  & 200  & S \ M \ L \\
+\menuitem{Tail Energy} & mJ  & 0    & 1000 & 1   & 200  & S \ M \ L \\
+}
+
+\begin{description}[leftmargin=!,labelwidth=26mm,style=nextline,font=\normalfont\ttfamily]
+\item[Constant G] Light holding force carried during descent and between
+  process steps --- enough to keep the lever controlled, not enough to bond.
+\item[Tracking G] Force loaded while the head searches for the pad.
+\item[Scan Start] Low edge of the impedance sweep used to find the
+  transducer's resonance.
+\item[Scan Stop] High edge of that sweep. \menuitem{Scan Start} and
+  \menuitem{Scan Stop} must bracket the actual resonance; confirm with the
+  \keycap{TEST} button.
+\item[Scan Points] Number of frequencies measured across the sweep. More points
+  give a better fit at the cost of a slightly longer scan.
+\item[Tail Power] Ultrasonic amplitude for the tail assist --- a brief burst
+  applied while the tail is re-formed after the tear. Also the power used by
+  the \keycap{TEST} function.
+\item[Tail Energy] Ultrasonic dose for the tail assist, and for \keycap{TEST}.
+\end{description}
+
+\derivedfrom{\texttt{configuration\_parameter\_catalog.cpp},
+             \texttt{configuration.h}, \texttt{menu.cpp}}

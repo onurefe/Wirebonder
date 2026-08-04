@@ -1,0 +1,100 @@
+\chapter{Overview}
+\label{ch:overview}
+
+The \productname\ is an ultrasonic wedge wire bonder. It joins fine wire to
+metallised pads by pressing the wire down with a controlled force and vibrating
+it ultrasonically until the two metals weld. No heat and no solder are
+involved: the bond is made by friction and pressure alone.
+
+A complete cycle makes two bonds and the loop of wire between them, then tears
+the wire and forms a fresh tail ready for the next cycle.
+
+\figureplaceholder{Photograph of the complete machine with the bond head, Y
+stage, control panel, display and mouse labelled.}
+
+\section{The axes}
+
+Three axes position the tool and the work.
+
+\begin{center}\small
+\begin{tabular}{@{}L{16mm}L{34mm}L{72mm}@{}}
+\toprule
+\textbf{Axis} & \textbf{What it moves} & \textbf{Notes} \\
+\midrule
+Z & The bond head, vertically &
+  9\,mm of travel. Position is measured absolutely, so the machine knows the
+  head's height the instant it powers up --- Z never needs homing. \\
+\addlinespace
+Y & The workholder stage &
+  18\,mm of travel. Homed against a limit switch at power-up; until that
+  succeeds nothing may move. \\
+\addlinespace
+T & The wire feed &
+  Feeds the tail and tears the wire. It has no home switch, so every T move is
+  relative to wherever the axis currently sits. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{wbnote}
+Because the T axis is relative, \menuitem{Tear} is applied on top of wherever
+\menuitem{Tail} left the axis. The two are not independent coordinates ---
+changing \menuitem{Tail} moves the tear endpoint too.
+\end{wbnote}
+
+\section{The bonding head}
+
+\begin{description}[leftmargin=!,labelwidth=32mm,style=nextline,font=\normalfont\bfseries]
+
+\item[Force coil] Produces the bond force. You set force in grams; the machine
+  converts that to a coil current using a calibration that you can correct from
+  the panel (Chapter~\ref{ch:calibration}). Force is applied smoothly rather
+  than stepped, so releasing it after a weld does not flick the bond lever.
+
+\item[Ultrasonic transducer] Vibrates the tool. Before each weld the machine
+  sweeps a band of frequencies to find where the transducer resonates, then
+  drives it there and counts the energy going in until the requested dose is
+  delivered.
+
+\item[Wire clamp] Holds or releases the wire. It opens to let wire pay out
+  while the loop forms, and closes to hold the wire for the tear.
+
+\item[Contact sensor] Detects electrical contact between tool and workpiece.
+  The machine uses it to know when it has touched down, and when the wire has
+  released on the way back up.
+
+\end{description}
+
+\figureplaceholder[0.45\textwidth]{Close-up of the bond head showing the tool,
+transducer, wire clamp, wire path and force lever.}
+
+\section{How a cycle works}
+
+Every bonding mode follows the same outline. What differs is how the descents
+are commanded and how the wire is torn.
+
+\begin{enumerate}[leftmargin=*]
+\item You press the mouse button. The head descends and searches for the first
+  pad.
+\item It touches down, settles, ramps to the first bond force, and welds.
+\item The clamp opens and the head rises, kinking the wire and feeding a tail.
+\item The head rises to the loop apex and waits for you.
+\item You press again. The head moves across, descends and welds the second
+  bond.
+\item The clamp closes and the wire is torn.
+\item A fresh tail is formed and the machine returns to its parked height.
+\end{enumerate}
+
+Chapter~\ref{ch:modes} covers each mode's version of this in detail.
+
+\section{Before every cycle}
+
+Whatever the mode, the machine always puts itself into the same known state
+before it moves: the force coil is switched off, the clamp is closed, the head
+is driven to \menuitem{Reset Height}, and any button presses left over from
+before are discarded.
+
+\begin{wbnote}
+That last point matters in practice: a button you pressed while the machine was
+busy cannot trigger a cycle later. Every cycle starts from a deliberate press.
+\end{wbnote}

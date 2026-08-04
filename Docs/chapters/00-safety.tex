@@ -1,0 +1,88 @@
+\chapter{Safety}
+\label{ch:safety}
+
+\begin{wbwarning}
+Read this chapter before operating the machine. The bond head moves under power
+and without warning, and the machine can begin moving as soon as it is switched
+on.
+\end{wbwarning}
+
+\section{The machine moves at power-up}
+
+Switching the machine on starts an automatic homing sequence. The Y stage
+travels to find its limit switch, then the bond head initialises. This happens
+without any operator action.
+
+\begin{wbwarning}
+Keep hands, tools and workpieces clear of the stage and bond head while the
+machine is powering up. Do not switch it on with anything resting on the stage.
+\end{wbwarning}
+
+\section{Pinch and crush points}
+
+The bond head descends under force onto the workholder, and the Y stage travels
+beneath it. Fingers placed between them will be trapped.
+
+\begin{wbwarning}
+Never place any part of your hand between the tool and the workholder while the
+machine is powered. The bond head can descend at up to 10\,mm/s under a load of
+up to 150\,grams, triggered by a single mouse-button press.
+\end{wbwarning}
+
+\section{\keycap{RESET} stops the machine, but not gently}
+
+\keycap{RESET} restarts the machine immediately, from any state, including
+mid-weld. Motion stops wherever it is and the machine re-homes.
+
+\begin{wbwarning}
+\keycap{RESET} is not an emergency stop and must not be relied on as one. It
+does not remove power from the motors --- it restarts the controller, which
+then moves the axes again to re-home. If you need to make the machine safe,
+remove its power.
+\end{wbwarning}
+
+\TODO{State what the actual emergency stop provision is --- a mains switch, an
+E-stop mushroom, an isolator --- and where it is located. Add a labelled photo.
+If there is no E-stop, say so explicitly and state that the mains disconnect is
+the means of isolation.}
+
+\section{Ultrasonic energy}
+
+The tool vibrates at approximately 60\,kHz during a weld. This is above the
+range of human hearing but the energy is real.
+
+\begin{wbwarning}
+Do not touch the tool, the transducer, or the horn while a weld is in progress.
+Ultrasonic contact with skin causes burns and tissue damage without an
+immediate pain warning.
+\end{wbwarning}
+
+The transducer and horn also become warm in continuous use. Allow them to cool
+before handling.
+
+\section{Lighting}
+
+The machine has an area light and a spotlight.
+
+\TODO{Confirm whether the spotlight is a laser. If it is, state its class and
+add the required warning against looking into the beam or viewing it with
+optical instruments, along with the label location. If it is an LED, say so and
+remove this block.}
+
+\section{Electrical}
+
+\TODO{Supply the electrical safety content: supply voltage and current, earthing
+requirements, which panels may be opened by an operator (normally none), the
+isolation procedure before any cover is removed, and fuse ratings and
+locations.}
+
+\section{Workpiece and consumables}
+
+\TODO{Supply handling guidance for the materials in use --- wire alloys, any
+solvents used for tool cleaning, and ESD precautions for the devices being
+bonded.}
+
+\section{Regulatory}
+
+\TODO{Supply declarations of conformity, applicable standards, CE/UKCA or other
+markings, and the location of the machine's rating plate.}

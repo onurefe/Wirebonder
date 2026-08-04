@@ -1,0 +1,94 @@
+\chapter{Messages and Troubleshooting}
+\label{ch:messages}
+
+Everything the machine tells you arrives as a message on the display. This
+chapter lists every message it can produce, what caused it, and what to do.
+
+\section{The three kinds of message}
+
+How a message behaves tells you how serious it is, before you have even read
+it.
+
+\begin{center}\small
+\begin{tabular}{@{}L{26mm}L{40mm}L{50mm}@{}}
+\toprule
+\textbf{Kind} & \textbf{How it clears} & \textbf{What it means} \\
+\midrule
+Notification & By itself, after about five seconds, or on any key press &
+  Something worked. No action needed. \\
+\addlinespace
+Warning & On any key press. Headed \msg{WARNING} &
+  Something did not work, but the machine is fine. Read it, clear it, try
+  again. \\
+\addlinespace
+Error & It does not clear. Headed \msg{ERROR} &
+  Something serious failed. The keypad is locked and the machine will not
+  move. Press \keycap{RESET}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{wbnote}
+The key press that clears a warning is consumed by the warning itself --- it
+does not also do whatever that key normally does. Press it once to clear, then
+again to act.
+\end{wbnote}
+
+\begin{wbwarning}
+An error latches. It cannot be dismissed, it cannot be replaced by a later
+message, and no key will restore the menus. This is deliberate: a machine that
+has failed a critical operation does not know where its axes are, so it refuses
+to move. The only way out is \keycap{RESET} or a power cycle, either of which
+re-homes the machine.
+\end{wbwarning}
+
+\section{Message reference}
+
+\input{tables/messages}
+
+\section{Problems that produce no message}
+
+Some faults are silent because nothing has failed from the machine's point of
+view --- it did exactly what it was told.
+
+\begin{center}\small
+\begin{tabular}{@{}L{45mm}L{78mm}@{}}
+\toprule
+\textbf{Symptom} & \textbf{Check} \\
+\midrule
+
+The machine does nothing when I press the mouse button &
+The machine is not idle, or an error is latched. Look at the display: if an
+error is showing, press \keycap{RESET}. Also confirm the display is on the
+Parameter Edit page with a configuration loaded. \\
+\addlinespace
+
+The display is blank at power-up &
+The machine has no power, or the display cable is loose. This is a service
+fault, not an operating one. \\
+\addlinespace
+
+The tool descends but never touches down &
+\menuitem{Search 1} may be below the workpiece, so the search never starts from
+above it. Raise \menuitem{Search 1} and confirm \menuitem{Overtravel} is
+negative. \\
+\addlinespace
+
+Bond quality changed and nothing was edited &
+Run \keycap{TEST}. A shifted resonance or a fallen Q points at the transducer
+or the tool mounting rather than the recipe. Then run \keycap{SETUP} to confirm
+force is still calibrated. \\
+\addlinespace
+
+My parameter edits were lost at power-up &
+Edits are not saved until you press \keycap{SAVE} on the Parameter Edit page.
+The same applies to the Settings page. \\
+\addlinespace
+
+A hotkey shows \msg{Not used by protocol} &
+That parameter does not exist in the active bonding mode. See
+Appendix~\ref{app:defaults} for which modes show what. \\
+
+\bottomrule
+\end{tabular}
+\end{center}

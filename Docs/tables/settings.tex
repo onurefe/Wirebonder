@@ -1,0 +1,63 @@
+% The Settings page -- machine-wide values, shared by every configuration.
+%
+% DERIVED FROM FIRMWARE. Refresh against:
+%   Firmware/Core/Src/menu.cpp                  (row labels and order)
+%   Firmware/Core/Src/user_interface_module.cpp (kSettingLimits)
+%   Firmware/Core/Inc/configuration.h           (min/max/step/default macros)
+%   Firmware/Core/Inc/machine_settings.hpp      (field semantics)
+
+\begin{center}\small
+\begin{tabular}{@{}L{8mm}L{32mm}L{12mm}R{16mm}R{16mm}R{13mm}R{16mm}@{}}
+\toprule
+\textbf{Row} & \textbf{Label} & \textbf{Unit} & \textbf{Minimum} &
+\textbf{Maximum} & \textbf{Step} & \textbf{Default} \\
+\midrule
+1 & \menuitem{Clamp Volt}       & V    & 8.0 & 12.0  & 0.1 & 8.0 \\
+2 & \menuitem{Area Light}       & \%   & 0   & 100   & 1   & 100 \\
+3 & \menuitem{Spotlight}        & \%   & 0   & 100   & 1   & 100 \\
+4 & \menuitem{Up Speed}         & mm/s & 0.1 & 10.0  & 0.1 & 7.5 \\
+5 & \menuitem{Down Speed}       & mm/s & 0.1 & 10.0  & 0.1 & 5.0 \\
+6 & \menuitem{Setup Force}      & g    & 0.0 & 100.0 & 0.5 & 30.0 \\
+7 & \menuitem{Spot On}          & \multicolumn{5}{@{}l@{}}{on/off --- \keycap{ENTER} toggles} \\
+8 & \menuitem{Start Tach. Cal.} & \multicolumn{5}{@{}l@{}}{action --- \keycap{ENTER} runs it} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{description}[leftmargin=!,labelwidth=30mm,style=nextline,font=\normalfont\ttfamily]
+\item[Clamp Volt] Holding voltage applied to the wire clamp solenoid. Raise it
+  if the clamp slips under wire tension; keep it as low as will hold, since the
+  solenoid runs cooler.
+\item[Area Light] Brightness of the work area illumination, as a percentage.
+  The \keycap{LIGHT} button switches it on and off; this sets how bright it is
+  when on.
+\item[Spotlight] Brightness of the spotlight, as a percentage.
+\item[Up Speed] Maximum speed the Z axis is allowed to rise at. Higher is
+  faster per cycle; too high can shake the loop.
+\item[Down Speed] Maximum speed the Z axis is allowed to descend at. Keep this
+  moderate --- the head must be able to stop on contact.
+\item[Spot On] Whether the spotlight is enabled at all. There is no panel
+  button for the spotlight; this row is the only switch.
+\item[Setup Force] Force the machine holds during a calibration run started
+  with \keycap{SETUP}. This is the value your gauge reading is compared
+  against.
+\item[Start Tach. Cal.] Runs tachometer calibration. See
+  Chapter~\ref{ch:calibration}.
+\end{description}
+
+\begin{wbnote}
+Changes on this page take effect the moment you make them --- the light
+brightens, the clamp voltage changes --- but they are \emph{not} remembered
+until you press \keycap{SAVE}. Leaving with \keycap{ESC/DEL} keeps the live
+values for this session but restores the saved ones at the next power-up.
+\end{wbnote}
+
+\begin{wbnote}
+Two more values are stored with these settings but never appear on the page,
+because the machine writes them for you: the \textbf{force offset} from a
+\keycap{SETUP} run, and the \textbf{tachometer offset} from a calibration run.
+Both are saved as soon as they are produced.
+\end{wbnote}
+
+\derivedfrom{\texttt{menu.cpp}, \texttt{user\_interface\_module.cpp},
+             \texttt{machine\_settings.hpp}, \texttt{configuration.h}}

@@ -1,0 +1,85 @@
+% Machine specifications, as enforced by the firmware.
+%
+% DERIVED FROM FIRMWARE. Refresh against:
+%   Firmware/Core/Inc/configuration.h  (all limits)
+%   Firmware/Core/Inc/machine_settings.hpp, configuration_manager.hpp (storage)
+%
+% These are FIRMWARE limits. Mechanical, electrical and environmental
+% specifications are not derivable from the firmware and remain TODO.
+
+\subsection*{Axes}
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}L{30mm}L{55mm}@{}}
+\toprule
+\textbf{Item} & \textbf{Value} & \textbf{Notes} \\
+\midrule
+Z travel            & 9\,mm          & Measured by LVDT; absolute, no homing needed \\
+Z speed, up         & 0.1--10\,mm/s  & Set by \menuitem{Up Speed} \\
+Z speed, down       & 0.1--10\,mm/s  & Set by \menuitem{Down Speed} \\
+Y travel            & 18\,mm         & Limits applied only after a successful home \\
+Y maximum speed     & 20\,mm/s       & \\
+Y homing speed      & 2\,mm/s        & Backs off 1\,mm from the switch \\
+Y resolution        & 2000 steps/mm  & \\
+T maximum speed     & 5\,mm/s        & \\
+T resolution        & 400 steps/mm   & Relative moves only; the T axis is not homed \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Process ranges}
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}L{30mm}L{55mm}@{}}
+\toprule
+\textbf{Item} & \textbf{Value} & \textbf{Notes} \\
+\midrule
+Bond force          & 0--150\,g       & Per bond, first and second independent \\
+Setup force         & 0--100\,g       & Calibration only \\
+Gauge entry range   & 0--200\,g       & What you may enter after a \keycap{SETUP} run \\
+Ultrasonic power    & 0--1000\,mW     & \\
+Ultrasonic energy   & 0--1000\,mJ     & \\
+Bond timeout        & 0--60\,s        & Safety ceiling on ultrasonic delivery \\
+Process delays      & 0--5\,s         & Settle, cooling, tail and tear delays \\
+Scan band           & 50--70\,kHz     & \\
+Scan points         & 8--32           & \\
+Bond heights        & 0--20\,mm       & Search, loop and reset heights \\
+Overtravel          & $-2$--0\,mm     & Below the pad surface \\
+Kink height         & $-2$--5\,mm     & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Interface and storage}
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}L{30mm}L{55mm}@{}}
+\toprule
+\textbf{Item} & \textbf{Value} & \textbf{Notes} \\
+\midrule
+Display             & 20 $\times$ 4 characters & \\
+Stored configurations & 32 maximum   & Including the permanent \menuitem{DEFAULT} \\
+Configuration name  & 10 characters  & From \texttt{A--Z}, \texttt{0--9},
+                                       space, \texttt{-} and \texttt{\_} \\
+Bonding modes       & 4              & Each with its own set of configurations \\
+Bonding parameters  & 31             & Across six screens; some are mode-specific \\
+Clamp voltage       & 8.0--12.0\,V   & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\derivedfrom{\texttt{configuration.h}, \texttt{machine\_settings.hpp},
+             \texttt{configuration\_manager.hpp}}
+
+\subsection*{Installation and environment}
+
+\TODO{Supply mechanical and electrical installation data: overall dimensions
+and mass, bench mounting requirements, mains supply voltage/frequency/current,
+compressed air if required, ambient temperature and humidity limits, ESD
+requirements, and any regulatory markings. None of this is derivable from the
+firmware.}
+
+\subsection*{Consumables and tooling}
+
+\TODO{Supply the supported wire types and diameters, bonding tool/wedge part
+numbers and their fitting procedure, and the clamp and guide part numbers.}

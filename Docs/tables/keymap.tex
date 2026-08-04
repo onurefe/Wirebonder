@@ -1,0 +1,121 @@
+% What every key does on every page.
+%
+% DERIVED FROM FIRMWARE. Refresh against:
+%   Firmware/Core/Src/menu.cpp                  (handleUp/Down/Left/Right/Plus/
+%                                                Minus/Save/Load/Enter/Add/
+%                                                EscapeDelete, lines 342-531)
+%   Firmware/Core/Src/user_interface_module.cpp (hotkey targets, machine buttons)
+%   Firmware/Core/Inc/configuration.h           (KEYPAD_BTN_REPEAT_*)
+%
+% A blank cell means the key does nothing on that page.
+
+\newcommand{\keyrow}[7]{\keycap{#1} & #2 & #3 & #4 & #5 & #6 & #7 \\}
+
+\begin{center}\footnotesize
+\begin{tabular}{@{}L{18mm}L{20mm}L{20mm}L{18mm}L{20mm}L{16mm}L{16mm}@{}}
+\toprule
+\textbf{Key} & \textbf{Parameter Edit} & \textbf{Configuration Select} &
+\textbf{Settings} & \textbf{Name entry} & \textbf{Delete confirm} &
+\textbf{Force Setup} \\
+\midrule
+
+\keyrow{$\uparrow$}{pointer up}{pointer up}{pointer up}{next character}{select \menuitem{Y}}{value up}
+\keyrow{$\downarrow$}{pointer down}{pointer down}{pointer down}{previous character}{select \menuitem{N}}{value down}
+\keyrow{$\leftarrow$}{previous screen}{previous mode}{}{cursor left}{select \menuitem{Y}}{}
+\keyrow{$\rightarrow$}{next screen}{next mode}{}{cursor right}{select \menuitem{N}}{}
+\addlinespace
+\keyrow{$+$}{increase value}{}{increase value}{next character}{}{value up}
+\keyrow{$-$}{decrease value}{}{decrease value}{previous character}{}{value down}
+\addlinespace
+\keyrow{ENTER}{}{load pointed}{toggle / run row}{confirm}{apply answer}{save}
+\keyrow{LOAD}{open selector}{load pointed}{}{}{}{}
+\keyrow{SAVE}{save configuration}{open Settings}{save settings}{}{}{save}
+\keyrow{ADD}{}{new configuration}{}{}{}{}
+\keyrow{ESC/DEL}{open selector}{delete pointed}{back}{cancel}{cancel}{cancel}
+\addlinespace
+\keyrow{TAIL $\pm$}{edit \menuitem{Tail}}{}{}{}{}{}
+\keyrow{LOOP $\pm$}{edit \menuitem{Loop Height}}{}{}{}{}{}
+\keyrow{SEARCH $\pm$}{edit \menuitem{Search 1}}{}{}{}{}{}
+\keyrow{STEP $\pm$}{edit \menuitem{Stepback}}{}{}{}{}{}
+
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{wbnote}
+On the Settings page \keycap{ENTER} acts on the pointed row: it toggles
+\menuitem{Spot On}, and starts tachometer calibration on
+\menuitem{Start Tach.\ Cal.} On every other row it does nothing.
+
+In Table Tear mode \keycap{TAIL $\pm$} edits \menuitem{Table Tail} rather than
+\menuitem{Tail}. If a hotkey targets a parameter the active mode does not use,
+the machine shows \msg{Not used by protocol}.
+\end{wbnote}
+
+% ------------------------------------------------------------ machine keys --
+
+\subsection*{Machine buttons}
+
+These act on the machine itself and work from any page.
+
+\begin{center}\small
+\begin{tabular}{@{}L{26mm}L{95mm}@{}}
+\toprule
+\textbf{Button} & \textbf{Action} \\
+\midrule
+\keycap{SETUP}      & Starts a force calibration run. Refused with
+                      \msg{BUSY! TRY LATER} if the machine is running. \\
+\keycap{TEST}       & Starts an ultrasonic test and reports frequency, Q and
+                      power. Refused while busy. \\
+\keycap{CLAMP OPEN} & Opens or closes the wire clamp. Refused while busy. \\
+\keycap{LIGHT}      & Turns the area light on or off. Works at any time. \\
+\keycap{MANUAL}     & Switches the active configuration to Manual mode. \\
+\keycap{RESET}      & Restarts the machine immediately. See the warning below. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{wbwarning}
+\keycap{RESET} is an immediate hardware restart, not a soft stop. It takes
+effect at once, from any state, including mid-weld. Motion stops wherever it
+is and the machine re-homes on restart. Use it to clear a locked machine, not
+to end a cycle.
+\end{wbwarning}
+
+\begin{wbnote}
+The panel also carries a \keycap{HIGH RESET} button. It is not connected to any
+function in this firmware version and does nothing when pressed.
+\end{wbnote}
+
+% ----------------------------------------------------------- key repeating --
+
+\subsection*{Holding a key down}
+
+The value keys --- $\uparrow$, $\downarrow$, $+$, $-$ and the four hotkey pairs
+--- repeat while held, and accelerate the longer you hold them:
+
+\begin{center}\small
+\begin{tabular}{@{}L{40mm}L{40mm}L{40mm}@{}}
+\toprule
+\textbf{Held for} & \textbf{Repeat rate} & \textbf{Step size} \\
+\midrule
+under 0.5\,s      & ---                  & one step per press \\
+0.5\,s to 1.5\,s  & 4 per second         & 1 step \\
+1.5\,s to 4.5\,s  & 4 per second         & 10 steps \\
+over 4.5\,s       & 4 per second         & 100 steps \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+So a parameter with a step of 0.01\,mm moves at 0.04\,mm/s at first, 0.4\,mm/s
+after a second and a half, and 4\,mm/s after four and a half. Release and press
+again to return to single steps.
+
+\begin{wbnote}
+$\leftarrow$ and $\rightarrow$ do \emph{not} repeat except while entering a
+name. Holding them will not page through parameter screens or bonding modes ---
+press once per step.
+\end{wbnote}
+
+\derivedfrom{\texttt{menu.cpp}, \texttt{user\_interface\_module.cpp},
+             \texttt{configuration.h}}

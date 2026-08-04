@@ -1,0 +1,110 @@
+\chapter{Finding Your Way Around}
+\label{ch:navigation}
+
+The machine has seven screens. You will spend almost all your time on two of
+them: the configuration list and the parameter editor.
+
+\section{The screen map}
+
+\begin{center}\small
+\begin{tabular}{@{}L{40mm}L{16mm}L{62mm}@{}}
+\toprule
+\textbf{From} & \textbf{Press} & \textbf{You get} \\
+\midrule
+\multirow{4}{=}{\raggedright Configuration Select \newline
+                 \emph{(where the machine starts)}}
+  & \keycap{ENTER} & Parameter Edit, with that configuration loaded \\
+  & \keycap{ADD}     & Add Configuration \\
+  & \keycap{ESC/DEL} & Delete Confirm \\
+  & \keycap{SAVE}    & Settings \\
+\addlinespace
+\multirow{2}{=}{\raggedright Parameter Edit}
+  & \keycap{SAVE}    & saves --- or Save As, if the configuration is
+                       \menuitem{DEFAULT} \\
+  & \keycap{ESC/DEL} & back to Configuration Select \\
+\addlinespace
+Add Configuration  & \keycap{ENTER} & Parameter Edit, with the new configuration \\
+Save As            & \keycap{ENTER} & Parameter Edit, saved under the new name \\
+Delete Confirm     & \keycap{ENTER} & back to Configuration Select \\
+Settings           & \keycap{ESC/DEL} & back to Configuration Select \\
+Force Setup        & \keycap{ENTER} & back where you came from \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\keycap{ESC/DEL} always goes back one step, except on the configuration list
+where there is nowhere further back to go --- there it deletes instead.
+
+\begin{wbwarning}
+On the configuration list, \keycap{ESC/DEL} is the delete key. It asks for
+confirmation first, but be aware that the key which means ``go back'' elsewhere
+means ``delete this'' here.
+\end{wbwarning}
+
+\section{Configuration Select}
+
+The screen the machine starts on.
+
+\begin{lcdscreen}
+\begin{lcdverb}
+Mode: Semi Auto  1/4
+*DEFAULT
+ FINE ALU
+ THICK GOLD
+\end{lcdverb}
+\end{lcdscreen}
+
+$\leftarrow$ and $\rightarrow$ change which bonding mode's configurations are
+listed --- each mode keeps its own set. $\uparrow$ and $\downarrow$ move the
+\texttt{*}. \keycap{ENTER} or \keycap{LOAD} loads the marked configuration.
+
+\section{Parameter Edit}
+
+Where you tune a recipe. The 31 parameters are spread over six screens;
+$\leftarrow$ and $\rightarrow$ move between them, and the screen number is
+shown top right.
+
+\begin{wbnote}
+$\leftarrow$ and $\rightarrow$ do not repeat when held on this screen. Press
+once per screen.
+\end{wbnote}
+
+$\uparrow$ and $\downarrow$ move the \texttt{*}; \keycap{$+$} and
+\keycap{$-$} change the marked value. The four hotkey pairs jump straight to
+common parameters without navigating to them --- see Chapter~\ref{ch:controls}.
+
+\section{Typing a name}
+
+Both Add Configuration and Save As use the same editor. Names are ten
+characters, chosen from \texttt{A--Z}, \texttt{0--9}, space, \texttt{-} and
+\texttt{\_}.
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}L{88mm}@{}}
+\toprule
+\textbf{Key} & \textbf{Action} \\
+\midrule
+$\leftarrow$ $\rightarrow$ & Move to another character position \\
+$\uparrow$ $\downarrow$, \keycap{$+$} \keycap{$-$} & Change the character \\
+\keycap{ENTER}   & Accept the name \\
+\keycap{ESC/DEL} & Cancel \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+New names start as \menuitem{NEWCONFIG}. Unlike everywhere else, $\leftarrow$
+and $\rightarrow$ \emph{do} repeat here, so you can hold them to run along the
+name.
+
+\section{Confirming a deletion}
+
+\begin{lcdscreen}
+\begin{lcdverb}
+Deleting: FINE ALU
+Are you sure?
+       Y      N
+\end{lcdverb}
+\end{lcdscreen}
+
+$\uparrow$ or $\leftarrow$ selects \menuitem{Y}; $\downarrow$ or $\rightarrow$
+selects \menuitem{N}. \keycap{ENTER} carries out your answer.

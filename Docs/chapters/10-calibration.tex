@@ -1,0 +1,153 @@
+\chapter{Calibration}
+\label{ch:calibration}
+
+Three calibrations run from the panel. None of them needs tools beyond a force
+gauge.
+
+\begin{center}\small
+\begin{tabular}{@{}L{30mm}L{26mm}L{62mm}@{}}
+\toprule
+\textbf{Calibration} & \textbf{Started with} & \textbf{Corrects} \\
+\midrule
+Force        & \keycap{SETUP} & The difference between commanded and actual
+                                bond force \\
+Ultrasonic   & \keycap{TEST}  & Nothing --- it measures and reports \\
+Tachometer   & Settings row 8 & Drift in the Z axis speed sensor \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Force calibration}
+\label{sec:force-cal}
+
+The machine commands force in grams, but the coil's actual output drifts with
+the lever, the tool and the mounting. This procedure measures the error once
+and corrects every subsequent force command by it.
+
+\subsection*{What you need}
+
+A force gauge reading at least 100\,g, positioned so the tool bears on it the
+way it bears on a workpiece.
+
+\subsection*{Procedure}
+
+\begin{enumerate}[leftmargin=*]
+\item Set \menuitem{Setup Force} on the Settings page to the force you want to
+  calibrate at. Choose a value near your normal bond force. The default is
+  30\,g.
+\item Position the gauge under the tool.
+\item Press \keycap{SETUP}. The \keycap{SETUP} lamp lights and the machine
+  waits.
+\item \textbf{Press and hold the right mouse button.} The coil loads to
+  \menuitem{Setup Force} and the head descends onto the gauge.
+\item Read the gauge.
+\item \textbf{Release the button.} The load is removed and the head retracts.
+\item The Force Setup page opens automatically. Enter the reading with
+  $\uparrow$ and $\downarrow$ or \keycap{$+$} and \keycap{$-$}, then press
+  \keycap{ENTER}.
+\item The machine confirms \msg{Force offset saved}.
+\end{enumerate}
+
+\begin{wbnote}
+Hold the \textbf{right} button, not the left. The head descends for as long as
+you hold it and stops when the gauge stops it --- the machine deliberately does
+not wait to reach a target height, because your gauge is what ends the
+descent.
+\end{wbnote}
+
+\begin{wbnote}
+Press \keycap{ESC/DEL} instead of \keycap{ENTER} to leave the existing
+correction untouched. Do that if the run did not go cleanly.
+\end{wbnote}
+
+\subsection*{What it does}
+
+The machine stores the difference between what you measured and what it
+commanded, and subtracts it from every force command thereafter. A zero force
+command stays zero --- the correction can never turn ``coil off'' into a push.
+
+\begin{wbnote}
+Each run \emph{replaces} the stored correction, it does not add to it. Running
+force calibration twice in a row is harmless.
+\end{wbnote}
+
+\subsection*{When to run it}
+
+After changing the tool, after anything is disturbed on the bond lever, if bond
+quality drifts without a recipe change, and as part of routine checks.
+
+\section{Ultrasonic test}
+\label{sec:us-test}
+
+Press \keycap{TEST}. The machine sweeps for resonance, drives the transducer
+briefly at \menuitem{Tail Power} until \menuitem{Tail Energy} has been
+delivered, and reports:
+
+\begin{lcdscreen}
+\begin{lcdverb}
+Freq:58.123 kHz
+Q:12.3
+Power:0.5 W
+\end{lcdverb}
+\end{lcdscreen}
+
+The report stays for ten seconds. The axes do not move during the test.
+
+\subsection*{What to look for}
+
+\begin{description}[leftmargin=!,labelwidth=26mm,style=nextline,font=\normalfont\bfseries]
+\item[Frequency] Must lie between \menuitem{Scan Start} and
+  \menuitem{Scan Stop}, and comfortably inside them --- not at the edge. If it
+  is near an edge, widen the window; if it is outside, the machine cannot find
+  resonance at all and welds will fail with \msg{LOW BONDING POWER}.
+\item[Q] Record it. The absolute number matters less than the trend. A Q that
+  falls steadily points at a loosening horn, a loose tool screw, or a
+  degrading transducer stack.
+\item[Power] Should be close to \menuitem{Tail Power}. Much lower suggests the
+  drive cannot reach the transducer.
+\end{description}
+
+\subsection*{Setting the scan window}
+
+Run \keycap{TEST}, note the frequency, and set \menuitem{Scan Start} and
+\menuitem{Scan Stop} roughly 2\,kHz either side of it. The defaults
+(58--62\,kHz) suit a transducer resonating near 60\,kHz.
+
+A wider window is more tolerant of drift but takes marginally longer to sweep
+and gives a coarser fit for a given \menuitem{Scan Points}. If you widen the
+window, consider raising \menuitem{Scan Points} to keep the resolution.
+
+\section{Tachometer calibration}
+\label{sec:tach-cal}
+
+Corrects a small zero error in the Z axis speed sensor, which otherwise makes
+the axis creep or hold imperfectly.
+
+\subsection*{Procedure}
+
+\begin{enumerate}[leftmargin=*]
+\item Make sure nothing obstructs the bond head --- it will move.
+\item Go to the Settings page (\keycap{SAVE} from the configuration list).
+\item Move the \texttt{*} to \menuitem{Start Tach. Cal.} and press
+  \keycap{ENTER}.
+\item The head moves to 6\,mm and holds still while the machine samples for two
+  seconds.
+\item The correction is applied and saved immediately.
+\end{enumerate}
+
+\begin{wbnote}
+Unlike force calibration, each run \emph{adds} to the stored correction rather
+than replacing it. Running it two or three times converges on a better result;
+that is the intended way to use it.
+\end{wbnote}
+
+\subsection*{When to run it}
+
+If the head drifts when it should be holding still, if you see
+\msg{Z POS. NOT SETTLED}, or as part of periodic maintenance.
+
+\section{What is not operator-calibrated}
+
+Sensor gains, the LVDT scaling and the underlying force-coil characterisation
+are set at manufacture and are not adjustable from the panel. If you suspect
+one of them, the machine needs service.

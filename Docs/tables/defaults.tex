@@ -1,0 +1,114 @@
+% Which parameters each bonding mode shows, and the factory defaults.
+%
+% DERIVED FROM FIRMWARE. Refresh against:
+%   Firmware/Core/Src/configuration_parameter_catalog.cpp (modeMask column)
+%   Firmware/Core/Inc/configuration.h                     (BONDER_MODULE_DEFAULT_*)
+%
+% Defaults do not vary by mode -- a new configuration starts from the same
+% values whichever mode it belongs to. What varies is which parameters are
+% VISIBLE. A hidden parameter still holds its value; the mode simply never
+% reads it.
+
+\section{What each mode shows}
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}R{22mm}L{62mm}@{}}
+\toprule
+\textbf{Mode} & \textbf{Parameters} & \textbf{Hidden} \\
+\midrule
+Semi Auto  & 27 of 31 & the five Table Tear parameters \\
+Lange Cplr & 27 of 31 & the five Table Tear parameters \\
+Table Tear & 26 of 31 & the five T-axis parameters \\
+Manual     & 23 of 31 & both of the above groups, plus the four search
+                        parameters \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{The mode-specific groups}
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}L{86mm}@{}}
+\toprule
+\textbf{Group} & \textbf{Parameters} \\
+\midrule
+Search (automatic descent) &
+  \menuitem{Search 1}, \menuitem{Search 2}, \menuitem{Stepback},
+  \menuitem{Overtravel} \newline
+  Hidden in Manual, where you drive the descent yourself. \\
+\addlinespace
+T-axis (tail and tear) &
+  \menuitem{Tail}, \menuitem{Tear}, \menuitem{Tail Delay},
+  \menuitem{Tail Power}, \menuitem{Tail Energy} \newline
+  Hidden in Table Tear, which uses the Y stage instead. \\
+\addlinespace
+Table Tear &
+  \menuitem{Second Z Hgt}, \menuitem{Table Tail}, \menuitem{Table Tear},
+  \menuitem{Tear Stabil} \newline
+  Shown only in Table Tear mode. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Factory defaults}
+
+A new configuration --- and \menuitem{DEFAULT} itself --- starts from these
+values.
+
+\begin{center}\small
+\begin{tabular}{@{}L{30mm}R{20mm}L{12mm}@{}L{30mm}R{20mm}L{12mm}@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} & &
+\textbf{Parameter} & \textbf{Value} & \\
+\midrule
+\menuitem{Search 1}     & 3.50  & mm  & \menuitem{Bond Timeout} & 5000 & ms \\
+\menuitem{Power 1}      & 500   & mW  & \menuitem{Contact Stl}  & 100  & ms \\
+\menuitem{Energy 1}     & 50    & mJ  & \menuitem{Cooling}      & 10   & ms \\
+\menuitem{Force 1 G}    & 35    & g   & \menuitem{Tail Delay}   & 1000 & ms \\
+\menuitem{Stepback}     & 5.00  & mm  & \menuitem{Tear Stabil}  & 100  & ms \\
+\menuitem{Kink Height}  & 4.00  & mm  & \menuitem{Constant G}   & 15   & g \\
+\menuitem{Reverse}      & 0.00  & mm  & \menuitem{Tracking G}   & 30   & g \\
+\menuitem{Loop Height}  & 5.00  & mm  & \menuitem{Scan Start}   & 58.0 & kHz \\
+\menuitem{Search 2}     & 3.50  & mm  & \menuitem{Scan Stop}    & 62.0 & kHz \\
+\menuitem{Power 2}      & 700   & mW  & \menuitem{Scan Points}  & 16   & \\
+\menuitem{Energy 2}     & 70    & mJ  & \menuitem{Tail Power}   & 200  & mW \\
+\menuitem{Force 2 G}    & 35    & g   & \menuitem{Tail Energy}  & 200  & mJ \\
+\menuitem{Tail}         & 4.50  & mm  & \menuitem{Reset Height} & 8.00 & mm \\
+\menuitem{Tear}         & 4.50  & mm  & \menuitem{Overtravel}   & $-0.30$ & mm \\
+\menuitem{Second Z Hgt} & 2.50  & mm  & \menuitem{Table Tail}   & 2.00 & mm \\
+\menuitem{Table Tear}   & 3.50  & mm  &                         &      & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{wbwarning}
+These defaults are starting points for bring-up, not a qualified recipe. They
+have not been validated against any particular wire, tool or pad metallisation.
+Always develop and prove a configuration on scrap material before bonding
+production parts.
+\end{wbwarning}
+
+\section{Settings defaults}
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}R{20mm}L{12mm}@{}}
+\toprule
+\textbf{Setting} & \textbf{Value} & \\
+\midrule
+\menuitem{Clamp Volt}  & 8.0   & V \\
+\menuitem{Area Light}  & 100   & \% \\
+\menuitem{Spotlight}   & 100   & \% \\
+\menuitem{Spot On}     & on    & \\
+\menuitem{Up Speed}    & 7.5   & mm/s \\
+\menuitem{Down Speed}  & 5.0   & mm/s \\
+\menuitem{Setup Force} & 30.0  & g \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both automatic corrections --- the force offset and the tachometer offset ---
+start at zero on a new machine and stay there until you run the corresponding
+calibration.
+
+\derivedfrom{\texttt{configuration\_parameter\_catalog.cpp},
+             \texttt{configuration.h}}

@@ -360,6 +360,49 @@ void IQDemodulatorChannel::process(InterleavedBuffer &buffer, uint32_t numSample
 }
 
 // =======================================================================
+// AdcTickSyncChannel
+// =======================================================================
+AdcTickSyncChannel::AdcTickSyncChannel()
+    : m_callbacks{}
+    , m_callbackCount(0)
+{
+}
+
+bool AdcTickSyncChannel::addTickListenerCallback(void *context, TickListenerCallback cb)
+{
+    if (cb == nullptr) {
+        return false;
+    }
+
+    for (uint8_t i = 0; i < m_callbackCount; i++) {
+        if (m_callbacks[i].context == context && m_callbacks[i].callback == cb) {
+            return true;
+        }
+    }
+
+    if (m_callbackCount >= kMaxCallbacks) {
+        return false;
+    }
+
+    m_callbacks[m_callbackCount++] = CallbackRegistration{cb, context};
+    return true;
+}
+
+uint16_t AdcTickSyncChannel::getConversionOrder() const { return 0; }
+
+void AdcTickSyncChannel::process(InterleavedBuffer &buffer, uint32_t numSamples, uint8_t bits, float voltageRange)
+{
+    (void)buffer;
+    (void)numSamples;
+    (void)bits;
+    (void)voltageRange;
+
+    for (uint8_t i = 0; i < m_callbackCount; i++) {
+        m_callbacks[i].callback(m_callbacks[i].context);
+    }
+}
+
+// =======================================================================
 // AdcService
 // =======================================================================
 static AdcService *g_registry[ADC_SERVICE_MAX_HANDLES] = {nullptr};

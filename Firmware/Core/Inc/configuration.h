@@ -28,7 +28,13 @@
 #define PLL_MODULE_CENTER_FREQUENCY                                  60000.0f
 #define PLL_MODULE_CONTROL_FREQ                                      1000
 
-#define PLL_MODULE_FREQ_CORRECTION_QUEUE_DEPTH                       4
+/* Number of control ticks a frequency correction is held before being
+   applied to the demodulators (see PllModule::beginTransfer()'s queue
+   pre-fill and updateController()'s dequeue/enqueue pair) -- this, not the
+   queue's capacity, is what the dead-time formula below models. Queue depth
+   (capacity) is sized to twice the delay purely for headroom. */
+#define PLL_MODULE_FREQ_CORRECTION_DELAY_TICKS                       2
+#define PLL_MODULE_FREQ_CORRECTION_QUEUE_DEPTH                       (2 * PLL_MODULE_FREQ_CORRECTION_DELAY_TICKS)
 
 /* BonderModule now retunes gain/integralTc/derivativeTc adaptively per bond
    from the impedance scan's fitted transducer parameters (see
@@ -40,7 +46,7 @@
    frequency in that case, and deliberately leaves the PID untouched rather
    than tune off a distrusted fit) — originally bench-derived from a single
    reference transducer (fs = 59.7 kHz, Q = 333): plant gain 2Q/fs = 0.0112
-   rad/Hz; dead time ~5 ms (correction queue + demod window + transducer
+   rad/Hz; dead time ~5 ms (correction delay + demod window + transducer
    ring-in 2Q/ws ~ 1.8 ms) -> loop shaping gave Kp ~ 41 Hz/rad. Integral kept
    slower than the formula optimum: during capture the loop crosses the
    fs..fp phase plateau where plant gain is low, and a fast integral winds
@@ -51,7 +57,7 @@
    branch. */
 /* Kp = 40 limit-cycled at the resonance (bench: period-8 oscillation,
    +-70 Hz): loop gain Kp*K = 0.45/tick exceeds the ~0.35 stability limit
-   of the ~3-tick loop delay (queue + demod + transducer ring-in).
+   of the ~3-tick loop delay (correction delay + demod + transducer ring-in).
    Kp = 10 -> loop gain 0.11, ~3x margin.
    Backed off further (Kp 10->5, Ti 0.05->0.08, filterTc 0.002->0.004) to
    quiet audible ringing heard during the initial ring-up phase of bonding,
@@ -66,17 +72,35 @@
 #define PLL_MODULE_FREQ_PID_MAX_DEVIATION                            500.0
 
 /* Loop-shaping targets fed to TransducerAnalyzer::frequencyPidTuning() for
-   the per-bond adaptive retune. Dead time is the correction queue plus half
-   a demodulation window (matches the queue+demod dead-time definition the
+   the per-bond adaptive retune. Dead time is the correction delay plus half
+   a demodulation window (matches the delay+demod dead-time definition the
    fixed constants above were originally derived from — ring-in is a
    separate, per-transducer effect the fit does not model, same as before).
    Phase margin/crossover fraction mirror the only prior art for this
    formula (tests/test_transducer_analyzer.cpp): 60 deg margin, crossover at
    1/deadTime. */
 #define PLL_MODULE_FREQ_PID_DEAD_TIME \
-    ((PLL_MODULE_FREQ_CORRECTION_QUEUE_DEPTH + 0.5f) / PLL_MODULE_CONTROL_FREQ)
+    ((PLL_MODULE_FREQ_CORRECTION_DELAY_TICKS + 0.5f) / PLL_MODULE_CONTROL_FREQ)
 #define PLL_MODULE_FREQ_PID_TARGET_PHASE_MARGIN_RAD                  1.0471975512f /* 60 deg */
 #define PLL_MODULE_FREQ_PID_TARGET_CROSSOVER_FRACTION                1.0f
+
+/* Extra backoff applied on top of the loop-shaped gain before it's pushed
+   to the PLL, as a safety margin beyond the formula's analytic phase
+   margin. Applied only to gain, not integralTc, so it doesn't touch the
+   formula's phase-margin design point, just backs the loop off from it. */
+#define PLL_MODULE_FREQ_PID_GAIN_SAFETY_MARGIN                       8.0f
+
+/* Floor on the loop-shaped integral time constant. At the targets above the
+   formula asks for Ti ~ deadTime/tan(pi - PM - c) ~ 1.3 ms, which on the
+   bench converges but rings: the design point assumes the plant is the
+   clean phase slope 2Q/fs, whereas during capture the loop also crosses the
+   low-slope fs..fp plateau and sees per-window demodulation noise, both of
+   which an integrator this fast reacts to. Raising Ti only reduces the PI's
+   phase lag, so clamping up moves the loop away from the design point in
+   the stable direction (more phase margin, slower steady-state pull-in) —
+   never toward instability. 5 ms is ~2x the loop dead time, still well
+   inside the hand-tuned fixed value (80 ms) that never rang. */
+#define PLL_MODULE_FREQ_PID_MIN_INTEGRAL_TC                          0.01f
 
 /* Firmware operating mode ---------------------------------------------------- */
 #define FIRMWARE_MODE_NORMAL                                         0
@@ -184,9 +208,23 @@
 #define FORCE_COIL_MODULE_MIN_DUTY                                   0.0
 
 /* Area light ---------------------------------------------------------------*/
-/* Logical illumination duty. The hardware output is DRIVES_AREALIGHT_nPWM,
-   so Robot converts this to the complementary raw TIM8 duty. */
-#define AREA_LIGHT_PWM_DUTY_RATIO                                    0.5f
+/* Operator-adjustable 0-100 level (MachineSettingsData::areaLightLevel),
+   remapped to an effective 0-12V out of the 15V rail before being converted
+   to the complementary active-low TIM8 duty (Robot::onLightButtonPressed). */
+#define AREA_LIGHT_MAX_VOLTAGE                                       12.0f
+#define AREA_LIGHT_SUPPLY_VOLTAGE                                    15.0f
+#define AREA_LIGHT_LEVEL_DEFAULT                                     100.0f
+#define AREA_LIGHT_LEVEL_STEP                                        1.0f
+
+/* Spotlight (laser pointer) ---------------------------------------------------*/
+/* Operator-adjustable 0-100 level (MachineSettingsData::spotlightLevel),
+   mapped linearly to the active-high TIM8 CH1 duty (level/100), gated by
+   the on/off setting (MachineSettingsData::spotlightOn). Applied
+   continuously by Robot::applySpotlightDuty(); no physical button, only
+   the settings-page toggle. */
+#define SPOTLIGHT_LEVEL_DEFAULT                                      100.0f
+#define SPOTLIGHT_LEVEL_STEP                                         1.0f
+#define SPOTLIGHT_ON_DEFAULT                                         true
 
 /* DcMotorVelocityControllerModule (inner loop: tachometer -> PWM) -----------*/
 #define DCMOTOR_VELOCITY_MODULE_CONTROL_FREQUENCY                    1000
@@ -194,6 +232,19 @@
 /* Tachometer AnalogChannel wiring (Robot-level; feeds the velocity loop). */
 #define ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC                     (3.2*48.925662f)
 #define ZMOTOR_MODULE_TACHOMETER_ZERO_VELOCITY_VOLTAGE               1.65
+
+/* Runtime-measured correction on top of the constant above (Start Tach. Cal.
+   in the settings menu), persisted in MachineSettingsData and applied by
+   DcMotorVelocityControllerModule::setVelocityOffset(). Zero until the
+   operator runs the calibration at least once. */
+#define ZMOTOR_TACHOMETER_VELOCITY_OFFSET_DEFAULT                    0.0f
+
+/* Start Tach. Cal. protocol (TachCalProtocol): height held while sampling.
+   A machine-wide constant, independent of whichever bonding configuration is
+   loaded. Sits below BONDER_MODULE_DEFAULT_RESET_HEIGHT, so the axis travels
+   to it before TACHSAMPLE starts. */
+#define ZMOTOR_TACH_CAL_POSITION_MM                                  6.0f
+#define ZMOTOR_TACH_CAL_SAMPLE_DURATION_S                            2.0f
 
 #define DCMOTOR_VELOCITY_MODULE_MIN_DUTY                             0.05f
 #define DCMOTOR_VELOCITY_MODULE_MAX_DUTY                             0.95f
@@ -223,9 +274,21 @@
 
 #define DCMOTOR_POSITION_MODULE_PROPORTIONAL_GAIN                    100.0f
 
-#define DCMOTOR_POSITION_MODULE_OUTPUT_MIN                           -2.5f
-#define DCMOTOR_POSITION_MODULE_OUTPUT_MAX                           5.0f
 #define DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR                   1.0e-1f /* mm */
+
+/* Z position-loop velocity clamps, operator-editable via SETTINGS
+   (UP SPEED / DOWN SPEED). Z increases upward, so the upward limit is the
+   loop's positive output bound; both are stored as positive magnitudes in
+   mm/s and the downward one is negated when applied to the lower bound. */
+#define ZMOTOR_MAX_UPWARD_SPEED_DEFAULT                              7.5f
+#define ZMOTOR_MAX_UPWARD_SPEED_MIN                                  0.1f
+#define ZMOTOR_MAX_UPWARD_SPEED_MAX                                  10.0f
+#define ZMOTOR_MAX_UPWARD_SPEED_STEP                                 0.1f
+
+#define ZMOTOR_MAX_DOWNWARD_SPEED_DEFAULT                            5.0f
+#define ZMOTOR_MAX_DOWNWARD_SPEED_MIN                                0.1f
+#define ZMOTOR_MAX_DOWNWARD_SPEED_MAX                                10.0f
+#define ZMOTOR_MAX_DOWNWARD_SPEED_STEP                               0.1f
 
 /* RouterModule --------------------------------------------------------------*/
 #define ROUTER_MODULE_SEGMENT_RENDER_FREQUENCY                       100.
@@ -238,10 +301,30 @@
 /* Bonding force (grams). Values are the old amp defaults (0.05/0.20/0.25/0.25A)
    run through the current->grams fit below, so behavior is unchanged from
    before the grams conversion; re-tune in grams going forward. */
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_CONSTANT_FORCE_GRAMS        5.0f
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_CONSTANT_FORCE_GRAMS        15.0f
 #define BONDER_MODULE_DEFAULT_FORCE_COIL_TRACKING_FORCE_GRAMS        30.0f
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_FIRST_BOND_FORCE_GRAMS      25.0f
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_SECOND_BOND_FORCE_GRAMS     25.0f
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_FIRST_BOND_FORCE_GRAMS      35.0f
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_SECOND_BOND_FORCE_GRAMS     35.0f
+
+/* Force setup protocol (ForceSetupProtocol) --------------------------------*/
+/* Force held while the operator rides the Z axis down onto an external gauge
+   during Setup. Machine-wide (MachineSettingsData::forceSetupTrackingForce,
+   the "Setup Force" settings row), not part of a bonding configuration, so
+   the measurement is comparable across profiles. */
+#define FORCE_SETUP_TRACKING_FORCE_DEFAULT                           30.0f
+#define FORCE_SETUP_TRACKING_FORCE_MIN                               0.0f
+#define FORCE_SETUP_TRACKING_FORCE_MAX                               100.0f
+#define FORCE_SETUP_TRACKING_FORCE_STEP                              0.5f
+
+/* Systematic force-coil error in grams, measured by Setup: the operator
+   enters what the gauge read while the tracking force above was commanded,
+   and the difference is stored in MachineSettingsData::forceCoilForceOffset
+   and subtracted from every non-zero SETFORCE (BonderModule). Zero until the
+   operator runs Setup at least once. */
+#define FORCE_COIL_FORCE_OFFSET_DEFAULT                              0.0f
+#define FORCE_SETUP_MEASURED_FORCE_MIN                               0.0f
+#define FORCE_SETUP_MEASURED_FORCE_MAX                               200.0f
+#define FORCE_SETUP_MEASURED_FORCE_STEP                              0.1f
 
 #define BONDER_MODULE_ZAXIS_WORKSPACE_SIZE                           9.0
 
@@ -252,14 +335,11 @@
 #define BONDER_MODULE_DEFAULT_SECOND_SEARCH_HEIGHT                   3.5    /* second-bond controlled descent       */
 #define BONDER_MODULE_DEFAULT_KINK_HEIGHT                            4.0    /* wire kink point, just above pad      */
 #define BONDER_MODULE_DEFAULT_LOWEST_OVERTRAVEL                      (-0.3) /* maximum overtravel below pad surface */
-#define BONDER_MODULE_DEFAULT_MANUAL_LEVELING_RATE                   1.0    /* manual-mode Z jog rate (mm/s)        */
 #define BONDER_MODULE_DEFAULT_SECOND_Z_HEIGHT                        2.5    /* table-tear height for the Y tail/tear */
 
-/* Signed T-axis displacement (mm) from the router origin (T=0) -- entered
-   directly now, not auto-centered by BonderModule. Values keep the same
-   physical endpoints as the old centered defaults (tail=-0.75, tear=+0.75). */
-#define BONDER_MODULE_DEFAULT_TAIL_DISPLACEMENT                      0.0
-#define BONDER_MODULE_DEFAULT_TEAR_DISPLACEMENT                      0.0
+/* Signed T-axis displacement (mm) from the router origin (T=0) */
+#define BONDER_MODULE_DEFAULT_TAIL_DISPLACEMENT                      4.5
+#define BONDER_MODULE_DEFAULT_TEAR_DISPLACEMENT                      4.5
 
 /* Magnitude (mm) moved in the negative Y direction from the current position
    during loop formation (Opcode::YREVERSE) -- not an absolute position. */
@@ -269,19 +349,18 @@
 #define BONDER_MODULE_DEFAULT_Y_TEAR_POSITION                        3.5  /* table-tear Y position for the wire tear */
 
 /* Ultrasonic bonding */
-#define BONDER_MODULE_DEFAULT_FIRST_BONDING_POWER                    0.3    /* first-bond electrical power (W)      */
-#define BONDER_MODULE_DEFAULT_SECOND_BONDING_POWER                   0.3    /* second-bond electrical power (W)     */
-#define BONDER_MODULE_DEFAULT_FIRST_BONDING_ENERGY                   0.15   /* first-bond energy (J)                */
-#define BONDER_MODULE_DEFAULT_SECOND_BONDING_ENERGY                  0.15   /* second-bond energy (J)               */
-#define BONDER_MODULE_DEFAULT_TAIL_ASSIST_POWER                      0.200    /* ultrasonic tail-assist power (W)     */
-#define BONDER_MODULE_DEFAULT_TAIL_ASSIST_ENERGY                     0.050   /* ultrasonic tail-assist energy (J)    */
-#define BONDER_MODULE_DEFAULT_FORCE_SETUP_DURATION                   5.0     /* setup force-measurement hold (s)     */
-#define BONDER_MODULE_DEFAULT_MAX_BONDING_DURATION                   1.0    /* safety timeout (s)                   */
+#define BONDER_MODULE_DEFAULT_FIRST_BONDING_POWER                    0.50   /* first-bond electrical power (W)      */
+#define BONDER_MODULE_DEFAULT_SECOND_BONDING_POWER                   0.70   /* second-bond electrical power (W)     */
+#define BONDER_MODULE_DEFAULT_FIRST_BONDING_ENERGY                   0.05   /* first-bond energy (J)                */
+#define BONDER_MODULE_DEFAULT_SECOND_BONDING_ENERGY                  0.07  /* second-bond energy (J)               */
+#define BONDER_MODULE_DEFAULT_TAIL_ASSIST_POWER                      0.200  /* ultrasonic tail-assist power (W)     */
+#define BONDER_MODULE_DEFAULT_TAIL_ASSIST_ENERGY                     0.200  /* ultrasonic tail-assist energy (J)    */
+#define BONDER_MODULE_DEFAULT_MAX_BONDING_DURATION                   5.0    /* safety timeout (s)                   */
 
 /* Timing (s) */
-#define BONDER_MODULE_DEFAULT_SETTLING_TIME                          0.2   /* wait after contact for force to settle */
+#define BONDER_MODULE_DEFAULT_SETTLING_TIME                          0.1   /* wait after contact for force to settle */
 #define BONDER_MODULE_DEFAULT_COOLING_TIME                           0.01    /* wait after weld for bond to solidify   */
-#define BONDER_MODULE_DEFAULT_TAIL_RESTORE_DELAY                     0.1     /* delay before tail restore move         */
+#define BONDER_MODULE_DEFAULT_TAIL_RESTORE_DELAY                     1.0     /* delay before tail restore move         */
 #define BONDER_MODULE_DEFAULT_TEAR_STABILIZATION_TIME                0.1    /* wait after tear before restoring axes  */
 
 /* Impedance scan sweep (passed to UsImpedanceScannerModule::Config).
@@ -302,8 +381,8 @@
 #define BONDER_MODULE_FIT_DIP_MAX_DEVIATION_BINS                     2.0f
 
 /* Robot module --------------------------------------------------------------*/
-#define ROBOT_Y_AXIS_MAX_VELOCITY                           50.0
-#define ROBOT_Y_AXIS_MAX_ACCELERATION                       50.0
+#define ROBOT_Y_AXIS_MAX_VELOCITY                           20.0
+#define ROBOT_Y_AXIS_MAX_ACCELERATION                       20.0
 /* Homing direction: -1 seeks the workspace origin (0 mm), +1 seeks the
    far boundary (WORKSPACE_SIZE_MM). The post-home coordinate range is always
    0..WORKSPACE_SIZE_MM regardless of which end owns the limit switch. */
@@ -312,7 +391,7 @@
 #define ROBOT_Y_AXIS_HOMING_VELOCITY_MM_PER_S               2.0f
 #define ROBOT_Y_AXIS_HOMING_BACKOFF_MM                      1.0f
 #define ROBOT_Y_AXIS_HOMING_SEARCH_MARGIN_MM                1.0f
-#define ROBOT_T_AXIS_MAX_VELOCITY                           2.5
+#define ROBOT_T_AXIS_MAX_VELOCITY                           5.0
 #define ROBOT_T_AXIS_MAX_ACCELERATION                       10.0
 
 #define ROBOT_ACTIVE_CONFIG_OBJECT_ID                       1U
@@ -426,6 +505,16 @@
 #define KEYPAD_BTN_DEBOUNCE_MS                              60U   /* min stable-released time
                                                                      before a press counts */
 
+/* Keypad auto-repeat. Holding a value or navigation key repeats its action;
+   the step size grows by decades the longer it is held, so a parameter with a
+   long range relative to its step stays reachable. The interval is floored by
+   the poll period above: 250 ms is exactly 10 polls. Thresholds are measured
+   from the press, so x1 runs for 4 repeats and x10 for 12. */
+#define KEYPAD_BTN_REPEAT_THRESHOLD_MS                      500U  /* before repeats begin */
+#define KEYPAD_BTN_REPEAT_INTERVAL_MS                       250U  /* repeat rate, 4/sec   */
+#define KEYPAD_BTN_REPEAT_X10_MS                            1500U /* before x10 steps     */
+#define KEYPAD_BTN_REPEAT_X100_MS                           4500U /* before x100 steps    */
+
 /* SolenoidService -----------------------------------------------------------*/
 #define SOLENOID_SERVICE_MAX_INSTANCES                      8
 #define SOLENOID_SERVICE_TRANSITION_TIME                    0.05
@@ -433,14 +522,24 @@
 #define SOLENOID_SERVICE_INIT_DELAY_MS                      100
 
 /* Clamp solenoid (non-latching): mechanical transition times in seconds. */
-#define CLAMP_SOLENOID_ENERGIZE_TIME                        0.4
-#define CLAMP_SOLENOID_DEENERGIZE_TIME                      0.4
+#define CLAMP_SOLENOID_ENERGIZE_TIME                        0.1
+#define CLAMP_SOLENOID_DEENERGIZE_TIME                      0.1
+
+/* Clamp solenoid is rated for less than its supply rail, so the energized
+   hold runs PWM'd down to an operator-adjustable VOLTAGE/SUPPLY duty
+   instead of the full 100% that was overheating it (computed fresh at each
+   energize() call in robot.cpp from MachineSettingsData::clampSolenoidVoltage). */
+#define CLAMP_SOLENOID_SUPPLY_VOLTAGE                       15.0f
+#define CLAMP_SOLENOID_VOLTAGE_DEFAULT                      8.0f
+#define CLAMP_SOLENOID_VOLTAGE_MIN                          8.0f
+#define CLAMP_SOLENOID_VOLTAGE_MAX                          12.0f
+#define CLAMP_SOLENOID_VOLTAGE_STEP                         0.1f
 
 /* Auxiliary non-latching solenoids: mechanical transition times in seconds. */
-#define SOL1_SOLENOID_ENERGIZE_TIME                         0.2
-#define SOL1_SOLENOID_DEENERGIZE_TIME                       0.2
-#define SOL2_SOLENOID_ENERGIZE_TIME                         0.2
-#define SOL2_SOLENOID_DEENERGIZE_TIME                       0.2
+#define SOL1_SOLENOID_ENERGIZE_TIME                         0.1
+#define SOL1_SOLENOID_DEENERGIZE_TIME                       0.1
+#define SOL2_SOLENOID_ENERGIZE_TIME                         0.1
+#define SOL2_SOLENOID_DEENERGIZE_TIME                       0.1
 
 /* StepperService ------------------------------------------------------------*/
 #define STEPPER_SERVICE_DIR_PIN_INVERT                      false
@@ -543,18 +642,14 @@
 #define KEYPAD_BTN_ADD_B              9U    /* IO1_0 */
 
 /* ConfigurationEditor — parameter display intervals ------------------*/
-/* Default +/- edit step for float parameters, in display units. */
-#define CONFIGURATION_EDITOR_STEP_DEFAULT                              0.01f
 
 /* Force coil bonding force: BonderConfig now stores this directly in grams
    (see FORCE_COIL_CURRENT_TO_GRAMS_SCALE/OFFSET above for the amps<->grams
    conversion, applied in BonderModule's SETFORCE handling), so the editor
    needs no display scale/offset here, just the range and step. Range is
-   capped at the highest bench-calibrated point (1.0A/222.6g) rather than
-   the old raw current bound (2.0A) -- the fit isn't validated past there. */
+   capped at a secure point corresponding to approximately 700mA */
 #define CONFIGURATION_EDITOR_FORCE_GRAMS_MIN                           0.0f
-#define CONFIGURATION_EDITOR_FORCE_GRAMS_MAX                           222.6f
-#define CONFIGURATION_EDITOR_FORCE_GRAMS_STEP                          1.0f
+#define CONFIGURATION_EDITOR_FORCE_GRAMS_MAX                           150.0f
 
 /* Z-axis heights (mm) */
 #define CONFIGURATION_EDITOR_HEIGHT_MIN                                0.0f
@@ -564,31 +659,90 @@
 #define CONFIGURATION_EDITOR_OVERTRAVEL_MIN                           -2.0f
 #define CONFIGURATION_EDITOR_OVERTRAVEL_MAX                            0.0f
 
-/* XY-axis displacements (mm). Signed range: T tail/tear (the only users of
-   this bound) are now entered as a signed offset from T=0, not a positive
-   endpoint that gets auto-centered. */
-#define CONFIGURATION_EDITOR_LARGE_DISPLACEMENT_MIN                    -10.0f
+/* XY-axis displacements (mm). T tail/tear (the only users of this bound) are
+   non-negative travel commanded relative to wherever the T axis sits when
+   the move starts (Opcode::TMOVE), not an absolute offset from T=0. */
+#define CONFIGURATION_EDITOR_LARGE_DISPLACEMENT_MIN                    0.0f
 #define CONFIGURATION_EDITOR_LARGE_DISPLACEMENT_MAX                    10.0f
 #define CONFIGURATION_EDITOR_SMALL_DISPLACEMENT_MIN                    0.0f
 #define CONFIGURATION_EDITOR_SMALL_DISPLACEMENT_MAX                    5.0f
 
-/* Ultrasonic bonding */
-#define CONFIGURATION_EDITOR_TARGET_POWER_MIN                          0.0f
-#define CONFIGURATION_EDITOR_TARGET_POWER_MAX                          1.0f
-#define CONFIGURATION_EDITOR_BONDING_ENERGY_MIN                        0.0f
-#define CONFIGURATION_EDITOR_BONDING_ENERGY_MAX                        1.0f
-#define CONFIGURATION_EDITOR_MAX_BONDING_DURATION_MIN                  0.0f
-#define CONFIGURATION_EDITOR_MAX_BONDING_DURATION_MAX                  60.0f
+/* Ultrasonic bonding. Power/energy are stored in W and J (BonderConfig,
+   PllModule) but edited in mW and mJ -- the catalog's display scale of 1000
+   does the conversion, so the bounds here are in milli-units. */
+#define CONFIGURATION_EDITOR_TARGET_POWER_MIN                          0.0f      /* mW */
+#define CONFIGURATION_EDITOR_TARGET_POWER_MAX                          1000.0f   /* mW */
+#define CONFIGURATION_EDITOR_BONDING_ENERGY_MIN                        0.0f      /* mJ */
+#define CONFIGURATION_EDITOR_BONDING_ENERGY_MAX                        1000.0f   /* mJ */
+#define CONFIGURATION_EDITOR_MAX_BONDING_DURATION_MIN                  0.0f      /* ms */
+#define CONFIGURATION_EDITOR_MAX_BONDING_DURATION_MAX                  60000.0f  /* ms */
 
-/* Timing (s) */
-#define CONFIGURATION_EDITOR_TIMING_MIN                                0.0f
-#define CONFIGURATION_EDITOR_TIMING_MAX                                5.0f
+/* Timing: stored in seconds, edited in ms (display scale 1000). */
+#define CONFIGURATION_EDITOR_TIMING_MIN                                0.0f      /* ms */
+#define CONFIGURATION_EDITOR_TIMING_MAX                                5000.0f   /* ms */
 
 /* Impedance scan (frequency in kHz — display scale = 0.001 from Hz) */
 #define CONFIGURATION_EDITOR_SCAN_FREQ_MIN                             50.0f
 #define CONFIGURATION_EDITOR_SCAN_FREQ_MAX                             70.0f
-#define CONFIGURATION_EDITOR_SCAN_NUM_FREQS_MIN                        1.0f
-#define CONFIGURATION_EDITOR_SCAN_NUM_FREQS_MAX                        64.0f
+#define CONFIGURATION_EDITOR_SCAN_NUM_FREQS_MIN                        8.0f
+#define CONFIGURATION_EDITOR_SCAN_NUM_FREQS_MAX                        32.0f
+
+/* Per-parameter +/- edit step, in display units -----------------------
+   One macro per editable parameter, in the same order as the catalog
+   table in configuration_parameter_catalog.cpp. Retune any single knob
+   here without touching its neighbours. Integer parameters use their
+   step too, so keep those whole numbers. */
+
+#define CONFIGURATION_EDITOR_DISTANCE_STEP            0.01f    /* mm            */
+#define CONFIGURATION_EDITOR_POWER_STEP               10.0f    /* mW            */
+#define CONFIGURATION_EDITOR_ENERGY_STEP              1.0f     /* mJ            */
+#define CONFIGURATION_EDITOR_FORCE_STEP               1.0f     /* grams         */
+#define CONFIGURATION_EDITOR_FREQUENCY_STEP           0.1f     /* kHz           */
+#define CONFIGURATION_EDITOR_PRECISE_TIMING_STEP      10.0f    /* ms            */
+#define CONFIGURATION_EDITOR_COARSE_TIMING_STEP       100.0f   /* ms            */
+
+/* Bond 1 */
+#define CONFIGURATION_EDITOR_SEARCH1_STEP             CONFIGURATION_EDITOR_DISTANCE_STEP
+#define CONFIGURATION_EDITOR_POWER1_STEP              CONFIGURATION_EDITOR_POWER_STEP
+#define CONFIGURATION_EDITOR_ENERGY1_STEP             CONFIGURATION_EDITOR_ENERGY_STEP
+#define CONFIGURATION_EDITOR_FORCE1_STEP              CONFIGURATION_EDITOR_FORCE_STEP
+
+/* Loop */
+#define CONFIGURATION_EDITOR_STEPBACK_STEP            CONFIGURATION_EDITOR_DISTANCE_STEP
+#define CONFIGURATION_EDITOR_KINK_HEIGHT_STEP         CONFIGURATION_EDITOR_DISTANCE_STEP
+#define CONFIGURATION_EDITOR_REVERSE_STEP             CONFIGURATION_EDITOR_DISTANCE_STEP
+#define CONFIGURATION_EDITOR_LOOP_HEIGHT_STEP         CONFIGURATION_EDITOR_DISTANCE_STEP
+
+/* Bond 2 */
+#define CONFIGURATION_EDITOR_SEARCH2_STEP             CONFIGURATION_EDITOR_DISTANCE_STEP
+#define CONFIGURATION_EDITOR_POWER2_STEP              CONFIGURATION_EDITOR_POWER_STEP
+#define CONFIGURATION_EDITOR_ENERGY2_STEP             CONFIGURATION_EDITOR_ENERGY_STEP
+#define CONFIGURATION_EDITOR_FORCE2_STEP              CONFIGURATION_EDITOR_FORCE_STEP
+#define CONFIGURATION_EDITOR_TAIL_STEP                CONFIGURATION_EDITOR_DISTANCE_STEP
+#define CONFIGURATION_EDITOR_TEAR_STEP                CONFIGURATION_EDITOR_DISTANCE_STEP
+
+/* Motion */
+#define CONFIGURATION_EDITOR_RESET_HEIGHT_STEP        CONFIGURATION_EDITOR_DISTANCE_STEP
+#define CONFIGURATION_EDITOR_OVERTRAVEL_STEP          CONFIGURATION_EDITOR_DISTANCE_STEP
+#define CONFIGURATION_EDITOR_SECOND_Z_HEIGHT_STEP     CONFIGURATION_EDITOR_DISTANCE_STEP
+#define CONFIGURATION_EDITOR_TABLE_TAIL_STEP          CONFIGURATION_EDITOR_DISTANCE_STEP
+#define CONFIGURATION_EDITOR_TABLE_TEAR_STEP          CONFIGURATION_EDITOR_DISTANCE_STEP
+
+/* Timing */
+#define CONFIGURATION_EDITOR_BOND_TIMEOUT_STEP        CONFIGURATION_EDITOR_COARSE_TIMING_STEP
+#define CONFIGURATION_EDITOR_CONTACT_SETTLE_STEP      CONFIGURATION_EDITOR_PRECISE_TIMING_STEP
+#define CONFIGURATION_EDITOR_COOLING_STEP             CONFIGURATION_EDITOR_PRECISE_TIMING_STEP
+#define CONFIGURATION_EDITOR_TAIL_DELAY_STEP          CONFIGURATION_EDITOR_PRECISE_TIMING_STEP
+#define CONFIGURATION_EDITOR_TEAR_STABILIZE_STEP      CONFIGURATION_EDITOR_PRECISE_TIMING_STEP
+
+/* U/S setup */
+#define CONFIGURATION_EDITOR_CONSTANT_FORCE_STEP      CONFIGURATION_EDITOR_FORCE_STEP
+#define CONFIGURATION_EDITOR_TRACKING_FORCE_STEP      CONFIGURATION_EDITOR_FORCE_STEP
+#define CONFIGURATION_EDITOR_SCAN_START_STEP          CONFIGURATION_EDITOR_FREQUENCY_STEP
+#define CONFIGURATION_EDITOR_SCAN_STOP_STEP           CONFIGURATION_EDITOR_FREQUENCY_STEP
+#define CONFIGURATION_EDITOR_SCAN_POINTS_STEP         1.0f
+#define CONFIGURATION_EDITOR_TAIL_ASSIST_POWER_STEP   CONFIGURATION_EDITOR_POWER_STEP 
+#define CONFIGURATION_EDITOR_TAIL_ASSIST_ENERGY_STEP  CONFIGURATION_EDITOR_ENERGY_STEP
 
 
 #endif /* CONFIGURATION_H */

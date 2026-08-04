@@ -84,7 +84,7 @@ exec_gdb() {
         -ex "target extended-remote :$PORT" \
         -ex "monitor reset halt" \
         "${FLASH_ARGS[@]}" \
-        -x debugBridge/debug_bridge.py
+        -x DebugScripts/debug_bridge.py
 }
 
 exec_gdb

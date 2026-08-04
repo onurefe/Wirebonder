@@ -1,0 +1,34 @@
+\chapter{Parameter Reference}
+\label{ch:parameters}
+
+This chapter lists every bonding parameter: what it does, its permitted range,
+how much one key press changes it, and what a new configuration starts from.
+
+Parameters belong to the \emph{configuration} you have loaded. Changing one
+changes that configuration only, and only for the bonding mode it belongs to.
+Machine-wide values live on the Settings page instead (Chapter~\ref{ch:settings}).
+
+\section{How to read these tables}
+
+\begin{description}[leftmargin=!,labelwidth=22mm,style=nextline]
+\item[Unit] What the display shows. Heights and travels are in millimetres,
+  forces in grams, ultrasonic power in milliwatts, energy in millijoules, times
+  in milliseconds, and frequencies in kilohertz.
+\item[Step] How much one press of \keycap{$+$} or \keycap{$-$} changes the
+  value. Hold the key to move faster --- see Chapter~\ref{ch:controls}.
+\item[Modes] Which bonding modes show this parameter:
+  \textbf{S}~=~Semi Auto, \textbf{M}~=~Manual, \textbf{T}~=~Table Tear,
+  \textbf{L}~=~Lange Cplr. A parameter that does not apply to the active mode
+  is hidden from its screen entirely.
+\end{description}
+
+The number of parameters on a screen therefore changes with the mode. Screen
+1/6 shows four parameters in Semi Auto but three in Manual, because Manual has
+no automatic search.
+
+\begin{wbnote}
+Values are clamped to the range shown. Pressing \keycap{$+$} at the maximum
+does nothing --- the machine will not wrap around to the minimum.
+\end{wbnote}
+
+\input{tables/parameters}

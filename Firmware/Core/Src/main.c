@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "app.h"
+#include "configuration.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -58,6 +59,7 @@ TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
 TIM_HandleTypeDef htim6;
 TIM_HandleTypeDef htim8;
+TIM_HandleTypeDef htim12;
 DMA_HandleTypeDef hdma_tim1_ch1;
 DMA_HandleTypeDef hdma_tim1_ch2;
 
@@ -83,6 +85,7 @@ static void MX_TIM2_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_TIM5_Init(void);
 static void MX_TIM6_Init(void);
+static void MX_TIM12_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -134,6 +137,7 @@ int main(void)
   MX_TIM4_Init();
   MX_TIM5_Init();
   MX_TIM6_Init();
+  MX_TIM12_Init();
   /* USER CODE BEGIN 2 */
   App_Init();
   App_Start();
@@ -382,7 +386,6 @@ static void MX_DAC_Init(void)
   /** DAC channel OUT2 config
   */
   sConfig.DAC_Trigger = DAC_TRIGGER_T5_TRGO;
-  sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_DISABLE;
   if (HAL_DAC_ConfigChannel(&hdac, &sConfig, DAC_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
@@ -798,8 +801,87 @@ static void MX_TIM8_Init(void)
   }
   /* USER CODE BEGIN TIM8_Init 2 */
 
+  /* The area light driver is active low (DRIVES_AREALIGHT_nPWM): the lamp is
+     lit while PC7 is low. Drive both channels *before* HAL_TIM_MspPostInit()
+     hands the pins to the timer, otherwise PC7 sits at its uncontrolled
+     default (low, i.e. the lamp at full supply voltage) from the moment it
+     becomes an alternate function until Robot::start() gets to it.
+
+     Robot::start() brings the area light up energized, but it cannot do so
+     until UserInterfaceModule::onStart() has loaded the stored brightness --
+     roughly 150 ms in, behind SolenoidService's blocking init delay. Parking
+     the channel off here would therefore blink the lamp off and back on
+     during start-up, so park it at the default level instead: the lamp stays
+     continuously lit from reset, and Robot::start() only has to correct the
+     brightness if the operator has stored something other than the default. */
+  __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, 0);                     /* spotlight off (active high) */
+  __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_2,
+      (uint32_t)((1.0f - (AREA_LIGHT_LEVEL_DEFAULT / 100.0f) *
+                         (AREA_LIGHT_MAX_VOLTAGE / AREA_LIGHT_SUPPLY_VOLTAGE)) *
+                 (float)htim8.Init.Period));
+  if (HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   /* USER CODE END TIM8_Init 2 */
   HAL_TIM_MspPostInit(&htim8);
+
+}
+
+/**
+  * @brief TIM12 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM12_Init(void)
+{
+
+  /* USER CODE BEGIN TIM12_Init 0 */
+
+  /* USER CODE END TIM12_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM12_Init 1 */
+
+  /* USER CODE END TIM12_Init 1 */
+  htim12.Instance = TIM12;
+  htim12.Init.Prescaler = 0;
+  htim12.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim12.Init.Period = TIM12_RELOAD_VALUE;
+  htim12.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim12.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim12) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim12, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim12) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim12, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM12_Init 2 */
+
+  /* USER CODE END TIM12_Init 2 */
+  HAL_TIM_MspPostInit(&htim12);
 
 }
 
@@ -892,7 +974,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, DRIVES_SOL1L_Pin|DRIVES_SOL2L_Pin|DRIVES_SOL3L_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, DRIVES_SOL2H_Pin|DRIVES_SOL3H_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(DRIVES_SOL2H_GPIO_Port, DRIVES_SOL2H_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, STEPPER_Y_STEP_Pin|STEPPER_Y_DIR_Pin|STEPPER_EN_Pin, GPIO_PIN_RESET);
@@ -912,10 +994,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : DRIVES_SOL1L_Pin DRIVES_SOL2H_Pin DRIVES_SOL2L_Pin DRIVES_SOL3L_Pin
-                           DRIVES_SOL3H_Pin */
-  GPIO_InitStruct.Pin = DRIVES_SOL1L_Pin|DRIVES_SOL2H_Pin|DRIVES_SOL2L_Pin|DRIVES_SOL3L_Pin
-                          |DRIVES_SOL3H_Pin;
+  /*Configure GPIO pins : DRIVES_SOL1L_Pin DRIVES_SOL2H_Pin DRIVES_SOL2L_Pin DRIVES_SOL3L_Pin */
+  GPIO_InitStruct.Pin = DRIVES_SOL1L_Pin|DRIVES_SOL2H_Pin|DRIVES_SOL2L_Pin|DRIVES_SOL3L_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

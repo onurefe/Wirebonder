@@ -1,0 +1,96 @@
+\chapter{Quick Reference}
+\label{ch:quickref}
+
+Print this page and keep it at the machine.
+
+\section*{Keys}
+
+\begin{center}\footnotesize
+\begin{tabular}{@{}L{20mm}L{40mm}@{\hspace{8mm}}L{20mm}L{40mm}@{}}
+\toprule
+\textbf{Key} & \textbf{Parameter Edit} & \textbf{Key} & \textbf{Machine} \\
+\midrule
+\keycap{$\uparrow$ $\downarrow$} & move between parameters &
+  \keycap{TEST}       & ultrasonic test \\
+\keycap{$\leftarrow$ $\rightarrow$} & change screen (1/6 -- 6/6) &
+  \keycap{SETUP}      & force calibration \\
+\keycap{$+$ $-$}    & change the value &
+  \keycap{CLAMP OPEN} & open/close the clamp \\
+\keycap{SAVE}       & save the configuration &
+  \keycap{LIGHT}      & area light on/off \\
+\keycap{LOAD}       & choose a configuration &
+  \keycap{MANUAL}     & switch to Manual mode \\
+\keycap{ESC/DEL}    & back to the list &
+  \keycap{RESET}      & restart the machine \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section*{Hotkeys (Parameter Edit page only)}
+
+\begin{center}\footnotesize
+\begin{tabular}{@{}L{26mm}L{40mm}@{\hspace{10mm}}L{26mm}L{40mm}@{}}
+\toprule
+\keycap{TAIL $\pm$}   & \menuitem{Tail} \newline (\menuitem{Table Tail} in Table Tear) &
+\keycap{SEARCH $\pm$} & \menuitem{Search 1} \\
+\addlinespace
+\keycap{LOOP $\pm$}   & \menuitem{Loop Height} &
+\keycap{STEP $\pm$}   & \menuitem{Stepback} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section*{The six parameter screens}
+
+\begin{center}\footnotesize
+\begin{tabular}{@{}L{14mm}L{30mm}L{78mm}@{}}
+\toprule
+\textbf{Screen} & \textbf{Group} & \textbf{Contents} \\
+\midrule
+1/6 & First bond   & \menuitem{Search 1}, \menuitem{Power 1},
+                      \menuitem{Energy 1}, \menuitem{Force 1 G} \\
+2/6 & Loop         & \menuitem{Stepback}, \menuitem{Kink Height},
+                      \menuitem{Reverse}, \menuitem{Loop Height} \\
+3/6 & Second bond  & \menuitem{Search 2}, \menuitem{Power 2},
+                      \menuitem{Energy 2}, \menuitem{Force 2 G},
+                      \menuitem{Tail}, \menuitem{Tear} \\
+4/6 & Heights      & \menuitem{Reset Height}, \menuitem{Overtravel},
+                      \menuitem{Second Z Hgt}, \menuitem{Table Tail},
+                      \menuitem{Table Tear} \\
+5/6 & Timing       & \menuitem{Bond Timeout}, \menuitem{Contact Stl},
+                      \menuitem{Cooling}, \menuitem{Tail Delay},
+                      \menuitem{Tear Stabil} \\
+6/6 & Force \& U/S & \menuitem{Constant G}, \menuitem{Tracking G},
+                      \menuitem{Scan Start}, \menuitem{Scan Stop},
+                      \menuitem{Scan Points}, \menuitem{Tail Power},
+                      \menuitem{Tail Energy} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section*{Holding a value key}
+
+\begin{center}\footnotesize
+\begin{tabular}{@{}L{34mm}L{34mm}@{}}
+\toprule
+after 0.5\,s & repeats, 1 step \\
+after 1.5\,s & repeats, 10 steps \\
+after 4.5\,s & repeats, 100 steps \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section*{If something goes wrong}
+
+\begin{center}\footnotesize
+\begin{tabular}{@{}L{42mm}L{80mm}@{}}
+\toprule
+\msg{LOW BONDING POWER}   & Run \keycap{TEST}; check the scan window brackets resonance \\
+\msg{COIL CURR. UNSTABLE} & Check the lever moves freely; lower the force \\
+\msg{Z POS. NOT SETTLED}  & Clear the obstruction; run tachometer calibration \\
+\msg{TIMEOUT}             & Workpiece out of reach, or contact sensor disconnected \\
+\msg{ERROR SYSTEM LOCKED} & Press \keycap{RESET} \\
+\msg{BUSY! TRY LATER}     & Wait for the current operation, then press again \\
+\bottomrule
+\end{tabular}
+\end{center}

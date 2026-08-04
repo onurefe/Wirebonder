@@ -3,6 +3,7 @@
 #include "bonder_config.hpp"
 #include "configuration_parameter_catalog.hpp"
 #include "control_panel_service.hpp"
+#include "machine_settings.hpp"
 #include "page_renderer.hpp"
 #include "widgets.hpp"
 #include <cstdint>
@@ -53,12 +54,28 @@ public:
         AdjustParameter,          // screen, parameterIndex, sign
         AdjustHotkey,             // hotkey, sign
         SaveConfiguration,        // persist the active configuration
+        SaveConfigurationAs,      // name — persist current edits under a new name
         SelectionStarted,         // fill the configuration list now
         SelectionProtocolChanged, // sign = direction; refill the list
         LoadConfiguration,        // name
         AddConfiguration,         // name
-        DeleteConfiguration       // name
+        DeleteConfiguration,      // name
+        AdjustSetting,            // parameterIndex = numeric row, sign
+        SaveSettings,             // persist machine-wide settings
+        ToggleSpotlight,          // Enter pressed on the "Spot On" row
+        StartTachCal,             // Enter pressed on the "Start Tach. Cal." row
+        SaveForceMeasurement      // value = grams read off the operator's gauge
     };
+
+    // What produced the current handler call. A press is {false, 1}; a repeat
+    // carries the step multiplier for the stage the hold has reached, so
+    // handlers need no memory of their own. Handlers that neither decline
+    // repeats nor scale their action ignore it.
+    struct InputEvent {
+        bool repeat;
+        uint16_t stepScale;
+    };
+    static constexpr InputEvent kPressInput{false, 1U};
 
     struct Request {
         RequestType type;
@@ -68,6 +85,12 @@ public:
         Hotkey hotkey;
         // Valid only during the callback; points at a menu-owned buffer.
         const char *name;
+        // Numeric payload; only SaveForceMeasurement uses it.
+        float value;
+        // Repeat context. Defaulted so the positional initializers elsewhere
+        // in the menu keep describing an ordinary single-step press.
+        bool isRepeat = false;
+        uint16_t stepScale = 1U;
     };
     using RequestCallback = void (*)(void *ctx, const Request& request);
 
@@ -120,6 +143,40 @@ public:
     void setNameEntryText(const char *name);
     void setNameEntryCursor(uint8_t position);
 
+    // --- Save-as page ---------------------------------------------------
+    // Opens a dedicated page to persist the current parameter-page edits
+    // under a new name (e.g. the active configuration is protected and
+    // cannot be saved over). Only reachable from the parameter page, so
+    // both submit and Escape always return there.
+    void promptSaveAsName();
+
+    // --- Settings page ---------------------------------------------------
+    // Machine-wide hardware tuning values (clamp voltage, area light,
+    // spotlight level, spotlight on/off), independent of which bonding
+    // configuration is loaded. Reached by pressing Save while on the
+    // configuration selector page.
+    // First kSettingsLevelRowCount rows are numeric (FloatWidget), edited
+    // with +/-. The two rows below them are action rows driven by Enter:
+    // "Spot On" fires RequestType::ToggleSpotlight (its ON/OFF TextWidget
+    // only reports the resulting state) and "Start Tach. Cal." fires
+    // RequestType::StartTachCal. +/- does nothing on either.
+    static constexpr uint8_t kSettingsLevelRowCount = 6U;
+    static constexpr uint8_t kSettingsRowCount = 8U;
+    // 1-based, matching m_pointerRow's convention on the settings page (row 0
+    // is the header; selectable rows are numbered 1..kSettingsRowCount).
+    static constexpr uint8_t kSettingsSpotOnRow = 7U;
+    static constexpr uint8_t kSettingsTachCalRow = 8U;
+    void setSettingsValues(const MachineSettingsData& data);
+
+    // --- Force measurement entry ----------------------------------------
+    // Opened once the Setup protocol finishes, so the operator can type in
+    // what their gauge read while the setup tracking force was held. +/- and
+    // up/down adjust the value; Enter or Save submits it as
+    // RequestType::SaveForceMeasurement; Escape abandons it. Either way the
+    // page that was showing when the prompt opened comes back.
+    void promptForceMeasurement(float initialGrams);
+    Page *forceMeasurementPage() { return &m_forceMeasurementPage; }
+
     // --- Delete confirmation page -------------------------------------
     void setDeleteTarget(const char *name);
     void setDeleteSelection(bool yes);
@@ -134,6 +191,8 @@ public:
     //  - Warning: stays until the operator presses a button (the press is
     //    swallowed); the keypad is otherwise unaffected.
     //  - Notification: dismissed by a button press or a timeout.
+    // A '\n' in the message starts a new row; rows past the message page
+    // (and text past a row's width) are dropped.
     void setErrorMessage(const char *message);
     void setWarningMessage(const char *message);
     void setNotificationMessage(const char *message,
@@ -155,31 +214,46 @@ private:
     static constexpr uint8_t kEditableNameLength = 10U;
 
     void showMessagePage(const char *message, MessageKind kind);
+    // Lays the message out over the rows from startRow on, breaking at
+    // '\n', and blanks the rows that are left over.
+    void layoutMessageRows(const char *message, uint8_t startRow);
     void presentMessagePage(MessageKind kind);
     void fireRequest(const Request& request);
 
-    void handleUp();
-    void handleDown();
-    void handleLeft();
-    void handleRight();
-    void handlePlus();
-    void handleMinus();
-    void handleSave();
-    void handleLoad();
-    void handleEnter();
-    void handleAdd();
-    void handleEscapeDelete();
-    void adjustHotkey(Hotkey hotkey, int8_t sign);
-    void adjustParameter(int8_t sign);
+    void handleUp(const InputEvent& input);
+    void handleDown(const InputEvent& input);
+    void handleLeft(const InputEvent& input);
+    void handleRight(const InputEvent& input);
+    void handleSave(const InputEvent& input);
+    void handleLoad(const InputEvent& input);
+    void handlePlus(const InputEvent& input);
+    void handleMinus(const InputEvent& input);
+    void handleEnter(const InputEvent& input);
+    void handleAdd(const InputEvent& input);
+    void handleEscapeDelete(const InputEvent& input);
+    void adjustHotkey(Hotkey hotkey, int8_t sign, const InputEvent& input);
+    void adjustParameter(int8_t sign, const InputEvent& input);
+    // True when Left/Right must ignore this event: repeats only walk the name
+    // cursor, never flip parameter screens or change the selected protocol.
+    bool declineCursorRepeat(const InputEvent& input, const Page *page) const;
 
     void beginSelection();
     void beginNameEditor();
+    void beginSaveAs();
+    void beginSettings();
     void beginDeleteConfirmation();
     void moveNameCursor(int delta);
     void changeNameCharacter(int delta);
+    void setSaveAsText(const char *name);
+    void setSaveAsCursor(uint8_t position);
+    void adjustSetting(int8_t sign, const InputEvent& input);
+    void adjustForceMeasurement(int8_t sign, const InputEvent& input);
+    void submitForceMeasurement();
+    void leaveForceMeasurement();
     void chooseDeleteAnswer(bool yes);
     void loadPointedConfiguration();
     void submitNewConfiguration();
+    void submitSaveAs();
     void submitDeleteConfirmation();
     const char *pointedConfigurationName() const;
 
@@ -193,23 +267,49 @@ private:
     // (the press is swallowed), then runs the bound handler.
     bool acknowledgeMessage();
 
-    template <void (Menu::*Handler)()>
+    // Step multiplier for a hold of the given duration, from the decade
+    // schedule in menu.cpp.
+    static uint16_t stepScaleForHold(uint32_t heldMs);
+
+    template <void (Menu::*Handler)(const InputEvent&)>
     static void onButton_(void *ctx)
     {
         Menu *self = static_cast<Menu *>(ctx);
-        if (!self->acknowledgeMessage()) (self->*Handler)();
+        if (!self->acknowledgeMessage()) (self->*Handler)(kPressInput);
     }
 
     template <Hotkey hotkey, int8_t sign>
     static void onHotkeyButton_(void *ctx)
     {
         Menu *self = static_cast<Menu *>(ctx);
-        if (!self->acknowledgeMessage()) self->adjustHotkey(hotkey, sign);
+        if (!self->acknowledgeMessage()) self->adjustHotkey(hotkey, sign, kPressInput);
+    }
+
+    // Repeat trampolines. A held key must never dismiss a message, nor act on
+    // the page hidden behind one, so an active message ends the repeat rather
+    // than acknowledging it. The stage comes from the hold duration the button
+    // channel reports, which is why the menu keeps no repeat state — presses
+    // arrive from the I2C interrupt and repeats from the main loop.
+    template <void (Menu::*Handler)(const InputEvent&)>
+    static void onRepeatButton_(void *ctx, uint32_t heldMs)
+    {
+        Menu *self = static_cast<Menu *>(ctx);
+        if (self->isMessageActive()) return;
+        (self->*Handler)(InputEvent{true, stepScaleForHold(heldMs)});
+    }
+
+    template <Hotkey hotkey, int8_t sign>
+    static void onRepeatHotkeyButton_(void *ctx, uint32_t heldMs)
+    {
+        Menu *self = static_cast<Menu *>(ctx);
+        if (self->isMessageActive()) return;
+        self->adjustHotkey(hotkey, sign, InputEvent{true, stepScaleForHold(heldMs)});
     }
 
     void refillParameterPage();
     void rebuildParameterHeader();
-    void setFloatParameterRow(uint8_t row, const char *name, float value);
+    void setFloatParameterRow(uint8_t row, const char *name, float value,
+                              uint8_t decimals);
     void setIntegerParameterRow(uint8_t row, const char *name, int32_t value);
     void clearParameterRow(uint8_t row);
 
@@ -253,6 +353,25 @@ private:
     TextWidget m_nameEntryMode;
     TextWidget m_nameEntryName;
     TextWidget m_nameEntryCursor;
+
+    Page m_saveAsPage;
+    TextWidget m_saveAsTitle;
+    TextWidget m_saveAsName;
+    TextWidget m_saveAsCursor;
+
+    Page m_settingsPage;
+    TextWidget m_settingsHeader;
+    TextWidget m_settingsNames[kSettingsRowCount];
+    FloatWidget m_settingsValues[kSettingsLevelRowCount];
+    TextWidget m_settingsSpotlightOnValue;
+
+    Page m_forceMeasurementPage;
+    TextWidget m_forceMeasurementTitle;
+    TextWidget m_forceMeasurementName;
+    FloatWidget m_forceMeasurementValue;
+    TextWidget m_forceMeasurementHint;
+    // Page to restore when the prompt is submitted or abandoned.
+    Page *m_pageBeforeForceMeasurement;
 
     Page m_deleteConfirmPage;
     TextWidget m_deleteTarget;

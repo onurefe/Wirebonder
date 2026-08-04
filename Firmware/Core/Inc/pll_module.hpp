@@ -34,6 +34,7 @@ public:
         SineGeneratorChannel *sinusoid,
         IQDemodulatorChannel *voltageDemodulator,
         IQDemodulatorChannel *currentDemodulator,
+        AdcTickSyncChannel *tickSync,
         float samplingFrequency,
         float controlFrequency);
 
@@ -65,6 +66,7 @@ public:
     static void onCurrentMeasured(void *context, float re, float im);
     static bool onIqFrequencyRequested(void *context, float *targetNormalizedIQFrequency);
     static bool onSinusoidSample(void *context, float *amplitude, float *average, float *targetNormalizedGeneratorFrequency);
+    static void onTickSync(void *context);
 
 private:
     enum class TransferState : uint8_t { Idle, Transferring };
@@ -88,7 +90,14 @@ private:
     SineGeneratorChannel *m_sinusoid;
     IQDemodulatorChannel *m_voltageDemodulator;
     IQDemodulatorChannel *m_currentDemodulator;
+    AdcTickSyncChannel *m_tickSync;
     PidController m_frequencyController;
+
+    // Set by beginTransfer() and serviced by onTickSync() on the next ADC
+    // tick boundary, so the DAC's trigger timer (unsynchronized with the
+    // ADC's) always starts at a bounded, deterministic offset from the ADC
+    // tick grid instead of a per-bond random phase.
+    volatile bool m_pendingStart;
 
     TransferState m_transferState;
 

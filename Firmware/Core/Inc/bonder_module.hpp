@@ -34,8 +34,8 @@ public:
 
     using Config = BonderConfig;
 
-    using BonderStateChangedCallback = void (*)(bool isIdle);
-    using BonderErrorCallback        = void (*)(Error error);
+    using BonderStateChangedCallback = void (*)(void *context, bool isIdle);
+    using BonderErrorCallback        = void (*)(void *context, Error error);
 
     struct UltrasonicReport {
         float resonanceFrequency;
@@ -46,8 +46,17 @@ public:
     using UltrasonicReportCallback =
         void (*)(void *context, const UltrasonicReport& report);
 
+    // Reports the tachometer's zero-offset residual measured over
+    // TACHSAMPLE's window (Start Tach. Cal.): the tachometer's own average
+    // velocity minus the ground-truth average velocity derived from the
+    // independent LVDT position delta over the same window (so real motion
+    // during an imperfect hold isn't misattributed to sensor offset).
+    // Consumed by Robot to update/persist the velocity controller's
+    // zero-offset correction.
+    using TachCalReportCallback = void (*)(void *context, float offsetResidual);
+
     // Hardware event flags as a bitmask. Events latch when their callback
-    // fires and stay latched until consumed by a WAIT/MZMOVE mask, cleared by
+    // fires and stay latched until consumed by a WAIT/MZDRIVE mask, cleared by
     // CLRFLAGS, or re-armed by the command that produces them.
     enum EventFlag : uint32_t {
         EVENT_T_MOVE_COMPLETED      = 1u << 0,
@@ -67,7 +76,10 @@ public:
         EVENT_CLAMP_SETTLED         = 1u << 14,
         EVENT_WAIT_TIMEOUT          = 1u << 15,
         EVENT_LEFT_BUTTON_PRESSED   = 1u << 16,
-        EVENT_LEFT_BUTTON_RELEASED  = 1u << 17
+        EVENT_LEFT_BUTTON_RELEASED  = 1u << 17,
+        // Set by notifyClampToggle() when the operator asks a running
+        // ClampOpenProtocol to reverse direction (open->close or vice versa).
+        EVENT_CLAMP_TOGGLE_REQUESTED = 1u << 18
     };
 
     // =========================================================================
@@ -75,7 +87,7 @@ public:
     //
     // A protocol is a flat array of instructions. Commands issue an action and
     // complete immediately; WAIT and the manual Z instructions block. WAIT
-    // and MZMOVE consume their masked flags on completion. Commands that
+    // and MZDRIVE consume their masked flags on completion. Commands that
     // produce a completion event re-arm (clear) that event when issued, so a
     // stale latch can never satisfy the matching WAIT.
     //
@@ -88,8 +100,6 @@ public:
 
     enum class Opcode : uint8_t {
         ZMOVE = 0,   // arg: height (mm); re-arms Z_POSITION_REACHED
-        MZMOVE,      // arg: jog rate (mm/s); blocks until Z is at lowest
-                     // overtravel and mask flags are set; consumes mask
         YMOVE,       // arg: position (mm); re-arms Y_MOVE_COMPLETED
         YREVERSE,    // arg: displacement (mm); moves to
                      // currentYPosition - displacement; re-arms Y_MOVE_COMPLETED
@@ -106,8 +116,25 @@ public:
                      // point; re-arms US_POWER_TRANSFERRED
         SETFORCE,    // arg: force (g); re-arms FORCE_COIL_SETTLED
         USREPORT,    // emits the latest scan/PLL result
-        MZDOWN       // arg: jog rate (mm/s); moves down while the left button
-                     // is held and completes when it is released
+        MZDRIVE,     // arg: raise target (mm); left button drives toward
+                     // lowest overtravel, right button drives toward arg, at
+                     // the axis's normal move speed; releasing both stops in
+                     // place, re-pressing resumes; blocks until Z is at
+                     // lowest overtravel and mask flags are set; consumes mask
+        MZSETUP,     // arg: raise target (mm); left button drives toward
+                     // lowest overtravel, right button drives toward arg, at
+                     // the axis's normal move speed, same as MZDRIVE, but
+                     // completes as soon as the left button is released
+                     // (regardless of position); does not consume mask
+        TACHMOVE,    // moves to ZMOTOR_TACH_CAL_POSITION_MM; re-arms Z_POSITION_REACHED
+        TACHSAMPLE,  // arms a ZMOTOR_TACH_CAL_SAMPLE_DURATION_S timer (re-arms
+                     // TIMER_EXPIRED, same as TIMER), starts accumulating
+                     // tachometer velocity pushed from the velocity
+                     // controller, and snapshots the current Z position as
+                     // the window's start
+        TACHREPORT   // emits the TACHSAMPLE offset residual (tachometer
+                     // average minus the LVDT-derived true average velocity)
+                     // via TachCalReportCallback
     };
 
     // Operands are bound to configuration fields so protocols always read the
@@ -162,55 +189,36 @@ public:
                  RouterChannel *tAxisRouter,
                  PllModule *pll,
                  UsImpedanceScannerModule *impedanceScanner,
-                 DirectSolenoidChannel *clampSolenoid,
+                 SolenoidChannel *clampSolenoid,
                  PinMonitorChannel *contactSensorMonitor,
                  Timer *timer);
 
     void configure(const Config& config);
     const Config& getConfig() const;
 
-    // Selects the protocol program the VM runs. The module is
+    // Selects the protocol program the VM runs from Idle. The module is
     // protocol-agnostic; the caller (Robot) maps the configured bonding mode
-    // to a program. While engaged the swap is accepted only during the reset
-    // prologue or at the arm gate: the machine stays engaged and re-enters
-    // the new program through the reset prologue. Returns false when a bond
-    // cycle is engaged beyond the gate.
+    // to a program. Must be idle.
     bool setProtocol(const BonderProtocol& protocol);
     bool isActive() const { return m_activityState == ActivityState::Running; }
     bool isIdle() const { return !isActive(); }
 
-    // True while the VM is still in the reset prologue or parked on the
-    // protocol's first operator gate (the start-trigger WAIT or the
-    // manual-descent MZMOVE/MZDOWN): the bonder is armed but no bond cycle is
-    // engaged yet, so the caller may abort it to run another activity without
-    // ruining a wire.
-    bool isAwaitingStartTrigger() const
-    {
-        return isActive() && m_armGateValid &&
-               (m_inPrologue || m_pc == m_armGatePc);
-    }
-
-    void addEventListenerCallbacks(BonderStateChangedCallback stateCb, BonderErrorCallback errorCb);
+    void addEventListenerCallbacks(
+        void *context, BonderStateChangedCallback stateCb, BonderErrorCallback errorCb);
     void setUltrasonicReportListenerCallback(
         void *context, UltrasonicReportCallback callback);
+    void setTachCalReportListenerCallback(
+        void *context, TachCalReportCallback callback);
     void setTelemetryListenerCallback(void *context, TelemetryCallback callback);
 
     VmStatus getVmStatus() const;
 
-    // Operator inputs relayed by the user-interface layer. Safe to call from
-    // any context: the edge events latch into the atomic flag mask and the
-    // held states are single-byte atomic stores. The right button doubles as
-    // the phase trigger (WAIT flags) and the MZMOVE raise-jog; the left
-    // button is the MZMOVE/MZDOWN lower-jog and also latches its press edge.
     void notifyRightButton(bool pressed);
     void notifyLeftButton(bool pressed);
 
-    // Arms the machine: enables the control loops the protocol requires,
-    // drives the reset prologue and then executes the selected protocol.
-    // The VM idles again on protocol completion or error.
+    void notifyClampToggle();
+
     bool engage();
-    // Emergency-stops whatever the VM is doing and disables the control
-    // loops; safe to call in any state.
     void disengage();
 
 private:
@@ -223,11 +231,21 @@ private:
 
     void executeVM();
     InstrStatus executeInstruction(const Instruction& instr);
-    InstrStatus executeMzMove(const Instruction& instr);
-    InstrStatus executeMzDown(const Instruction& instr);
-    InstrStatus executeClampCommand(DirectSolenoidChannel::State target);
+    InstrStatus executeMzDrive(const Instruction& instr);
+    InstrStatus executeMzSetup(const Instruction& instr);
+    InstrStatus executeClampCommand(SolenoidChannel::State target);
 
     void emergencyStop();
+    // Enables/disables the force-coil + Z-motor control loops to match
+    // `enabled`, tracking m_motionControlEnabled; no-op if already there.
+    // Only the enable direction can fail (hardware refuses to arm).
+    bool setMotionControlEnabled(bool enabled);
+    // Switches control loops to what the (already pointed-to) program needs
+    // and resets VM position to its pc 0 (reset prologue first, if the
+    // program needs motion control).
+    bool activateProgram(bool requiresMotionControl);
+    // Aborts the VM to Idle on error.
+    void failVm(Error error);
 
     // =========================================================================
     // Configuration and VM runtime state
@@ -241,8 +259,8 @@ private:
 
     // Reset prologue executed before every motion protocol; guarantees pc 0
     // is entered at reset height with force off and the clamp closed.
-    static const Instruction kResetPrologue[4];
-    static constexpr uint8_t kResetPrologueLength = 4U;
+    static const Instruction kResetPrologue[5];
+    static constexpr uint8_t kResetPrologueLength = 5U;
 
     ActivityState m_activityState;
     const Instruction *m_program;   // active protocol, set via setProtocol()
@@ -252,12 +270,9 @@ private:
     // protocol's requirement so a swap to a motion-free protocol while
     // engaged still disables the loops when the VM idles.
     bool    m_motionControlEnabled;
-    bool    m_inPrologue;           // executing kResetPrologue, not m_program
     uint8_t m_pc;                   // position in m_program[] (or prologue)
     bool    m_instrStarted;         // one-shot entry guard for blocking ops
     uint32_t m_waitStartTick;
-    uint8_t m_armGatePc;            // pc of the first operator-gate instruction
-    bool    m_armGateValid;         // protocol has an operator gate
 
     // =========================================================================
     // Hardware event flags (set by callback bridges, consumed by the VM)
@@ -276,15 +291,19 @@ private:
 
     // Clamp state a CLAMPOPEN/CLAMPCLOSE is driving towards; the solenoid
     // state callback raises CLAMP_SETTLED when this state is reached.
-    DirectSolenoidChannel::State m_clampCommandTarget;
+    SolenoidChannel::State m_clampCommandTarget;
 
-    // Manual Z-leveling jog state (MZMOVE). Held states are written by the
+    // Manual Z-drive button state. Held states are written by the
     // user-interface relay (possibly from monitor sampling context) and read by
     // the VM in the main loop.
-    float    m_manualZTarget;
-    uint32_t m_manualLevelingLastTick;
     std::atomic<bool> m_raiseButtonHeld;
     std::atomic<bool> m_lowerButtonHeld;
+
+    // Button-driven state shared by MZDRIVE/MZSETUP: which direction's target
+    // is currently commanded, so a held-state change is only issued once
+    // (not every tick).
+    enum class ManualDriveDir : uint8_t { None, Lower, Raise };
+    ManualDriveDir m_manualDriveDir;
 
     // =========================================================================
     // External notifications
@@ -292,8 +311,11 @@ private:
 
     BonderStateChangedCallback m_stateChangedCallback;
     BonderErrorCallback        m_errorCallback;
+    void                      *m_eventCallbackContext;
     UltrasonicReportCallback   m_ultrasonicReportCallback;
     void                      *m_ultrasonicReportCallbackContext;
+    TachCalReportCallback      m_tachCalReportCallback;
+    void                      *m_tachCalReportCallbackContext;
     TelemetryCallback          m_telemetryCallback;
     void                      *m_telemetryCallbackContext;
 
@@ -307,7 +329,7 @@ private:
     RouterChannel            *m_tAxisRouter;
     PllModule                *m_pllModule;
     UsImpedanceScannerModule *m_impedanceScannerModule;
-    DirectSolenoidChannel    *m_clampSolenoid;
+    SolenoidChannel          *m_clampSolenoid;
     PinMonitorChannel        *m_contactSensorMonitor;
     Timer                    *m_timer;
 
@@ -318,6 +340,23 @@ private:
     complexf m_voltagePhasors[BONDER_MODULE_SCAN_MAX_FREQUENCIES];
     complexf m_currentPhasors[BONDER_MODULE_SCAN_MAX_FREQUENCIES];
     complexf m_impedances[BONDER_MODULE_SCAN_MAX_FREQUENCIES];
+
+    // =========================================================================
+    // Tach-cal sampling (TACHSAMPLE/TACHREPORT) — accumulated from velocity
+    // measurements pushed by the velocity controller (via
+    // DcMotorPositionControllerModule's proxy), not polled, so every real
+    // tachometer sample is counted exactly once regardless of this module's
+    // own tick rate.
+    // =========================================================================
+
+    bool     m_tachSamplingActive;
+    float    m_tachVelocitySum;
+    uint32_t m_tachSampleCount;
+    // Z position (independent LVDT measurement, not the tachometer) at the
+    // instant TACHSAMPLE armed — compared against the position at TACHREPORT
+    // to separate real motion (imperfect position hold during the window)
+    // from genuine tachometer zero-offset error.
+    float    m_tachPositionAtSampleStart;
 
     // =========================================================================
     // VM utilities
@@ -333,6 +372,7 @@ private:
     void     setZMotorPosition(float position);
     void     computeOperatingPoint(float targetPower);
     float    amplitudeForTargetPower(float realAdmittance, float targetPower);
+    float    correctedForceGrams(float grams) const;
     static float forceGramsToAmps(float grams);
     uint8_t  findResonanceIndex();
     float    calculateCenterFrequency(uint8_t resonanceIndex);
@@ -352,8 +392,10 @@ private:
     static void onForceCoilEvent(ForceCoilDriverModule::Event eventId);
     static bool onZMotorPositionSetpoint(void *context, float *positionSetpoint);
     static void onZMotorEvent(void *context, DcMotorPositionControllerModule::Event event);
-    static void onClampStateChanged(void *context, DirectSolenoidChannel::State state);
+    static void onClampStateChanged(void *context, SolenoidChannel::State state);
     static void onImpedanceScanned(void *context, complexf *v, complexf *c, complexf *i);
+    static void onZVelocityMeasured(void *context, float velocity);
+    void handleZVelocityMeasured(float velocity);
 
     float m_zMotorPositionSetpoint;
     bool  m_zMotorSetpointActive;
@@ -368,9 +410,6 @@ public:
     using Op = BonderModule::Opcode;
     using B = BonderConfig;
 
-    // General hardware operations should finish well inside ten seconds. The
-    // ultrasonic transfer timeout must cover the largest configurable bonding
-    // duration (60 s) plus scheduling margin.
     static constexpr uint32_t WAIT_TIMEOUT_MS = 10000U;
     static constexpr uint32_t US_TRANSFER_WAIT_TIMEOUT_MS = 65000U;
 
@@ -388,6 +427,7 @@ public:
     static constexpr uint32_t EVENT_LEFT_BUTTON_RELEASED   = BonderModule::EVENT_LEFT_BUTTON_RELEASED;
     static constexpr uint32_t EVENT_Z_POSITION_REACHED    = BonderModule::EVENT_Z_POSITION_REACHED;
     static constexpr uint32_t EVENT_CLAMP_SETTLED         = BonderModule::EVENT_CLAMP_SETTLED;
+    static constexpr uint32_t EVENT_CLAMP_TOGGLE_REQUESTED = BonderModule::EVENT_CLAMP_TOGGLE_REQUESTED;
 
     virtual ~BonderProtocol() = default;
     virtual const Instruction *getProtocolPtr() const = 0;

@@ -72,7 +72,7 @@
             "args": [
                 "-f", "/opt/homebrew/Cellar/open-ocd/0.12.0_1/share/openocd/scripts/interface/stlink.cfg",
                 "-f", ".vscode/stm32f4x.cfg",
-                "-c", "program build/firmware.elf verify reset exit"
+                "-c", "program build/firmware verify reset exit"
             ],
             "problemMatcher": [],
             "dependsOn": "Build project"
@@ -84,7 +84,7 @@
             "args": [
                 "-f", "/opt/homebrew/Cellar/open-ocd/0.12.0_1/share/openocd/scripts/interface/stlink.cfg",
                 "-f", ".vscode/stm32f4x.cfg",
-                "-c", "program build/firmware.elf verify reset exit"
+                "-c", "program build/firmware verify reset exit"
             ],
             "problemMatcher": []
         },

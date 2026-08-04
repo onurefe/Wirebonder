@@ -80,6 +80,9 @@ public:
 
     void setValue(float value);
     float value() const { return m_value; }
+    // Display resolution is per-parameter (see the catalog's `decimals`),
+    // so rows are retargeted as the pointer moves between screens.
+    void setDecimals(uint8_t decimals);
 
     void render(char *text, size_t textSize) const override;
 

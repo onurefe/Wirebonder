@@ -14,7 +14,7 @@ set(CMAKE_CXX_EXTENSIONS ON)
 
 if(NOT CMAKE_CROSSCOMPILING)
     enable_testing()
-    add_subdirectory(tests)
+    add_subdirectory(HostTests)
     return()
 endif()
 
@@ -112,31 +112,34 @@ set(CPP_SOURCES
     Core/Src/configuration_parameter_catalog.cpp
     Core/Src/user_interface_module.cpp
     Core/Src/eeprom_emulator.cpp
+    Core/Src/machine_settings.cpp
     Core/Src/bonder_module.cpp
-    Core/Src/protocol_semi_auto.cpp
-    Core/Src/protocol_manual.cpp
-    Core/Src/protocol_table_tear.cpp
-    Core/Src/protocol_lange_coupling.cpp
-    Core/Src/protocol_ultrasonic_test.cpp
-    Core/Src/protocol_force_setup.cpp
+    Core/Src/Protocol/protocol_semi_auto.cpp
+    Core/Src/Protocol/protocol_manual.cpp
+    Core/Src/Protocol/protocol_table_tear.cpp
+    Core/Src/Protocol/protocol_lange_coupling.cpp
+    Core/Src/Protocol/protocol_ultrasonic_test.cpp
+    Core/Src/Protocol/protocol_force_setup.cpp
+    Core/Src/Protocol/protocol_tach_cal.cpp
+    Core/Src/Protocol/protocol_reset_prologue.cpp
 )
 
 list(APPEND CPP_SOURCES
     Core/Src/robot.cpp
-    Core/Src/debug_environment.cpp
-    Core/Src/debug_environment_pll.cpp
-    Core/Src/debug_environment_impedance_scanner.cpp
-    Core/Src/debug_environment_tone_generator.cpp
-    Core/Src/debug_environment_keypad.cpp
-    Core/Src/debug_environment_motor_velocity.cpp
-    Core/Src/debug_environment_force_coil.cpp
-    Core/Src/debug_environment_motor_position.cpp
-    Core/Src/debug_environment_stepper_router.cpp
-    Core/Src/debug_environment_leds.cpp
-    Core/Src/debug_environment_lcd.cpp
-    Core/Src/debug_environment_solenoids.cpp
-    Core/Src/debug_environment_bonder.cpp
-    Core/Src/debug_environment_homing.cpp
+    Core/Src/DebugEnvironment/debug_environment.cpp
+    Core/Src/DebugEnvironment/debug_environment_pll.cpp
+    Core/Src/DebugEnvironment/debug_environment_impedance_scanner.cpp
+    Core/Src/DebugEnvironment/debug_environment_tone_generator.cpp
+    Core/Src/DebugEnvironment/debug_environment_keypad.cpp
+    Core/Src/DebugEnvironment/debug_environment_motor_velocity.cpp
+    Core/Src/DebugEnvironment/debug_environment_force_coil.cpp
+    Core/Src/DebugEnvironment/debug_environment_motor_position.cpp
+    Core/Src/DebugEnvironment/debug_environment_stepper_router.cpp
+    Core/Src/DebugEnvironment/debug_environment_leds.cpp
+    Core/Src/DebugEnvironment/debug_environment_lcd.cpp
+    Core/Src/DebugEnvironment/debug_environment_solenoids.cpp
+    Core/Src/DebugEnvironment/debug_environment_bonder.cpp
+    Core/Src/DebugEnvironment/debug_environment_homing.cpp
 )
 
 set(ASM_SOURCES

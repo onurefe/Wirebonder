@@ -104,6 +104,14 @@ void FloatWidget::setValue(float value)
     markDirty();
 }
 
+void FloatWidget::setDecimals(uint8_t decimals)
+{
+    const uint8_t clamped = decimals > 3U ? 3U : decimals;
+    if (m_decimals == clamped) return;
+    m_decimals = clamped;
+    markDirty();
+}
+
 void FloatWidget::render(char *text, size_t textSize) const
 {
     static const uint32_t kPow10[4] = {1U, 10U, 100U, 1000U};

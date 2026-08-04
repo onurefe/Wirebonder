@@ -21,18 +21,36 @@
 class ButtonChannel {
 public:
     using PressCallback = void (*)(void *context);
+    // Prolonged presses report how long the button has been held, measured
+    // from the accepted press edge. Listeners that scale their action with
+    // the hold time need no state of their own, which keeps them off the
+    // ISR/main-loop boundary: presses arrive from the I2C completion
+    // interrupt, repeats from the poll timer in the main loop.
+    using ProlongedPressCallback = void (*)(void *context, uint32_t heldMs);
 
     // idcPin0, idcPin1: the two IDC connector pins wired to this button (1-based).
     ButtonChannel(uint8_t idcPin0, uint8_t idcPin1);
+    ButtonChannel(uint8_t idcPin0, uint8_t idcPin1, uint32_t prolongedPressThresholdMs, uint32_t prolongedPressCallbackIntervalMs);
     virtual ~ButtonChannel() = default;
 
     bool addPressListenerCallback(void *context, PressCallback callback);
+    bool addProlongedPressListenerCallback(void *context, ProlongedPressCallback callback);
     bool removePressListenerCallback(void *context, PressCallback callback);
+    bool removeProlongedPressListenerCallback(void *context, ProlongedPressCallback callback);
 
     // Called by ControlPanelService with the latest 16-bit port state.
     // Fires the press callback on the LOW→HIGH transition of both bits.
     // Virtual so diagnostic channels can observe the raw state directly.
     virtual void update(uint16_t state);
+
+    // Called by ControlPanelService on every poll. Fires the prolonged press
+    // callbacks at a fixed interval once the button has been held longer than
+    // the threshold. The repeat rate is capped by the poll period.
+    virtual void tick();
+
+    // Drops any latched press state. Called when the owning service starts or
+    // stops so a button held across that boundary cannot keep repeating.
+    virtual void reset();
 
     uint16_t getMask() const { return m_mask; }
 
@@ -42,14 +60,26 @@ private:
         void *context;
     };
 
+    struct ProlongedCallbackRegistration {
+        ProlongedPressCallback callback;
+        void *context;
+    };
+
     static constexpr uint8_t kMaxCallbacks = 4U;
 
-    uint16_t      m_mask;
-    bool          m_wasPressed;
-    bool          m_initialized;
-    uint32_t      m_lastChangeTick;   // debounce: last observed edge (ms)
-    CallbackRegistration m_callbacks[kMaxCallbacks];
-    uint8_t       m_callbackCount;
+    uint32_t                m_prolongedPressThresholdMs;
+    uint32_t                m_prolongedPressCallbackIntervalMs;
+    uint16_t                m_mask;
+    bool                    m_wasPressed;        // an accepted press is held
+    bool                    m_lastRawLevel;      // last sampled level, bounces included
+    bool                    m_initialized;
+    uint32_t                m_lastChangeTick;    // debounce: last raw edge (ms)
+    uint32_t                m_pressStartTick;    // last accepted press edge (ms)
+    uint32_t                m_lastProlongedTick; // last prolonged callback fire (ms)
+    CallbackRegistration    m_pressCallbacks[kMaxCallbacks];
+    ProlongedCallbackRegistration m_prolongedPressCallbacks[kMaxCallbacks];
+    uint8_t                 m_pressCallbackCount;
+    uint8_t                 m_prolongedPressCallbackCount;
 };
 
 // ---------------------------------------------------------------------------

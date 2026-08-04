@@ -6,6 +6,7 @@ Hardware/#auto_saved_files#
 # Build outputs
 Firmware/build/
 Firmware/build_tests/
+Firmware/build_host/
 
 # Python cache
 __pycache__/
