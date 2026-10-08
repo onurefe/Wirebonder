@@ -30,10 +30,12 @@ add_executable(firmware_tests
     test_queue.cpp
     test_iq_demodulator.cpp
     test_transducer_analyzer.cpp
+    test_zaxis_kalman_filter.cpp
     stubs/hal_stubs.cpp
     ${CMAKE_SOURCE_DIR}/Core/Src/transducer_analyzer.cpp
     ${CMAKE_SOURCE_DIR}/Core/Src/leaky_integrator_controller.cpp
     ${CMAKE_SOURCE_DIR}/Core/Src/pid_controller.cpp
+    ${CMAKE_SOURCE_DIR}/Core/Src/zaxis_kalman_filter.cpp
     ${CMAKE_SOURCE_DIR}/Core/Src/adc_service.cpp
     ${CMAKE_SOURCE_DIR}/Core/Src/dac_service.cpp
     ${CMAKE_SOURCE_DIR}/Core/Src/pll_module.cpp

@@ -65,7 +65,6 @@ public:
         SaveSettings,             // persist machine-wide settings
         ToggleSpotlight,          // Enter pressed on the "Spot On" row
         StartZPositionCal,        // Enter pressed on the "Start Z Pos. Cal." row
-        StartTachCal,             // Enter pressed on the "Start Tach. Cal." row
         SaveForceMeasurement      // value = grams read off the operator's gauge
     };
 
@@ -170,17 +169,14 @@ public:
     // First kSettingsLevelRowCount rows are numeric (FloatWidget), edited
     // with +/-. The rows below them are action rows driven by Enter:
     // "Spot On" fires RequestType::ToggleSpotlight (its ON/OFF TextWidget
-    // only reports the resulting state), and the two calibrations fire
-    // RequestType::StartZPositionCal and RequestType::StartTachCal. +/- does
-    // nothing on any of them. Z position cal is listed first because the tach
-    // measures against the LVDT, so it wants a referenced axis.
+    // only reports the resulting state), and the Z position calibration
+    // fires RequestType::StartZPositionCal. +/- does nothing on either.
     static constexpr uint8_t kSettingsLevelRowCount = 6U;
-    static constexpr uint8_t kSettingsRowCount = 9U;
+    static constexpr uint8_t kSettingsRowCount = 8U;
     // 1-based, matching m_pointerRow's convention on the settings page (row 0
     // is the header; selectable rows are numbered 1..kSettingsRowCount).
     static constexpr uint8_t kSettingsSpotOnRow = 7U;
     static constexpr uint8_t kSettingsZPositionCalRow = 8U;
-    static constexpr uint8_t kSettingsTachCalRow = 9U;
     void setSettingsValues(const MachineSettingsData& data);
 
     // --- Force measurement entry ----------------------------------------

@@ -70,9 +70,6 @@ BonderCommandUsReport          BonderModule::m_CmdUsReport;
 BonderCommandMzDrive           BonderModule::m_CmdMzDrive;
 BonderCommandOpenZMove         BonderModule::m_CmdOpenZMove;
 BonderCommandZReference        BonderModule::m_CmdZReference;
-BonderCommandTachMove          BonderModule::m_CmdTachMove;
-BonderCommandTachSample        BonderModule::m_CmdTachSample;
-BonderCommandTachReport        BonderModule::m_CmdTachReport;
 
 // =============================================================================
 // Reporting
@@ -108,11 +105,6 @@ bool BonderModule::removeUltrasonicReportListenerCallback(void *context, Ultraso
     return m_ultrasonicReportCallbacks.remove(context, cb);
 }
 
-bool BonderModule::addTachCalReportListenerCallback(void *context, TachCalReportCallback cb)
-{
-    return m_tachCalReportCallbacks.add(context, cb);
-}
-
 bool BonderModule::addZReferenceReportListenerCallback(void *context, ZReferenceReportCallback cb)
 {
     return m_zReferenceReportCallbacks.add(context, cb);
@@ -121,11 +113,6 @@ bool BonderModule::addZReferenceReportListenerCallback(void *context, ZReference
 bool BonderModule::removeZReferenceReportListenerCallback(void *context, ZReferenceReportCallback cb)
 {
     return m_zReferenceReportCallbacks.remove(context, cb);
-}
-
-bool BonderModule::removeTachCalReportListenerCallback(void *context, TachCalReportCallback cb)
-{
-    return m_tachCalReportCallbacks.remove(context, cb);
 }
 
 void BonderModule::setRunning(bool running)
@@ -359,7 +346,6 @@ uint32_t BonderModule::producedEventFlags(Opcode opcode)
     switch (opcode) {
     case Opcode::ZMOVE:
     case Opcode::MZDRIVE:
-    case Opcode::TACHMOVE:
         return EVENT_Z_POSITION_REACHED | EVENT_POSITION_ERROR | EVENT_Z_CONTROLLER_INIT_ERROR;
 
     case Opcode::YMOVE:
@@ -370,7 +356,6 @@ uint32_t BonderModule::producedEventFlags(Opcode opcode)
         return EVENT_T_MOVE_COMPLETED | EVENT_AXIS_MOVE_ERROR;
 
     case Opcode::TIMER:
-    case Opcode::TACHSAMPLE:
         return EVENT_TIMER_EXPIRED | EVENT_WAIT_TIMEOUT;
 
     case Opcode::CLAMPOPEN:
@@ -398,9 +383,6 @@ uint32_t BonderModule::producedEventFlags(Opcode opcode)
 
     case Opcode::USREPORT:
         return EVENT_US_REPORT_READY;
-
-    case Opcode::TACHREPORT:
-        return EVENT_TACH_REPORT_READY;
 
     case Opcode::ZREFERENCE:
         return EVENT_Z_REFERENCE_MEASURED;
@@ -654,9 +636,6 @@ void BonderModule::registerCommands()
                     &BonderModule::onOpenZMoveCmdEvent);
     registerCommand(Opcode::ZREFERENCE, m_CmdZReference,
                     &BonderModule::onZReferenceCmdEvent);
-    registerCommand(Opcode::TACHMOVE, m_CmdTachMove, &BonderModule::onTachMoveCmdEvent);
-    registerCommand(Opcode::TACHSAMPLE, m_CmdTachSample, &BonderModule::onTachSampleCmdEvent);
-    registerCommand(Opcode::TACHREPORT, m_CmdTachReport, &BonderModule::onTachReportCmdEvent);
 
     // WAITFLAGS and CLRFLAGS act on the VM's own flag latch, so no command
     // backs them; their table entries stay null.
@@ -760,18 +739,6 @@ void BonderModule::startInstruction(const Instruction &instruction)
 
     case BonderModule::Opcode::ZREFERENCE:
         startInstructionZReference(args);
-        break;
-
-    case BonderModule::Opcode::TACHMOVE:
-        startInstructionTachMove(args);
-        break;
-
-    case BonderModule::Opcode::TACHSAMPLE:
-        startInstructionTachSample(args);
-        break;
-
-    case BonderModule::Opcode::TACHREPORT:
-        startInstructionTachReport(args);
         break;
 
     default:
@@ -977,28 +944,6 @@ void BonderModule::startInstructionZReference(void **args)
 {
     (void)args;
     m_CmdZReference.start(nullptr);
-}
-
-void BonderModule::startInstructionTachMove(void **args)
-{
-    (void)args;
-    m_CmdTachMove.start(nullptr);
-}
-
-void BonderModule::startInstructionTachSample(void **args)
-{
-    (void)args;
-    m_CmdTachSample.start(nullptr);
-}
-
-// The residual comes from the sample window that measured it.
-void BonderModule::startInstructionTachReport(void **args)
-{
-    (void)args;
-
-    BonderCommandTachReport::Args ordered_args;
-    ordered_args.offsetResidual = m_CmdTachSample.getOffsetResidual();
-    m_CmdTachReport.start(&ordered_args);
 }
 
 
@@ -1312,42 +1257,4 @@ void BonderModule::onZReferenceCmdEvent(void *context, uint8_t eventId, void *ev
 
     self->setEventFlags(EVENT_Z_REFERENCE_MEASURED);
     self->m_zReferenceReportCallbacks.invoke(*static_cast<const float *>(eventParams));
-}
-
-void BonderModule::onTachMoveCmdEvent(void *context, uint8_t eventId, void *eventParams)
-{
-    BonderModule *self = static_cast<BonderModule *>(context);
-    if (eventId == BonderCommandTachMove::EventId::SetpointReached) {
-        self->setEventFlags(EVENT_Z_POSITION_REACHED);
-    } else if (eventId == BonderCommandTachMove::EventId::PositionError) {
-        self->setEventFlags(EVENT_POSITION_ERROR);
-    } else if (eventId ==
-               BonderCommandTachMove::EventId::ControllerInitializationError) {
-        self->setEventFlags(EVENT_Z_CONTROLLER_INIT_ERROR);
-    }
-}
-
-void BonderModule::onTachSampleCmdEvent(void *context, uint8_t eventId, void *eventParams)
-{
-    BonderModule *self = static_cast<BonderModule *>(context);
-
-    // The sample window is timer-bounded; its completion is the same event a
-    // TIMER raises.
-    if (eventId == BonderCommandTachSample::EventId::SampleCompleted) {
-        self->setEventFlags(EVENT_TIMER_EXPIRED);
-    } else if (eventId == BonderCommandTachSample::EventId::TimedOut) {
-        self->setEventFlags(EVENT_WAIT_TIMEOUT);
-    }
-}
-
-void BonderModule::onTachReportCmdEvent(void *context, uint8_t eventId, void *eventParams)
-{
-    BonderModule *self = static_cast<BonderModule *>(context);
-    if (eventId != BonderCommandTachReport::EventId::ReportReady ||
-        eventParams == nullptr) {
-        return;
-    }
-
-    self->setEventFlags(EVENT_TACH_REPORT_READY);
-    self->m_tachCalReportCallbacks.invoke(*static_cast<const float *>(eventParams));
 }

@@ -182,7 +182,6 @@ private:
     static IQDemodulatorChannel m_ultrasonicIsensChannel;
     static RawAdcChannel m_scannerVsensChannel;
     static RawAdcChannel m_scannerIsensChannel;
-    static AnalogChannel m_tachometerChannel;
     static IQDemodulatorChannel m_lvdtAChannel;
     static IQDemodulatorChannel m_lvdtBChannel;
     static AnalogChannel m_forceCoilISensChannel;

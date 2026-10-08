@@ -26,7 +26,7 @@ struct DebugMotorPositionStallTelemetrySample {
 };
 
 // Sandbox for the Z-axis position loop: LVDT excitation/demodulation feeding
-// DcMotorPositionControllerModule on top of the tachometer velocity loop.
+// DcMotorPositionControllerModule on top of the LVDT-estimated velocity loop.
 class MotorPositionDebugEnvironment : public DebugEnvironment {
 public:
     static constexpr uint16_t EnvironmentId =
@@ -90,7 +90,6 @@ private:
     static uint16_t m_dac2Buffer[2 * DAC2_SAMPLES];
     static uint16_t m_pwmChannel2Buffer[2 * TIM1_PWM_CHANNEL2_SAMPLES];
 
-    static AnalogChannel m_tachometerChannel;
     static IQDemodulatorChannel m_lvdtAChannel;
     static IQDemodulatorChannel m_lvdtBChannel;
     static SineGeneratorChannel m_lvdtExcitationChannel;

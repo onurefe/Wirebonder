@@ -1,9 +1,9 @@
 #include "dc_motor_velocity_controller_module.hpp"
 
 DcMotorVelocityControllerModule::DcMotorVelocityControllerModule(
-    AnalogChannel *tachometerChannel,
+    LvdtSensorModule *lvdtSensor,
     PwmRampChannel *pwmChannel)
-    : m_tachometerChannel(tachometerChannel)
+    : m_lvdtSensorModule(lvdtSensor)
     , m_pwmChannel(pwmChannel)
     , m_velocityPid(PidController::Config{
         DCMOTOR_VELOCITY_MODULE_PID_GAIN,
@@ -14,10 +14,19 @@ DcMotorVelocityControllerModule::DcMotorVelocityControllerModule(
         DCMOTOR_VELOCITY_MODULE_PID_LEAKAGE_TC,
         DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MIN,
         DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MAX})
+    , m_estimator(ZAxisKalmanFilter::Config{
+        ZMOTOR_MODEL_GAIN,
+        ZMOTOR_MODEL_TIME_CONSTANT,
+        1.0f / static_cast<float>(DCMOTOR_VELOCITY_MODULE_CONTROL_FREQUENCY),
+        ZAXIS_KALMAN_POSITION_NOISE,
+        ZAXIS_KALMAN_ACCELERATION_NOISE,
+        ZAXIS_KALMAN_DISTURBANCE_DRIFT})
     , m_controlState(ControlState::Disabled)
-    , m_velocityMeasurement(0.0f)
+    , m_hasEstimate(false)
+    , m_positionMeasurement(0.0f)
+    , m_velocityEstimate(0.0f)
+    , m_appliedVoltage(0.0f)
     , m_targetDuty(DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY)
-    , m_velocityOffset(0.0f)
 {}
 
 // ---------------------------------------------------------------------------
@@ -26,10 +35,18 @@ DcMotorVelocityControllerModule::DcMotorVelocityControllerModule(
 
 void DcMotorVelocityControllerModule::onStart()
 {
-    if (m_tachometerChannel == nullptr || m_pwmChannel == nullptr) {
+    if (m_lvdtSensorModule == nullptr || m_pwmChannel == nullptr) {
         setProcessError();
         return;
     }
+
+    // Solved here rather than in the constructor: it is a few hundred
+    // double-precision Riccati steps, which want the clocks already up.
+    if (!m_estimator.initialize()) {
+        setProcessError();
+        return;
+    }
+
     registerPeripheralCallbacks();
 }
 
@@ -45,6 +62,8 @@ bool DcMotorVelocityControllerModule::enableControl()
     }
 
     m_targetDuty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY;
+    m_appliedVoltage = 0.0f;
+    m_hasEstimate = false;
 
     m_velocityPid.start();
     m_controlState = ControlState::Enabled;
@@ -53,6 +72,16 @@ bool DcMotorVelocityControllerModule::enableControl()
         m_controlState = ControlState::Disabled;
         return false;
     }
+
+    // The PWM holds zero drive until the first measurement arrives and seeds
+    // the filter; only then does the loop start acting.
+    if (!m_lvdtSensorModule->startMeasurement()) {
+        m_pwmChannel->stop();
+        m_velocityPid.stop();
+        m_controlState = ControlState::Disabled;
+        return false;
+    }
+
     return true;
 }
 
@@ -60,10 +89,13 @@ void DcMotorVelocityControllerModule::disableControl()
 {
     if (m_controlState != ControlState::Enabled) return;
 
+    m_lvdtSensorModule->stopMeasurement();
     m_pwmChannel->stop();
     m_velocityPid.stop();
 
     m_targetDuty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY;
+    m_appliedVoltage = 0.0f;
+    m_hasEstimate = false;
     m_controlState = ControlState::Disabled;
 }
 
@@ -77,6 +109,16 @@ bool DcMotorVelocityControllerModule::removeVelocityListenerCallback(void *conte
     return m_velocityListenerCallbacks.remove(context, cb);
 }
 
+bool DcMotorVelocityControllerModule::addPositionListenerCallback(void *context, PositionListenerCallback cb)
+{
+    return m_positionListenerCallbacks.add(context, cb);
+}
+
+bool DcMotorVelocityControllerModule::removePositionListenerCallback(void *context, PositionListenerCallback cb)
+{
+    return m_positionListenerCallbacks.remove(context, cb);
+}
+
 bool DcMotorVelocityControllerModule::addVelocityControllerCallback(void *context, VelocityControllerCallback cb)
 {
     return m_velocityControllerCallbacks.add(context, cb);
@@ -87,19 +129,24 @@ bool DcMotorVelocityControllerModule::removeVelocityControllerCallback(void *con
     return m_velocityControllerCallbacks.remove(context, cb);
 }
 
+float DcMotorVelocityControllerModule::getPosition() const
+{
+    return m_positionMeasurement;
+}
+
 float DcMotorVelocityControllerModule::getVelocity() const
 {
-    return m_velocityMeasurement;
+    return m_velocityEstimate;
 }
 
-void DcMotorVelocityControllerModule::setVelocityOffset(float offset)
+float DcMotorVelocityControllerModule::getDisturbance() const
 {
-    m_velocityOffset = offset;
+    return m_estimator.getDisturbance();
 }
 
-float DcMotorVelocityControllerModule::getVelocityOffset() const
+float DcMotorVelocityControllerModule::getAppliedVoltage() const
 {
-    return m_velocityOffset;
+    return m_appliedVoltage;
 }
 
 void DcMotorVelocityControllerModule::enablePidBypass()
@@ -116,9 +163,9 @@ void DcMotorVelocityControllerModule::disablePidBypass()
 // Peripheral-Bridge-Callbacks
 // ---------------------------------------------------------------------------
 
-void DcMotorVelocityControllerModule::tachometerCallback(void *context, float velocity)
+void DcMotorVelocityControllerModule::lvdtCallback(void *context, float position, float magA, float magB)
 {
-    static_cast<DcMotorVelocityControllerModule *>(context)->onTachometerMeasured(velocity);
+    static_cast<DcMotorVelocityControllerModule *>(context)->onLvdtMeasured(position, magA, magB);
 }
 
 bool DcMotorVelocityControllerModule::pwmUpdateCallback(void *context, float *value)
@@ -130,30 +177,50 @@ bool DcMotorVelocityControllerModule::pwmUpdateCallback(void *context, float *va
 // Peripheral-Event-Handlers
 // ---------------------------------------------------------------------------
 
-void DcMotorVelocityControllerModule::onTachometerMeasured(float velocity)
+void DcMotorVelocityControllerModule::onLvdtMeasured(float position, float magA, float magB)
 {
     if (!isControlEnabled()) {
         return;
     }
 
-    /* Turned the right way up before anything else sees it, so the offset and
-       every listener work in the machine's up-positive convention. */
-    m_velocityMeasurement = (ZMOTOR_TACHOMETER_DIRECTION * velocity) -
-                            m_velocityOffset;
+    if (m_hasEstimate) {
+        m_estimator.correct(position);
+    } else {
+        m_estimator.reset(position);
+        m_hasEstimate = true;
+    }
 
-    // Notify observers of the fresh measurement.
-    m_velocityListenerCallbacks.invoke(m_velocityMeasurement);
+    m_positionMeasurement = position;
+    m_velocityEstimate = m_estimator.getVelocity();
+
+    // The position loop caches this before it is asked for a target below.
+    m_positionListenerCallbacks.invoke(position, magA, magB);
 
     // Pull the fresh setpoint at the exact instant the loop consumes it: the
     // first active controller wins, otherwise the target stays at zero.
     float target_velocity = 0.0f;
     (void)m_velocityControllerCallbacks.invokeFirst(&target_velocity);
 
+    // A listener or controller may have shut the loop down from inside this
+    // tick; leave the zero-drive state disableControl() set alone.
+    if (!isControlEnabled()) {
+        return;
+    }
+
     float drive = m_velocityPid.execute(
         target_velocity,
-        m_velocityMeasurement);
+        m_velocityEstimate);
 
     m_targetDuty = computeTargetDuty(drive);
+
+    /* The model is driven by what the bridge will actually see, after the
+       duty clamp, not by what the PID asked for -- otherwise a saturated
+       drive would be credited with motion it never produced. The PWM ramps
+       to this duty over the next segment, a lag the model does not carry. */
+    m_appliedVoltage = dutyToVoltage(m_targetDuty);
+    m_estimator.predict(m_appliedVoltage);
+
+    m_velocityListenerCallbacks.invoke(m_velocityEstimate);
 }
 
 bool DcMotorVelocityControllerModule::onPwmUpdate(float *value)
@@ -174,8 +241,8 @@ bool DcMotorVelocityControllerModule::onPwmUpdate(float *value)
 
 void DcMotorVelocityControllerModule::registerPeripheralCallbacks()
 {
-    if (!m_tachometerChannel->addMeasurementListenerCallback(
-            this, &DcMotorVelocityControllerModule::tachometerCallback) ||
+    if (!m_lvdtSensorModule->addMeasurementListenerCallback(
+            this, &DcMotorVelocityControllerModule::lvdtCallback) ||
         !m_pwmChannel->addTargetDutyControllerCallback(
             this, &DcMotorVelocityControllerModule::pwmUpdateCallback)) {
         setProcessError();
@@ -190,7 +257,7 @@ bool DcMotorVelocityControllerModule::isControlEnabled() const
 float DcMotorVelocityControllerModule::computeTargetDuty(float velocityControlOutput) const
 {
     /* ZMOTOR_DRIVE_DIRECTION carries which way duty above the zero-velocity
-       point moves the head. It is load-bearing for both closed loops -- see
+       point moves the head. It is load-bearing for the closed loop -- see
        the constraint in configuration.h -- so it is not the place to correct
        the direction of a single open-loop move. */
     float raw_duty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY +
@@ -213,4 +280,13 @@ float DcMotorVelocityControllerModule::clampDuty(float duty)
 #endif
 
     return duty;
+}
+
+// Inverse of computeTargetDuty(): the up-positive voltage a duty applies.
+// ZMOTOR_DRIVE_DIRECTION is +/-1, so it is its own inverse.
+float DcMotorVelocityControllerModule::dutyToVoltage(float duty)
+{
+    return ZMOTOR_DRIVE_DIRECTION *
+           (duty - static_cast<float>(DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY)) /
+           DCMOTOR_VELOCITY_MODULE_VOLTAGE_TO_DUTY_SCALE;
 }

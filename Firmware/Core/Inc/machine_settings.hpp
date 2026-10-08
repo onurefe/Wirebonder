@@ -20,11 +20,6 @@ struct MachineSettingsData {
     // the downward one when pushing them into the position loop.
     float zMotorMaxUpwardSpeed;
     float zMotorMaxDownwardSpeed;
-    // Runtime correction from Start Tach. Cal., subtracted from the raw
-    // tachometer reading by DcMotorVelocityControllerModule. Not user-edited
-    // via the settings editor; written by Robot::onTachCalReport() and
-    // applied every tick by Robot::applyTachometerCalibration().
-    float tachometerVelocityOffset;
     // What turns an LVDT displacement into a machine height, in mm: how far
     // the sensor's electrical centre sits above the Z origin. Measured by
     // Start Z Pos. Cal., which runs the head onto the bottom of its travel

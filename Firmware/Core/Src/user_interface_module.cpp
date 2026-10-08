@@ -338,10 +338,6 @@ void UserInterfaceModule::handleMenuRequest(const Menu::Request& request)
     case Menu::RequestType::StartZPositionCal:
         fireEvent(Event::StartZPositionCalRequested);
         break;
-
-    case Menu::RequestType::StartTachCal:
-        fireEvent(Event::StartTachCalRequested);
-        break;
     case Menu::RequestType::SaveForceMeasurement:
         saveForceMeasurement(request.value);
         break;

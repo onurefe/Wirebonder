@@ -24,7 +24,6 @@ public:
         ConfigurationConfirmed,
         ConfigurationSelectionStarted,
         StartZPositionCalRequested,
-        StartTachCalRequested,
         MachineSettingsChanged
     };
     using EventCallback = void (*)(void *ctx, Event event);

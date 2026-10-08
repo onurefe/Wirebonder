@@ -44,7 +44,6 @@ class RobotRequest {
             Initialize,
             TestUs,
             TestForce,
-            CalibrateTachometer,
             CalibrateZPosition,
             ExecuteBondingProtocol,
         };
@@ -136,7 +135,6 @@ private:
     static bool isCriticalBonderError(BonderModule::Error error);
     bool startUsTest();
     bool startForceTest();
-    bool startTachometerCalibration();
     bool startZPositionCalibration();
     bool startBondingProtocol();
 
@@ -155,7 +153,6 @@ private:
     /* Lights the Test / Setup keypad LED for as long as its request is the
        one actually running. */
     static void updateRequestIndicators();
-    void updateTachometerOffsetCorrection();
     void updateZPositionReference();
     void updateZPositionSpeedLimits();
 
@@ -170,7 +167,6 @@ private:
     static void onBonderModuleErrorOccurred(void *context, BonderModule::Error error);
     static void onUltrasonicReport(
         void *context, const BonderModule::UltrasonicReport& report);
-    static void onTachCalReport(void *context, float offsetResidual);
     static void onZReferenceReport(void *context, float settledPosition);
     static void onUserInterfaceEvent(void *ctx, UserInterfaceModule::Event event);
     static void onMouseButtonEvent(void *ctx,
@@ -214,7 +210,6 @@ private:
     static const RobotRequest               m_initializeRequest;
     static const RobotRequest               m_testUsRequest;
     static const RobotRequest               m_testForceRequest;
-    static const RobotRequest               m_calibrateTachometerRequest;
     static const RobotRequest               m_calibrateZPositionRequest;
     static const RobotRequest               m_executeBondingRequest;
 
@@ -291,8 +286,7 @@ private:
        unsynchronized trigger timer to ADC1's tick grid. */
     static AdcTickSyncChannel               m_ultrasonicTickSyncChannel;
 
-    /* ADC2 — Z-motor tachometer, LVDT (IQ-demodulated), force-coil current sense. */
-    static AnalogChannel                    m_tachometerChannel;
+    /* ADC2 — LVDT (IQ-demodulated), force-coil current sense. */
     static IQDemodulatorChannel             m_lvdtAChannel;
     static IQDemodulatorChannel             m_lvdtBChannel;
     static AnalogChannel                    m_forceCoilISensChannel;

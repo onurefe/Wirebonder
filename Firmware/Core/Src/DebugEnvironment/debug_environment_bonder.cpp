@@ -147,13 +147,6 @@ RawAdcChannel BonderDebugEnvironment::m_scannerIsensChannel(
     BonderDebugEnvironment::m_scannerIsensBuffer,
     SCANNER_ADC_CAPTURE_SIZE);
 
-AnalogChannel BonderDebugEnvironment::m_tachometerChannel(
-    ADC_CHANNEL_ZMOTOR_TACHOMETER_CONVERSION_ORDER,
-    static_cast<uint32_t>(ADC_CHANNEL_ZMOTOR_TACHOMETER_OVERSAMPLING_RATIO),
-    ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC,
-    -ZMOTOR_MODULE_TACHOMETER_ZERO_VELOCITY_VOLTAGE *
-        ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC);
-
 IQDemodulatorChannel BonderDebugEnvironment::m_lvdtAChannel(
     ADC_CHANNEL_LVDT_A_CONVERSION_ORDER,
     ADC_CHANNEL_LVDT_DEMODULATION_SAMPLES,
@@ -227,11 +220,10 @@ ForceCoilDriverModule BonderDebugEnvironment::m_forceCoilControllerModule(
     &BonderDebugEnvironment::m_forceCoilPwmChannel);
 
 DcMotorVelocityControllerModule BonderDebugEnvironment::m_zMotorVelocityControllerModule(
-    &BonderDebugEnvironment::m_tachometerChannel,
+    &BonderDebugEnvironment::m_lvdtSensorModule,
     &BonderDebugEnvironment::m_zMotorPwmChannel);
 
 DcMotorPositionControllerModule BonderDebugEnvironment::m_zMotorPositionControllerModule(
-    &BonderDebugEnvironment::m_lvdtSensorModule,
     &BonderDebugEnvironment::m_zMotorVelocityControllerModule);
 
 PllModule BonderDebugEnvironment::m_pllModule(
@@ -299,7 +291,6 @@ BonderDebugEnvironment::BonderDebugEnvironment()
 
     // ADC2 channels (conversion-order ascending).
     m_adc2Service.addChannel(&m_forceCoilISensChannel);
-    m_adc2Service.addChannel(&m_tachometerChannel);
     m_adc2Service.addChannel(&m_lvdtAChannel);
     m_adc2Service.addChannel(&m_lvdtBChannel);
 

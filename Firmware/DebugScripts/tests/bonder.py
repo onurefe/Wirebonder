@@ -50,9 +50,6 @@ OPCODE_NAMES = {
     12: "SETFORCE",
     13: "USREPORT",
     14: "MZDRIVE",
-    15: "TACHMOVE",
-    16: "TACHSAMPLE",
-    17: "TACHREPORT",
 }
 
 # Must match BonderModule::EventFlag bit positions.
@@ -232,7 +229,7 @@ class DebugBonderWatch(BridgeCommand):
 
         name = OPCODE_NAMES.get(opcode)
 
-        if name in ("ZMOVE", "TACHMOVE"):
+        if name == "ZMOVE":
             print("       arg=%.4f z=%.4f/%.4f mm" %
                   (arg_value, z, target))
         elif name == "MZDRIVE":
@@ -249,7 +246,7 @@ class DebugBonderWatch(BridgeCommand):
             print("       displacement=%.4f mm y=%.4f mm" % (arg_value, y))
         elif name == "TMOVE":
             print("       target=%.4f mm t=%.4f mm" % (arg_value, t))
-        elif name in ("TIMER", "TACHSAMPLE"):
+        elif name == "TIMER":
             print("       duration=%.4f s" % arg_value)
         elif name in ("WAIT", "CLRFLAGS"):
             requested = event_names(mask)

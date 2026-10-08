@@ -19,13 +19,6 @@ uint16_t MotorPositionDebugEnvironment::m_adc2Buffer[2 * ADC2_SAMPLES_PER_CHANNE
 uint16_t MotorPositionDebugEnvironment::m_dac2Buffer[2 * DAC2_SAMPLES];
 uint16_t MotorPositionDebugEnvironment::m_pwmChannel2Buffer[2 * TIM1_PWM_CHANNEL2_SAMPLES];
 
-AnalogChannel MotorPositionDebugEnvironment::m_tachometerChannel(
-    ADC_CHANNEL_ZMOTOR_TACHOMETER_CONVERSION_ORDER,
-    static_cast<uint32_t>(ADC_CHANNEL_ZMOTOR_TACHOMETER_OVERSAMPLING_RATIO),
-    ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC,
-    -ZMOTOR_MODULE_TACHOMETER_ZERO_VELOCITY_VOLTAGE *
-        ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC);
-
 IQDemodulatorChannel MotorPositionDebugEnvironment::m_lvdtAChannel(
     ADC_CHANNEL_LVDT_A_CONVERSION_ORDER,
     ADC_CHANNEL_LVDT_DEMODULATION_SAMPLES,
@@ -67,17 +60,15 @@ LvdtSensorModule MotorPositionDebugEnvironment::m_lvdtSensorModule(
     LVDT_MODULE_STROKE_MM);
 
 DcMotorVelocityControllerModule MotorPositionDebugEnvironment::m_velocityController(
-    &MotorPositionDebugEnvironment::m_tachometerChannel,
+    &MotorPositionDebugEnvironment::m_lvdtSensorModule,
     &MotorPositionDebugEnvironment::m_zMotorPwmChannel);
 
 DcMotorPositionControllerModule MotorPositionDebugEnvironment::m_positionController(
-    &MotorPositionDebugEnvironment::m_lvdtSensorModule,
     &MotorPositionDebugEnvironment::m_velocityController);
 
 MotorPositionDebugEnvironment::MotorPositionDebugEnvironment()
 {
     // ADC2 channels (conversion-order ascending).
-    m_adc2Service.addChannel(&m_tachometerChannel);
     m_adc2Service.addChannel(&m_lvdtAChannel);
     m_adc2Service.addChannel(&m_lvdtBChannel);
 

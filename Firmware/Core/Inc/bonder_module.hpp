@@ -86,15 +86,6 @@ class BonderModule: public Process {
                      // controlled and nothing measured
         ZREFERENCE,  // declares wherever the head is now to be the Z origin
                      // and reports it, so the LVDT offset can be corrected
-        TACHMOVE,    // moves to ZMOTOR_TACH_CAL_POSITION_MM; re-arms Z_POSITION_REACHED
-        TACHSAMPLE,  // arms a ZMOTOR_TACH_CAL_SAMPLE_DURATION_S timer (re-arms
-                     // TIMER_EXPIRED, same as TIMER), starts accumulating
-                     // tachometer velocity pushed from the velocity
-                     // controller, and snapshots the current Z position as
-                     // the window's start
-        TACHREPORT,  // emits the TACHSAMPLE offset residual (tachometer
-                     // average minus the LVDT-derived true average velocity)
-                     // via TachCalReportCallback
         NUM_COMMANDS    // JUST FOR COUNTING NUMBER OF COMMANDS.
     };
     
@@ -126,7 +117,6 @@ class BonderModule: public Process {
         EVENT_LEFT_BUTTON_RELEASED      = 1u << 19,
         EVENT_CLAMP_TOGGLE_REQUESTED    = 1u << 20,
         EVENT_US_REPORT_READY           = 1u << 21,
-        EVENT_TACH_REPORT_READY         = 1u << 22,
         // A Y or T move did not complete within its deadline. Kept apart from
         // EVENT_WAIT_TIMEOUT so a stalled axis is distinguishable from a wait
         // that simply lapsed.
@@ -167,8 +157,6 @@ class BonderModule: public Process {
     using BonderErrorCallback        = void (*)(void *context, Error error);
     using UltrasonicReportCallback   =
         void (*)(void *context, const UltrasonicReport &report);
-    // The tachometer's zero-offset residual measured over TACHSAMPLE's window.
-    using TachCalReportCallback      = void (*)(void *context, float offsetResidual);
     // Where the head was found at the origin, in the coordinates the LVDT
     // currently reports. The difference from
     // BONDER_MODULE_ZAXIS_MIN_POSITION is the correction to its offset.
@@ -252,8 +240,6 @@ class BonderModule: public Process {
     bool removeErrorListenerCallback(void *context, BonderErrorCallback cb);
     bool addUltrasonicReportListenerCallback(void *context, UltrasonicReportCallback cb);
     bool removeUltrasonicReportListenerCallback(void *context, UltrasonicReportCallback cb);
-    bool addTachCalReportListenerCallback(void *context, TachCalReportCallback cb);
-    bool removeTachCalReportListenerCallback(void *context, TachCalReportCallback cb);
     bool addZReferenceReportListenerCallback(void *context, ZReferenceReportCallback cb);
     bool removeZReferenceReportListenerCallback(void *context, ZReferenceReportCallback cb);
 
@@ -325,9 +311,8 @@ class BonderModule: public Process {
 
     // Each dispatcher unpacks the instruction's raw argument slots into its
     // command's Args and starts it. Values a command needs but the protocol
-    // does not carry (the operating point a scan produced, the residual a
-    // tach sample produced) are routed here, so no command reads another's
-    // state.
+    // does not carry (the operating point a scan produced) are routed here,
+    // so no command reads another's state.
     void startInstructionZMove(void **args);
     void startInstructionYMove(void **args);
     void startInstructionYReverse(void **args);
@@ -349,9 +334,6 @@ class BonderModule: public Process {
     void startInstructionMzDrive(void **args);
     void startInstructionOpenZMove(void **args);
     void startInstructionZReference(void **args);
-    void startInstructionTachMove(void **args);
-    void startInstructionTachSample(void **args);
-    void startInstructionTachReport(void **args);
 
     // Everything the commands drive, in one bag they can be handed by init().
     BonderVMResources m_resources;
@@ -359,7 +341,6 @@ class BonderModule: public Process {
     ListenerList<bool>                    m_stateChangedCallbacks;
     ListenerList<Error>                   m_errorCallbacks;
     ListenerList<const UltrasonicReport &> m_ultrasonicReportCallbacks;
-    ListenerList<float>                   m_tachCalReportCallbacks;
     ListenerList<float>                   m_zReferenceReportCallbacks;
 
     BonderCommand *m_commandList[Opcode::NUM_COMMANDS] = {};
@@ -405,9 +386,6 @@ class BonderModule: public Process {
     static BonderCommandMzDrive           m_CmdMzDrive;
     static BonderCommandOpenZMove         m_CmdOpenZMove;
     static BonderCommandZReference        m_CmdZReference;
-    static BonderCommandTachMove          m_CmdTachMove;
-    static BonderCommandTachSample        m_CmdTachSample;
-    static BonderCommandTachReport        m_CmdTachReport;
 
     static void onZMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
     static void onYMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
@@ -431,7 +409,4 @@ class BonderModule: public Process {
     static void onMzDriveCmdEvent(void *context, uint8_t eventId, void *eventParams);
     static void onOpenZMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
     static void onZReferenceCmdEvent(void *context, uint8_t eventId, void *eventParams);
-    static void onTachMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
-    static void onTachSampleCmdEvent(void *context, uint8_t eventId, void *eventParams);
-    static void onTachReportCmdEvent(void *context, uint8_t eventId, void *eventParams);
 };

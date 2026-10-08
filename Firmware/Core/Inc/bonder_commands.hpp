@@ -152,31 +152,6 @@ class BonderCommandZMove: public BonderCommand {
 
 };
 
-// Same resource and the same completion condition as ZMove, with the
-// tachometer calibration height as its fixed destination.
-class BonderCommandTachMove: public BonderCommand {
-    public:
-    enum EventId: uint8_t {
-        SetpointReached = 0,
-        PositionError   = 1,
-        ControllerInitializationError = 2,
-    };
-
-    bool start(void *args) override;
-    InstrStatus execute() override;
-    bool stop() override;
-
-    private:
-    // The carriage has caught up with the setpoint. Decided here rather than
-    // taken from the position loop's SetpointReached, which reports on
-    // whichever provider won the arbiter and repeats every tick.
-    bool isMotionCompleted() const;
-
-    float m_setpoint;
-    static bool onZMotorPositionSetpoint(void *context, float *positionSetpoint,
-                                         float *velocityFeedforward);
-};
-
 // Open-loop Z motion: a fixed drive for a fixed time, with both loops
 // bypassed so the value goes straight through as a drive voltage. Nothing is
 // controlled and nothing is measured -- it exists so a calibration can put the
@@ -799,57 +774,4 @@ class BonderCommandSetForce: public BonderCommand {
 
     bool m_settled;
     bool m_failed;
-};
-
-// -----------------------------------------------------------------------------
-// Tachometer calibration
-// -----------------------------------------------------------------------------
-
-// Accumulates tachometer velocity over a fixed window while the carriage
-// holds position, and reduces it to the tachometer's zero-offset residual:
-// its own average velocity minus the ground truth derived from the
-// independent LVDT position delta over the same window, so real motion during
-// an imperfect hold is not misattributed to sensor offset.
-class BonderCommandTachSample: public BonderCommand {
-    public:
-    enum EventId: uint8_t {
-        SampleCompleted = 0,
-        TimedOut        = 1,
-    };
-
-    bool start(void *args) override;
-    InstrStatus execute() override;
-    bool stop() override;
-
-    float getOffsetResidual() const { return m_offsetResidual; }
-
-    private:
-    static void onTimerDone(void *context, Timer *timer);
-    static void onZVelocityMeasured(void *context, float velocity);
-
-    bool     m_sampling;
-    bool     m_expired;
-    float    m_velocitySum;
-    uint32_t m_sampleCount;
-    float    m_positionAtStart;
-    float    m_offsetResidual;
-};
-
-// Emits the sampled tachometer offset residual.
-class BonderCommandTachReport: public BonderCommand {
-    public:
-    typedef struct {
-        float offsetResidual;
-    } Args;
-
-    enum EventId: uint8_t {
-        // eventParams: const float * (offset residual)
-        ReportReady = 0,
-    };
-
-    bool start(void *args) override;
-    InstrStatus execute() override;
-
-    private:
-    float m_offsetResidual;
 };

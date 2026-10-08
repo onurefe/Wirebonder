@@ -1,10 +1,8 @@
 #include "dc_motor_position_controller_module.hpp"
 
 DcMotorPositionControllerModule::DcMotorPositionControllerModule(
-    LvdtSensorModule *lvdtSensor,
     DcMotorVelocityControllerModule *velocityController)
-    : m_lvdtSensorModule(lvdtSensor)
-    , m_velocityController(velocityController)
+    : m_velocityController(velocityController)
     , m_controlState(ControlState::Disabled)
     , m_bypassEnabled(false)
     , m_hasPositionMeasurement(false)
@@ -30,7 +28,7 @@ void DcMotorPositionControllerModule::setOutputLimits(float minVelocity,
 
 void DcMotorPositionControllerModule::onStart()
 {
-    if (m_lvdtSensorModule == nullptr || m_velocityController == nullptr) {
+    if (m_velocityController == nullptr) {
         setProcessError();
         return;
     }
@@ -50,13 +48,14 @@ bool DcMotorPositionControllerModule::enableControl()
 
     m_hasPositionMeasurement = false;
 
-    if (!m_lvdtSensorModule->startMeasurement()) return false;
+    // Enabled first: the velocity loop starts the LVDT, and its first
+    // measurement must find this loop ready to take it.
+    m_controlState = ControlState::Enabled;
     if (!m_velocityController->enableControl()) {
-        m_lvdtSensorModule->stopMeasurement();
+        m_controlState = ControlState::Disabled;
         return false;
     }
 
-    m_controlState = ControlState::Enabled;
     return true;
 }
 
@@ -64,7 +63,6 @@ void DcMotorPositionControllerModule::disableControl()
 {
     if (m_controlState != ControlState::Enabled) return;
 
-    m_lvdtSensorModule->stopMeasurement();
     m_velocityController->disableControl();
     m_bypassEnabled = false;
     m_hasPositionMeasurement = false;
@@ -273,8 +271,12 @@ bool DcMotorPositionControllerModule::onControlUpdate(float *targetVelocity)
 
 void DcMotorPositionControllerModule::registerPeripheralCallbacks()
 {
-    m_lvdtSensorModule->addMeasurementListenerCallback(this,
-        &DcMotorPositionControllerModule::lvdtCallback);
+    // The velocity loop owns the LVDT and relays each measurement before it
+    // asks for a target, so onControlUpdate() always sees this tick's position.
+    if (!m_velocityController->addPositionListenerCallback(
+            this, &DcMotorPositionControllerModule::lvdtCallback)) {
+        setProcessError();
+    }
 
     if (!m_velocityController->addVelocityControllerCallback(
             this, &DcMotorPositionControllerModule::controlUpdateCallback)) {

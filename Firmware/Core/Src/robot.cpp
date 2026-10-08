@@ -10,7 +10,6 @@
 #include "Protocol/protocol_lange_coupling.hpp"
 #include "Protocol/protocol_ultrasonic_test.hpp"
 #include "Protocol/protocol_force_setup.hpp"
-#include "Protocol/protocol_tach_cal.hpp"
 #include "Protocol/protocol_z_position_cal.hpp"
 #include "Protocol/protocol_initialization.hpp"
 #include "stdio.h"
@@ -56,7 +55,6 @@ static BonderProtocolSelection zPositionCalProtocol()
 static BonderProtocolSelection initializationProtocol();
 static BonderProtocolSelection ultrasonicTestProtocol();
 static BonderProtocolSelection forceSetupProtocol();
-static BonderProtocolSelection tachCalProtocol();
 static BonderProtocolSelection protocolForMode(BondingMode mode);
 
 // -----------------------------------------------------------------------------
@@ -147,15 +145,6 @@ RawAdcChannel Robot::m_scannerIsensChannel(
     SCANNER_ADC_CAPTURE_SIZE);
 
 AdcTickSyncChannel Robot::m_ultrasonicTickSyncChannel;
-
-AnalogChannel Robot::m_tachometerChannel(
-    ADC_CHANNEL_ZMOTOR_TACHOMETER_CONVERSION_ORDER,
-    static_cast<uint32_t>(ADC_CHANNEL_ZMOTOR_TACHOMETER_OVERSAMPLING_RATIO),
-    /* Magnitude only: which way the tachometer counts is
-       ZMOTOR_TACHOMETER_DIRECTION, applied by the velocity module. */
-    ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC,
-    -ZMOTOR_MODULE_TACHOMETER_ZERO_VELOCITY_VOLTAGE *
-        ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC);
 
 IQDemodulatorChannel Robot::m_lvdtAChannel(
     ADC_CHANNEL_LVDT_A_CONVERSION_ORDER,
@@ -361,11 +350,10 @@ ForceCoilDriverModule Robot::m_forceCoilControllerModule(
     &Robot::m_forceCoilPwmChannel);
 
 DcMotorVelocityControllerModule Robot::m_zMotorVelocityControllerModule(
-    &Robot::m_tachometerChannel,
+    &Robot::m_lvdtSensorModule,
     &Robot::m_zMotorPwmChannel);
 
 DcMotorPositionControllerModule Robot::m_zMotorPositionControllerModule(
-    &Robot::m_lvdtSensorModule,
     &Robot::m_zMotorVelocityControllerModule);
 
 HomingModule Robot::m_yAxisHomingModule(
@@ -478,8 +466,6 @@ const RobotRequest Robot::m_testUsRequest(
     RobotRequest::RequestCode::TestUs, "US TEST", false);
 const RobotRequest Robot::m_testForceRequest(
     RobotRequest::RequestCode::TestForce, "FORCE TEST", false);
-const RobotRequest Robot::m_calibrateTachometerRequest(
-    RobotRequest::RequestCode::CalibrateTachometer, "TACH. CAL.", false);
 const RobotRequest Robot::m_calibrateZPositionRequest(
     RobotRequest::RequestCode::CalibrateZPosition, "Z POS. CAL.", false);
 const RobotRequest Robot::m_executeBondingRequest(
@@ -660,7 +646,6 @@ Robot::Robot()
 
     // ADC2 channels (conversion-order ascending).
     m_adc2Service.addChannel(&m_forceCoilISensChannel);
-    m_adc2Service.addChannel(&m_tachometerChannel);
     m_adc2Service.addChannel(&m_lvdtAChannel);
     m_adc2Service.addChannel(&m_lvdtBChannel);
 
@@ -732,8 +717,6 @@ Robot::Robot()
         this, &Robot::onBonderModuleErrorOccurred);
     m_bonderModule.addUltrasonicReportListenerCallback(
         this, &Robot::onUltrasonicReport);
-    m_bonderModule.addTachCalReportListenerCallback(
-        this, &Robot::onTachCalReport);
     m_bonderModule.addZReferenceReportListenerCallback(
         this, &Robot::onZReferenceReport);
 
@@ -790,13 +773,12 @@ void Robot::start()
 
     /* m_userInterfaceModule.start() has loaded the stored machine settings by
        now; push them into the actuators that depend on them. Without this the
-       persisted clamp hold voltage, light levels and tachometer offset would
+       persisted clamp hold voltage, light levels and Z reference would
        only take effect after the operator edits a setting. */
     updateClampDrive();
     updateClampIndicator();
     updateAreaLightDrive();
     updateSpotlightDrive();
-    updateTachometerOffsetCorrection();
     updateZPositionReference();
     updateZPositionSpeedLimits();
 
@@ -880,9 +862,6 @@ void Robot::startExecutingRequest(RobotRequest &request)
     }
     else if (request_code == RobotRequest::RequestCode::TestForce) {
         success = startForceTest();
-    }
-    else if (request_code == RobotRequest::RequestCode::CalibrateTachometer) {
-        success = startTachometerCalibration();
     }
     else if (request_code == RobotRequest::RequestCode::CalibrateZPosition) {
         success = startZPositionCalibration();
@@ -1015,17 +994,6 @@ bool Robot::startForceTest()
     return startBonderProtocol(forceSetupProtocol());
 }
 
-bool Robot::startTachometerCalibration()
-{
-    configureBonderModule();
-
-    if (!m_bonderModule.engage()) {
-        return false;
-    }
-
-    return startBonderProtocol(tachCalProtocol());
-}
-
 bool Robot::startZPositionCalibration()
 {
     configureBonderModule();
@@ -1142,12 +1110,6 @@ void Robot::updateSpotlightDrive()
     }
 }
 
-void Robot::updateTachometerOffsetCorrection()
-{
-    const MachineSettingsData& data = m_machineSettingsStore.data();
-    m_zMotorVelocityControllerModule.setVelocityOffset(data.tachometerVelocityOffset);
-}
-
 void Robot::updateZPositionReference()
 {
     const MachineSettingsData& data = m_machineSettingsStore.data();
@@ -1199,12 +1161,6 @@ static BonderProtocolSelection forceSetupProtocol()
             ForceSetupProtocol::getProtocolSize()};
 }
 
-static BonderProtocolSelection tachCalProtocol()
-{
-    return {TachCalProtocol::getProtocolPtr(),
-            TachCalProtocol::getProtocolSize()};
-}
-
 static BonderProtocolSelection initializationProtocol()
 {
     return {InitializationProtocol::getProtocolPtr(),
@@ -1248,7 +1204,6 @@ static bool isBonderDrivenRequest(RobotRequest::RequestCode code)
            (code == RobotRequest::RequestCode::Initialize) ||
            (code == RobotRequest::RequestCode::TestForce) ||
            (code == RobotRequest::RequestCode::TestUs) ||
-           (code == RobotRequest::RequestCode::CalibrateTachometer) ||
            (code == RobotRequest::RequestCode::CalibrateZPosition);
 }
 
@@ -1353,25 +1308,6 @@ void Robot::onZReferenceReport(void *context, float settledPosition)
     robot->updateZPositionReference();
 }
 
-void Robot::onTachCalReport(void *context, float offsetResidual)
-{
-    Robot *robot = static_cast<Robot *>(context);
-    if (robot == nullptr) return;
-
-    if (m_robotState == RobotState::Busy) {
-        if (robot->m_activeRequest.getRequestCode() !=
-            RobotRequest::RequestCode::CalibrateTachometer) {
-            return;
-        }
-
-        MachineSettingsData& data = robot->m_machineSettingsStore.mutableData();
-        data.tachometerVelocityOffset += offsetResidual;
-
-        robot->m_machineSettingsStore.save();
-        robot->updateTachometerOffsetCorrection();
-    }
-}
-
 void Robot::onUltrasonicReport(
     void *context, const BonderModule::UltrasonicReport& report)
 {
@@ -1441,15 +1377,6 @@ void Robot::onUserInterfaceEvent(void *ctx, UserInterfaceModule::Event event)
                  self->beginBonderRecovery("Z POS. CAL.");
              }
              self->m_requestQueue.enqueue(self->m_calibrateZPositionRequest);
-        } else {
-            m_userInterfaceModule.warnUser("BUSY! TRY LATER");
-        }
-        break;
-
-    case UserInterfaceModule::Event::StartTachCalRequested:
-        if ((m_robotState == RobotState::Idle) && \
-            (self->m_requestQueue.getElementCount() == 0)) {
-             self->m_requestQueue.enqueue(self->m_calibrateTachometerRequest);
         } else {
             m_userInterfaceModule.warnUser("BUSY! TRY LATER");
         }

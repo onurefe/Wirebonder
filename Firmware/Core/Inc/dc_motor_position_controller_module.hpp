@@ -6,7 +6,6 @@
 #include "generic.h"
 #include "dc_motor_velocity_controller_module.hpp"
 #include "process.hpp"
-#include "lvdt_module.hpp"
 
 class DcMotorPositionControllerModule : public Process {
 public:
@@ -33,7 +32,7 @@ public:
 
     using EventCallback = void (*)(void *context, Event event);
 
-    DcMotorPositionControllerModule(LvdtSensorModule *lvdtSensor,
+    explicit DcMotorPositionControllerModule(
         DcMotorVelocityControllerModule *velocityController);
 
     bool enableControl();
@@ -48,7 +47,7 @@ public:
     bool removeEventListenerCallback(void *context, EventCallback callback);
 
     // Continuous push notifications (proxied from the wrapped velocity
-    // controller / LVDT), for consumers that only hold a
+    // controller, which owns the LVDT), for consumers that only hold a
     // DcMotorPositionControllerModule* and need every measurement rather
     // than polling getVelocity()/getPosition() at an unrelated tick rate.
     bool addVelocityListenerCallback(void *context, VelocityListenerCallback callback);
@@ -107,7 +106,6 @@ private:
     // -----------------------------------------------------------------------
     // Members
     // -----------------------------------------------------------------------
-    LvdtSensorModule *m_lvdtSensorModule;
     DcMotorVelocityControllerModule *m_velocityController;
 
     ControlState m_controlState;

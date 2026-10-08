@@ -5,23 +5,36 @@
 #include "DebugEnvironment/debug_environment_motor_velocity.hpp"
 
 extern ADC_HandleTypeDef hadc2;
+extern DAC_HandleTypeDef hdac;
 extern TIM_HandleTypeDef htim1;
 extern TIM_HandleTypeDef htim3;
+extern TIM_HandleTypeDef htim5;
 
 // -----------------------------------------------------------------------------
 // Static member definitions — same wiring the Robot uses for the Z-motor
-// velocity loop, but owned here outright.
+// velocity loop (LVDT + Kalman estimate), but owned here outright.
 // -----------------------------------------------------------------------------
 
 uint16_t MotorVelocityDebugEnvironment::m_adc2Buffer[2 * ADC2_SAMPLES_PER_CHANNEL * ADC2_NUM_CONVERSIONS];
+uint16_t MotorVelocityDebugEnvironment::m_dac2Buffer[2 * DAC2_SAMPLES];
 uint16_t MotorVelocityDebugEnvironment::m_pwmChannel2Buffer[2 * TIM1_PWM_CHANNEL2_SAMPLES];
 
-AnalogChannel MotorVelocityDebugEnvironment::m_tachometerChannel(
-    ADC_CHANNEL_ZMOTOR_TACHOMETER_CONVERSION_ORDER,
-    static_cast<uint32_t>(ADC_CHANNEL_ZMOTOR_TACHOMETER_OVERSAMPLING_RATIO),
-    ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC,
-    -ZMOTOR_MODULE_TACHOMETER_ZERO_VELOCITY_VOLTAGE *
-        ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC);
+IQDemodulatorChannel MotorVelocityDebugEnvironment::m_lvdtAChannel(
+    ADC_CHANNEL_LVDT_A_CONVERSION_ORDER,
+    ADC_CHANNEL_LVDT_DEMODULATION_SAMPLES,
+    static_cast<float>(LVDT_MODULE_DRIVING_FREQUENCY) / static_cast<float>(ADC2_SAMPLING_FREQ),
+    1.0f);
+
+IQDemodulatorChannel MotorVelocityDebugEnvironment::m_lvdtBChannel(
+    ADC_CHANNEL_LVDT_B_CONVERSION_ORDER,
+    ADC_CHANNEL_LVDT_DEMODULATION_SAMPLES,
+    static_cast<float>(LVDT_MODULE_DRIVING_FREQUENCY) / static_cast<float>(ADC2_SAMPLING_FREQ),
+    1.0f);
+
+SineGeneratorChannel MotorVelocityDebugEnvironment::m_lvdtExcitationChannel(
+    &hdac, &htim5, DAC_CHANNEL_2,
+    MotorVelocityDebugEnvironment::m_dac2Buffer, 2 * DAC2_SAMPLES,
+    DAC2_SAMPLES, DAC2_BITS, DAC2_VOLTAGE_RANGE);
 
 PwmRampChannel MotorVelocityDebugEnvironment::m_zMotorPwmChannel(
     &htim1, TIM_CHANNEL_2,
@@ -36,19 +49,34 @@ AdcService MotorVelocityDebugEnvironment::m_adc2Service(
     MotorVelocityDebugEnvironment::m_adc2Buffer,
     2 * ADC2_SAMPLES_PER_CHANNEL * ADC2_NUM_CONVERSIONS);
 
+DacService MotorVelocityDebugEnvironment::m_dacService(&hdac);
+
 PwmService MotorVelocityDebugEnvironment::m_tim1PwmService;
 
+LvdtSensorModule MotorVelocityDebugEnvironment::m_lvdtSensorModule(
+    &MotorVelocityDebugEnvironment::m_lvdtExcitationChannel,
+    &MotorVelocityDebugEnvironment::m_lvdtAChannel,
+    &MotorVelocityDebugEnvironment::m_lvdtBChannel,
+    LVDT_MODULE_STROKE_MM);
+
 DcMotorVelocityControllerModule MotorVelocityDebugEnvironment::m_velocityController(
-    &MotorVelocityDebugEnvironment::m_tachometerChannel,
+    &MotorVelocityDebugEnvironment::m_lvdtSensorModule,
     &MotorVelocityDebugEnvironment::m_zMotorPwmChannel);
 
 MotorVelocityDebugEnvironment::MotorVelocityDebugEnvironment()
 {
-    m_adc2Service.addChannel(&m_tachometerChannel);
+    // ADC2 channels (conversion-order ascending).
+    m_adc2Service.addChannel(&m_lvdtAChannel);
+    m_adc2Service.addChannel(&m_lvdtBChannel);
+
+    m_dacService.addChannel(&m_lvdtExcitationChannel);
+
     m_tim1PwmService.addChannel(&m_zMotorPwmChannel);
 
     addProcess(&m_tim1PwmService);
+    addProcess(&m_dacService);
     addProcess(&m_adc2Service);
+    addProcess(&m_lvdtSensorModule);
     addProcess(&m_velocityController);
 
     m_velocityController.addVelocityListenerCallback(
@@ -76,7 +104,8 @@ void MotorVelocityDebugEnvironment::handleCommand(uint16_t localCommand)
 
 void MotorVelocityDebugEnvironment::startCapture()
 {
-    m_telemetry = static_cast<float *>(telemetryBuffer());
+    m_telemetry =
+        static_cast<DebugMotorVelocityTelemetrySample *>(telemetryBuffer());
 
     const float stepValue = arg(0);
     const float duration = arg(1);
@@ -154,7 +183,13 @@ void MotorVelocityDebugEnvironment::recordVelocity(float measuredVelocity)
         return;
     }
 
-    m_telemetry[m_sampleIdx++] = measuredVelocity;
+    // Fired at the end of the tick, so the applied voltage is the one just
+    // set for the coming period.
+    m_telemetry[m_sampleIdx++] = DebugMotorVelocityTelemetrySample{
+        m_velocityController.getPosition(),
+        measuredVelocity,
+        m_velocityController.getAppliedVoltage()
+    };
 
     if (m_sampleIdx >= m_sampleLimit) {
         m_captureActive = false;

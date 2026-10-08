@@ -3,6 +3,7 @@
 import csv
 import datetime
 import os
+import struct
 
 from ..service import Channel, DONE
 from .base import BridgeCommand
@@ -15,6 +16,10 @@ DEFAULT_DURATION_S = 4.0
 CAPTURE_DIR = "captures"
 VOLTAGE_TO_DUTY_SCALE = 1.0 / 27.0
 MAX_OPEN_LOOP_DRIVE = 0.45
+# DebugMotorVelocityTelemetrySample: LVDT position (mm), Kalman velocity
+# estimate (mm/s), voltage applied for the following tick (V).
+SAMPLE_FORMAT = "<fff"
+SAMPLE_SIZE = struct.calcsize(SAMPLE_FORMAT)
 
 
 class DebugMotorVelocity(BridgeCommand):
@@ -68,16 +73,22 @@ class DebugMotorVelocity(BridgeCommand):
             return
 
         count = self.svc.result_count()
-        response = self.t.read_floats(address, count)
+        raw = self.t.read_bytes(address, count * SAMPLE_SIZE)
+        samples = [
+            struct.unpack_from(SAMPLE_FORMAT, raw, i * SAMPLE_SIZE)
+            for i in range(count)
+        ]
+        response = [velocity for _, velocity, _ in samples]
         dt = 1.0 / SAMPLE_RATE_HZ
 
         mode = "open" if bypass_controller else "closed"
         rows = [
-            [i, i * dt, target_velocity, mode, velocity]
-            for i, velocity in enumerate(response)
+            [i, i * dt, target_velocity, mode, position, velocity, voltage]
+            for i, (position, velocity, voltage) in enumerate(samples)
         ]
         path = write_capture("motor_velocity",
-                             ["tick", "time_s", "command", "mode", "velocity"],
+                             ["tick", "time_s", "command", "mode",
+                              "position", "velocity", "voltage"],
                              rows)
 
         if bypass_controller:

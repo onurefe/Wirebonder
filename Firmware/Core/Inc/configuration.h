@@ -236,66 +236,61 @@
 #define SPOTLIGHT_LEVEL_STEP                                         1.0f
 #define SPOTLIGHT_ON_DEFAULT                                         true
 
-/* DcMotorVelocityControllerModule (inner loop: tachometer -> PWM) -----------*/
+/* DcMotorVelocityControllerModule (inner loop: LVDT estimate -> PWM) -------*/
 #define DCMOTOR_VELOCITY_MODULE_CONTROL_FREQUENCY                    1000
 
 /* Z SIGN CONVENTION -- up is positive, everywhere.
-   Position (LVDT), velocity (tachometer) and drive (duty) all follow it, as do
-   the bonder's heights, so no layer inverts another.
+   Position (LVDT), the velocity estimated from it and drive (duty) all follow
+   it, as do the bonder's heights, so no layer inverts another.
 
    Which way round each of those actually is depends on how the hardware is
-   wired -- which LVDT secondary is A, which way the motor leads go, which way
-   the tacho is connected -- so each is declared here as an explicit +1/-1 and
-   applied in exactly one place, rather than hidden in the sign of an
-   expression or a calibration constant.
+   wired -- which LVDT secondary is A, which way the motor leads go -- so each
+   is declared here as an explicit +1/-1 and applied in exactly one place,
+   rather than hidden in the sign of an expression or a calibration constant.
 
-   They are not independent. Two conditions must hold or a loop becomes
-   positive feedback and the axis runs away:
+   They are not independent. This must hold or the loop becomes positive
+   feedback and the axis runs away:
 
-     velocity loop:  DRIVE_DIRECTION * TACHOMETER_DIRECTION  = +1
-                     (a positive drive must raise the reported velocity)
-     position loop:  DRIVE_DIRECTION * LVDT_DIRECTION        = +1
-                     (a positive drive must raise the reported position)
+     DRIVE_DIRECTION * LVDT_DIRECTION = +1
+     (a positive drive must raise the reported position)
 
-   Flipping all three together satisfies both and merely reverses what the
-   machine calls "up"; flipping one alone is a runaway. Establish the drive
-   first, with the loops bypassed -- the Z calibration is exactly that
-   condition -- then set the other two to match what it does. */
+   Flipping both together satisfies it and merely reverses what the machine
+   calls "up"; flipping one alone is a runaway. Establish the drive first,
+   with the loops bypassed -- the Z calibration is exactly that condition --
+   then set the LVDT to match what it does. */
 #define ZMOTOR_DRIVE_DIRECTION                                       (-1.0f)
-#define ZMOTOR_TACHOMETER_DIRECTION                                  (-1.0f)
 #define LVDT_MODULE_DIRECTION                                        (-1.0f)
 
-/* Tachometer AnalogChannel wiring (Robot-level; feeds the velocity loop). */
-#define ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC                     (3.2*48.925662f)
-#define ZMOTOR_MODULE_TACHOMETER_ZERO_VELOCITY_VOLTAGE               1.65
+/* Z-axis Kalman filter (ZAxisKalmanFilter). There is no tachometer: the
+   velocity loop runs on the velocity this estimates from the LVDT, using a
+   first-order model of the motor driven by the voltage actually applied.
+   PLACEHOLDERS until the motor is identified on the machine -- an open-loop
+   step in the motor-velocity debug environment gives the gain and time
+   constant, and a capture with the head at rest gives the LVDT noise.
 
-/* Runtime-measured correction on top of the constant above (Start Tach. Cal.
-   in the settings menu), persisted in MachineSettingsData and applied by
-   DcMotorVelocityControllerModule::setVelocityOffset(). Zero until the
-   operator runs the calibration at least once. */
-#define ZMOTOR_TACHOMETER_VELOCITY_OFFSET_DEFAULT                    0.0f
-
-/* Start Tach. Cal. protocol (TachCalProtocol): height held while sampling.
-   A machine-wide constant, independent of whichever bonding configuration is
-   loaded. Sits below BONDER_MODULE_DEFAULT_RESET_HEIGHT, so the axis travels
-   to it before TACHSAMPLE starts. */
-#define ZMOTOR_TACH_CAL_POSITION_MM                                  9.1f
-#define ZMOTOR_TACH_CAL_SAMPLE_DURATION_S                            2.0f
+   Gain and time constant: velocity per volt once it has settled, and how
+   fast it gets there. Noise: the LVDT's 1-sigma reading noise sets how far
+   a single measurement is trusted; the acceleration noise is how much the
+   motion may depart from the model each tick (raise it to follow faster,
+   at the cost of a noisier velocity); the disturbance drift is how fast the
+   friction/load estimate may wander. With these values the estimator
+   settles in about 5 ms (|pole| 0.8 per 1 ms tick). */
+#define ZMOTOR_MODEL_GAIN                                            1.0f   /* mm/s per V */
+#define ZMOTOR_MODEL_TIME_CONSTANT                                   0.020f /* s */
+#define ZAXIS_KALMAN_POSITION_NOISE                                  0.002f /* mm, 1 sigma */
+#define ZAXIS_KALMAN_ACCELERATION_NOISE                              200.0f /* mm/s^2, 1 sigma */
+#define ZAXIS_KALMAN_DISTURBANCE_DRIFT                               2.0f   /* V/sqrt(s) */
 
 #define DCMOTOR_VELOCITY_MODULE_MIN_DUTY                             0.05f
 #define DCMOTOR_VELOCITY_MODULE_MAX_DUTY                             0.95f
 #define DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY                   0.5
 #define DCMOTOR_VELOCITY_MODULE_VOLTAGE_TO_DUTY_SCALE                (1.0f / 27.0f)
 
-/* PID replaces the leaky-integrator compensator: the leaky integrator has a
-   single pole (13Hz at the old Ri/Rf/Cf) and no zero, so it only ever adds
-   phase lag. Kp matches the leaky integrator's old flat-band gain
-   (preampGain * Rf/Ri = 2.5e-3 * 121); Ti matches its old pole time constant
-   (Rf*Cf) so low-frequency behavior starts from the same place; Td adds lead
-   at Ti/4 to claw back phase margin through the 13-100Hz band where the
-   25Hz oscillation and the analog tach filter's poles (~64/157Hz) live.
-   Input filter corner is set near the analog tach filter's own 100Hz corner
-   so the D term doesn't amplify tachometer ripple. Tune on the bench. */
+/* Velocity PID, acting on the Kalman velocity estimate. These are the gains
+   that were tuned against the old tachometer and are carried over only as a
+   starting point: the estimate has its own lag and noise, so retune them on
+   the bench once the motor model above has been identified. The input filter
+   was sized for tachometer ripple and may be unnecessary on the estimate. */
 #define DCMOTOR_VELOCITY_MODULE_PID_GAIN                             0.3025f
 #define DCMOTOR_VELOCITY_MODULE_PID_INTEGRAL_TC                      0.0121f
 #define DCMOTOR_VELOCITY_MODULE_PID_DERIVATIVE_TC                    0.003f
@@ -516,10 +511,9 @@
 #define BONDER_COMMAND_SETFORCE_TIMEOUT_MS                           3000   /* 5 A/s slew, <0.5 A         */
 #define BONDER_COMMAND_CLAMP_TIMEOUT_MS                              1000   /* 0.1 s solenoid transition  */
 #define BONDER_COMMAND_SCAN_TIMEOUT_MS                               5000   /* 32 tones x 9 x 4 ms = 1.2 s*/
-/* The PLL and the tach sample carry their own duration, so their deadline is
-   that duration plus a margin rather than a flat constant. */
+/* The PLL carries its own duration, so its deadline is that duration plus a
+   margin rather than a flat constant. */
 #define BONDER_COMMAND_PLL_TIMEOUT_MARGIN_MS                         2000
-#define BONDER_COMMAND_TACHSAMPLE_TIMEOUT_MARGIN_MS                  1000
 
 /* Robot module --------------------------------------------------------------*/
 #define ROBOT_Y_AXIS_MAX_VELOCITY                           10.0
@@ -605,14 +599,15 @@
 #define ADC_CHANNEL_US_ISENS_CONVERSION_ORDER               1
 
 #define ADC_CHANNEL_FORCE_COIL_ISENS_CONVERSION_ORDER       0
-#define ADC_CHANNEL_ZMOTOR_TACHOMETER_CONVERSION_ORDER      1
+/* Rank 1 is the old Z-motor tachometer input (PA3). The motor has none any
+   more, but the rank stays in the ADC2 scan so the CubeMX configuration and
+   the DMA interleave are unchanged; nothing reads it. */
 #define ADC_CHANNEL_LVDT_A_CONVERSION_ORDER                 2
 #define ADC_CHANNEL_LVDT_B_CONVERSION_ORDER                 3
 
 #define ADC_CHANNEL_PLL_DEMODULATION_SAMPLES                (ADC1_SAMPLING_FREQ / PLL_MODULE_CONTROL_FREQ) 
 #define ADC_CHANNEL_LVDT_DEMODULATION_SAMPLES               (ADC2_SAMPLING_FREQ / DCMOTOR_POSITION_MODULE_CONTROL_FREQUENCY)
 #define ADC_CHANNEL_FORCE_COIL_ISENS_OVERSAMPLING_RATIO     (ADC2_SAMPLING_FREQ / FORCE_COIL_MODULE_CONTROL_FREQUENCY)
-#define ADC_CHANNEL_ZMOTOR_TACHOMETER_OVERSAMPLING_RATIO    (ADC2_SAMPLING_FREQ / DCMOTOR_VELOCITY_MODULE_CONTROL_FREQUENCY)
 
 /* TimerExpireService --------------------------------------------------------*/
 #define TIMER_EXPIRE_SERVICE_MAX_HANDLES                    32

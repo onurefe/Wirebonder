@@ -92,6 +92,7 @@ set(CPP_SOURCES
     Core/Src/lvdt_module.cpp
     Core/Src/leaky_integrator_controller.cpp
     Core/Src/pid_controller.cpp
+    Core/Src/zaxis_kalman_filter.cpp
     Core/Src/pin_monitor_service.cpp
     Core/Src/pll_module.cpp
     Core/Src/pwm_service.cpp
@@ -121,7 +122,6 @@ set(CPP_SOURCES
     Core/Src/Protocol/protocol_lange_coupling.cpp
     Core/Src/Protocol/protocol_ultrasonic_test.cpp
     Core/Src/Protocol/protocol_force_setup.cpp
-    Core/Src/Protocol/protocol_tach_cal.cpp
     Core/Src/Protocol/protocol_z_position_cal.cpp
     Core/Src/Protocol/protocol_initialization.cpp
 )

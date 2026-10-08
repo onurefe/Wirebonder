@@ -167,8 +167,7 @@ Menu::Menu(PageRenderer *renderer,
           {5U, kNameColumn, kNameWidth, "Dn Spd(mm/s)"},
           {6U, kNameColumn, kNameWidth, "Setup Frc(g)"},
           {7U, kNameColumn, kNameWidth, "Spot On"},
-          {8U, kNameColumn, 19U, "Start Z Pos. Cal."},
-          {9U, kNameColumn, 19U, "Start Tach. Cal."}}
+          {8U, kNameColumn, 19U, "Start Z Pos. Cal."}}
     , m_settingsValues{
           {1U, kValueColumn, kValueWidth, 1U},
           {2U, kValueColumn, kValueWidth, 0U},
@@ -225,11 +224,10 @@ Menu::Menu(PageRenderer *renderer,
     }
     m_settingsPage.addWidget(&m_settingsNames[kSettingsLevelRowCount]);
     m_settingsPage.addWidget(&m_settingsSpotlightOnValue);
-    // The calibration rows carry no value widget. Their constants are 1-based
-    // row numbers (m_pointerRow's convention, matched in handleEnter()), so
+    // The calibration row carries no value widget. Its constant is a 1-based
+    // row number (m_pointerRow's convention, matched in handleEnter()), so
     // the array index is one less.
     m_settingsPage.addWidget(&m_settingsNames[kSettingsZPositionCalRow - 1U]);
-    m_settingsPage.addWidget(&m_settingsNames[kSettingsTachCalRow - 1U]);
 
     m_forceMeasurementPage.addWidget(&m_forceMeasurementTitle);
     m_forceMeasurementPage.addWidget(&m_forceMeasurementName);
@@ -538,9 +536,6 @@ void Menu::handleEnter(const InputEvent& input)
     } else if (page == &m_settingsPage &&
                m_pointerRow == kSettingsZPositionCalRow) {
         fireRequest({RequestType::StartZPositionCal,
-                     0, 0U, 0U, Hotkey::Tail, nullptr});
-    } else if (page == &m_settingsPage && m_pointerRow == kSettingsTachCalRow) {
-        fireRequest({RequestType::StartTachCal,
                      0, 0U, 0U, Hotkey::Tail, nullptr});
     }
 }
