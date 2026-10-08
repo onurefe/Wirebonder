@@ -61,7 +61,6 @@ struct BonderConfig {
     // Timing (s)
     float coolingTime                   = BONDER_MODULE_DEFAULT_COOLING_TIME;
     float contactSettlingTime           = BONDER_MODULE_DEFAULT_SETTLING_TIME;
-    float tailRestoreDelay              = BONDER_MODULE_DEFAULT_TAIL_RESTORE_DELAY;
     float tearStabilizationTime         = BONDER_MODULE_DEFAULT_TEAR_STABILIZATION_TIME;
 
     // Impedance scan sweep
@@ -72,7 +71,6 @@ struct BonderConfig {
     // Ultrasonic tail assist. Kept at the end so older persisted
     // configurations retain the offsets of every existing field.
     float tailAssistPower             = BONDER_MODULE_DEFAULT_TAIL_ASSIST_POWER;
-    float tailAssistEnergy            = BONDER_MODULE_DEFAULT_TAIL_ASSIST_ENERGY;
 
     // Machine-wide values mirrored in from MachineSettingsData rather than
     // edited or owned per profile: Robot stamps both on the copy it hands to
@@ -83,4 +81,21 @@ struct BonderConfig {
     // force correction is applied against m_config.
     float forceSetupTrackingForce     = FORCE_SETUP_TRACKING_FORCE_DEFAULT;
     float forceCoilForceOffset        = FORCE_COIL_FORCE_OFFSET_DEFAULT;
+
+    // Z speed limit (mm/s, both directions) while the manual protocol runs;
+    // every other program uses the machine-wide SETTINGS speeds. Unlike the
+    // fields above this is not a VM operand: Robot pushes it into the Z
+    // position loop when it selects the manual program (see
+    // Robot::setBonderProtocol()). Appended last, per the append-only rule
+    // ConfigurationManager's short-record migration depends on.
+    float manualZSpeed                = BONDER_MODULE_DEFAULT_MANUAL_Z_SPEED;
+
+    // Z motion profile. The protocol's own moves (ZMOVE) ramp to zMoveMaxSpeed
+    // at zMoveMaxAcceleration; the hand-driven ones (MZDRIVE) run at
+    // manualZSpeed and give it up over manualZStopDistance of travel, so the
+    // operator feels the same stopping distance whatever speed is set. The
+    // machine settings' Z speeds remain the loop's clamp above all of this.
+    float zMoveMaxSpeed               = BONDER_MODULE_DEFAULT_ZMOVE_MAX_SPEED;
+    float zMoveMaxAcceleration        = BONDER_MODULE_DEFAULT_ZMOVE_MAX_ACCELERATION;
+    float manualZStopDistance         = BONDER_MODULE_DEFAULT_MANUAL_Z_STOP_DISTANCE;
 };

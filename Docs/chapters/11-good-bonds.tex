@@ -1,0 +1,254 @@
+\chapter{Getting a Good Bond}
+\label{ch:tuning}
+
+This chapter is about what the parameters physically do, and how to move from
+a bond that is wrong to one that is right.
+
+\begin{wbwarning}
+Change one parameter at a time, in small steps, and bond a few wires after each
+change. Changing two at once tells you nothing about which one helped.
+\end{wbwarning}
+
+\section{The three that matter most}
+
+Almost all bond quality comes from three things: \textbf{force}, \textbf{power}
+and \textbf{energy}.
+
+\begin{description}[leftmargin=!,labelwidth=26mm,style=nextline,font=\normalfont\bfseries]
+
+\item[Force] How hard the tool presses. Too little and the wire moves under the
+  tool instead of scrubbing against the pad, so no weld forms. Too much and the
+  wire is squashed thin at the heel, which welds well but breaks easily.
+
+\item[Power] How hard the tool scrubs --- the ultrasonic amplitude. This is the
+  aggression of the process.
+
+\item[Energy] How much scrubbing there is in total --- the dose. Since the
+  machine delivers a fixed energy at a fixed power, raising power shortens the
+  weld and raising energy lengthens it.
+
+\end{description}
+
+\begin{wbnote}
+Power and energy are separate controls of the same process. A gentle, long weld
+(low power, high energy) and an aggressive, short one (high power, low energy)
+can deliver the same total energy and produce very different bonds. Low and
+long is usually kinder to the pad.
+\end{wbnote}
+
+The second bond is made through the wire rather than directly onto it, so it
+normally needs more of everything --- which is why the defaults set
+\menuitem{Power 2} and \menuitem{Energy 2} above \menuitem{Power 1} and
+\menuitem{Energy 1}.
+
+\section{Heights}
+
+\begin{description}[leftmargin=!,labelwidth=26mm,style=nextline,font=\normalfont\ttfamily]
+
+\item[Search 1 / Search 2] Where the fast approach stops and the careful
+  descent begins. It only affects cycle time and safety, not bond quality ---
+  as long as it is above the workpiece.
+
+\item[Overtravel] How far below the pad the machine aims. It is a push, not a
+  destination: the pad stops the tool. It needs to be negative enough that the
+  machine keeps pushing after contact, but not so negative that a missed
+  touchdown drives the tool hard into the work.
+
+\item[Kink Height] Where the wire is bent as the tool lifts off the first bond.
+  Too low and the kink forms in the weld itself, weakening the heel. Too high
+  and the loop starts too steeply.
+
+\item[Loop Height] The apex of the loop. Higher gives more clearance and a
+  longer wire; lower gives a tighter, flatter loop.
+
+\end{description}
+
+\section{Tail and tear}
+
+\begin{description}[leftmargin=!,labelwidth=26mm,style=nextline,font=\normalfont\ttfamily]
+
+\item[Tail] How much wire is fed after the first bond. It determines how much
+  wire protrudes from the tool for the next cycle's first bond.
+
+\item[Tear] How far the axis travels to break the wire after the second bond.
+  Too little and the wire does not part; too much and the second bond is
+  stressed or lifted.
+
+\end{description}
+
+\begin{wbwarning}
+\menuitem{Tail} and \menuitem{Tear} are \emph{relative} travels applied one
+after the other, so changing \menuitem{Tail} moves where the tear finishes as
+well. After adjusting \menuitem{Tail}, re-check that the wire still tears
+cleanly.
+\end{wbwarning}
+
+\section{Symptoms and what to change}
+
+Work down each row in order --- the first suggestion is usually the right one.
+
+\begin{center}\footnotesize
+\begin{tabular}{@{}L{34mm}L{40mm}L{46mm}@{}}
+\toprule
+\textbf{Symptom} & \textbf{Try first} & \textbf{Then} \\
+\midrule
+
+First bond does not stick &
+Raise \menuitem{Energy 1}, then \menuitem{Power 1} &
+Raise \menuitem{Force 1 G}. Check the pad is clean and the tool is not worn.
+Run \keycap{SETUP} to confirm force is real. \\
+\addlinespace
+
+Second bond does not stick &
+Raise \menuitem{Energy 2}, then \menuitem{Power 2} &
+Raise \menuitem{Force 2 G}. Confirm the loop is not pulling the wire off the
+second pad --- try raising \menuitem{Loop Height}. \\
+\addlinespace
+
+Bond sticks but lifts in a pull test &
+Lower \menuitem{Force} slightly &
+Lower \menuitem{Power} and raise \menuitem{Energy} to keep the dose. Check
+\menuitem{Kink Height} is not so low that the wire is bent inside the weld. \\
+\addlinespace
+
+Wire flattened too thin, breaks at the heel &
+Lower \menuitem{Force} &
+Lower \menuitem{Energy}. Raise \menuitem{Kink Height}. \\
+\addlinespace
+
+Cratering or pad damage &
+Lower \menuitem{Power} and raise \menuitem{Energy} to compensate &
+Lower \menuitem{Force}. Lower \menuitem{Down Speed} --- impact at touchdown
+damages pads independently of the weld. \\
+\addlinespace
+
+Tail too short or missing &
+Raise \menuitem{Tail} &
+Raise \menuitem{Tail Energy}. Check the clamp opens --- watch the
+\keycap{CLAMP OPEN} lamp during a cycle. \\
+\addlinespace
+
+Tail too long, untidy &
+Lower \menuitem{Tail} &
+Check \menuitem{Tear} still parts the wire after the change. \\
+\addlinespace
+
+Wire does not tear &
+Raise \menuitem{Tear} &
+Raise \menuitem{Clamp Volt} --- the wire may be slipping in the clamp rather
+than failing to tear. \\
+\addlinespace
+
+Tearing pulls the second bond off &
+Lower \menuitem{Tear} &
+Raise \menuitem{Energy 2} so the second bond is stronger than the tear force. \\
+\addlinespace
+
+Loop too high or too long &
+Lower \menuitem{Loop Height} &
+Lower \menuitem{Reverse}. \\
+\addlinespace
+
+Loop sagging or shorting &
+Raise \menuitem{Loop Height} &
+Raise \menuitem{Kink Height} so the loop leaves the first bond more steeply. \\
+\addlinespace
+
+Loop shape varies bond to bond &
+Lower \menuitem{Up Speed} &
+Check the wire spool feeds freely and the clamp voltage is not so high it drags
+the wire. \\
+\addlinespace
+
+Quality varies with nothing changed &
+Run \keycap{TEST}; check frequency and Q &
+Run \keycap{SETUP}. Inspect the tool for wear or build-up. \\
+\addlinespace
+
+\msg{LOW BONDING POWER} on some bonds &
+Widen \menuitem{Scan Start} to \menuitem{Scan Stop} &
+Raise \menuitem{Bond Timeout} if welds are genuinely slow; raise
+\menuitem{Power} if they are genuinely weak. \\
+
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Developing a new recipe}
+
+\begin{enumerate}[leftmargin=*]
+\item Load \menuitem{DEFAULT} and save it under a new name.
+\item Set the heights first, in Manual mode if that is easier: get
+  \menuitem{Reset Height}, \menuitem{Search}, \menuitem{Overtravel} and
+  \menuitem{Loop Height} sensible for the part before touching the weld
+  parameters.
+\item Run \keycap{TEST} and set the scan window around the reported frequency.
+\item Run \keycap{SETUP} so commanded force is real force.
+\item Start from the default force, power and energy. Bond a few wires.
+\item Tune the first bond until it is consistently good, ignoring the second.
+\item Tune the second bond.
+\item Tune \menuitem{Tail} and \menuitem{Tear} last --- they depend on
+  everything above them.
+\item Press \keycap{SAVE}.
+\end{enumerate}
+
+\begin{wbnote}
+Tune in that order. Tail and tear behaviour depends on how the second bond
+came out, so tuning them before the welds are settled means doing it twice.
+\end{wbnote}
+
+\section{Starting points by material}
+
+The first three parameter screens follow the 4523AD schedule, and the parameter
+names match. \textbf{A bonding schedule developed on a 4523AD --- or published
+in the \ksmanual\ --- can be entered on this machine directly.} That is the
+fastest way to a working recipe for a material you have not run before.
+
+Two cautions when transferring a schedule:
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}L{88mm}@{}}
+\toprule
+\textbf{Parameter} & \textbf{When transferring} \\
+\midrule
+Force &
+  Transfers directly, in grams --- but only after you have run \keycap{SETUP}
+  on this machine. Until then the commanded force is uncorrected and a
+  transferred figure means little. \\
+\addlinespace
+Power and energy &
+  Transfer as \emph{starting points only}. This machine's ultrasonic drive and
+  its transducer are not the ones the schedule was developed on, so the same
+  numbers will not produce the same amplitude. Expect to re-tune. \\
+\addlinespace
+Heights and travels &
+  Transfer directly. The mechanics are the same. \\
+\addlinespace
+Timing, scan, tail assist &
+  No equivalent on the 4523AD --- start from the factory defaults in
+  Appendix~\ref{app:defaults}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{wbwarning}
+Always confirm a transferred schedule on scrap material before production. A
+schedule that is right for a 4523AD is a good first guess here, not a
+qualified recipe.
+\end{wbwarning}
+
+\seeks{published bonding schedules by wire type and diameter, and its bonding
+troubleshooting section --- both apply to this machine's mechanics and its
+first three parameter screens.}
+
+\TODO{Once recipes are proven here, record them in this section as the
+house starting points, superseding the transferred 4523AD values. Give force,
+power and energy for both bonds per wire type and pad metallisation.}
+
+\section{Bond quality criteria}
+
+\TODO{Supply the acceptance criteria used here: pull-test force limits per wire
+type, acceptable failure modes, sampling frequency, and visual criteria for
+bond deformation width and heel condition. Name the standard being worked to if
+there is one. The \ksmanual's bond-inspection guidance describes what to look
+at; the numeric limits are a local decision and must be stated here.}

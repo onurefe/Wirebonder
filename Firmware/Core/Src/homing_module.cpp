@@ -18,17 +18,20 @@ HomingModule::HomingModule(RouterChannel *yAxisRouter,
                            PinMonitorChannel *yAxisLimitSwitch)
     : m_yAxisRouter(yAxisRouter)
     , m_yAxisLimitSwitch(yAxisLimitSwitch)
-    , m_eventCallback(nullptr)
-    , m_eventCallbackContext(nullptr)
     , m_limitActive(false)
     , m_homingState(HomingState::Idle)
 {}
 
-void HomingModule::addEventListenerCallback(void *context,
+bool HomingModule::addEventListenerCallback(void *context,
                                             EventCallback callback)
 {
-    m_eventCallbackContext = context;
-    m_eventCallback = callback;
+    return m_eventCallbacks.add(context, callback);
+}
+
+bool HomingModule::removeEventListenerCallback(void *context,
+                                               EventCallback callback)
+{
+    return m_eventCallbacks.remove(context, callback);
 }
 
 void HomingModule::onStart()
@@ -47,7 +50,7 @@ void HomingModule::onStop()
 {
     abortHoming();
     if (m_yAxisLimitSwitch != nullptr) {
-        m_yAxisLimitSwitch->addStateListenerCallback(nullptr, nullptr);
+        m_yAxisLimitSwitch->removeStateListenerCallback(this, &HomingModule::onLimitSwitchStateChanged);
     }
 }
 
@@ -196,8 +199,8 @@ void HomingModule::fail()
 
 void HomingModule::notify(Event event)
 {
-    if (m_eventCallback != nullptr) {
-        m_eventCallback(m_eventCallbackContext, event);
+    {
+        m_eventCallbacks.invoke(event);
     }
 }
 

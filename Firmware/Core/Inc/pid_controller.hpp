@@ -12,6 +12,7 @@ public:
         float derivativeTc;    // Td
         float dt;              // Sampling time
         float filterTc;        // Filter time constant for Error
+        float leakTc;          // Integral term decay.
         float outputMin;
         float outputMax;
     };
@@ -59,6 +60,7 @@ private:
     State m_state;
     ControllerState m_internalState;
     bool m_bypassEnabled;
+    float m_decayMultiplier;
     float m_filterAlpha;
     float m_prevFilteredError; // Explicit history tracking
 };

@@ -1,6 +1,7 @@
 #ifndef FORCE_COIL_MODULE_HPP
 #define FORCE_COIL_MODULE_HPP
 
+#include "callback_list.hpp"
 #include "configuration.h"
 #include "generic.h"
 #include "pid_controller.hpp"
@@ -21,13 +22,15 @@ class ForceCoilDriverModule : public Process {
             UnableToSetCurrent = 1
         } Event;
 
-        using ForceCoilCallback = void (*)(Event event);
+        using ForceCoilCallback = void (*)(void *context, Event event);
         bool enableControl();
         void disableControl();
         bool isControlEnabled() const;
         void setCurrentSetpoint(float currentSetpoint);
-        void addEventListenerCallback(ForceCoilCallback callback);
+        bool addEventListenerCallback(void *context, ForceCoilCallback callback);
+        bool removeEventListenerCallback(void *context, ForceCoilCallback callback);
         bool addCurrentListenerCallback(void *context, CurrentListenerCallback callback);
+        bool removeCurrentListenerCallback(void *context, CurrentListenerCallback callback);
         void enablePidBypass();
         void disablePidBypass();
 
@@ -36,13 +39,6 @@ class ForceCoilDriverModule : public Process {
 
         void onStart() override;
         void onStop() override;
-
-        struct CurrentListenerRegistration {
-            CurrentListenerCallback callback;
-            void *context;
-        };
-
-        static constexpr uint8_t kMaxCurrentListenerCallbacks = 4U;
 
         void onCurrentMeasured(float measuredCurrent);
         bool onPwmUpdate(float *value);
@@ -56,9 +52,8 @@ class ForceCoilDriverModule : public Process {
         PidController m_pidCtrl;
 
         ControlState m_controlState;
-        ForceCoilCallback m_callback;
-        CurrentListenerRegistration m_currentListenerCallbacks[kMaxCurrentListenerCallbacks];
-        uint8_t m_currentListenerCallbackCount;
+        ListenerList<Event> m_eventCallbacks;
+        ListenerList<float> m_currentListenerCallbacks;
 
         float m_currentSetpoint;   // ramped value driving the PID this tick
         float m_targetSetpoint;    // ultimate requested value (see setCurrentSetpoint)

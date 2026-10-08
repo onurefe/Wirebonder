@@ -1,5 +1,6 @@
 #pragma once
 
+#include "callback_list.hpp"
 #include "bonder_config.hpp"
 #include "configuration_parameter_catalog.hpp"
 #include "control_panel_service.hpp"
@@ -63,6 +64,7 @@ public:
         AdjustSetting,            // parameterIndex = numeric row, sign
         SaveSettings,             // persist machine-wide settings
         ToggleSpotlight,          // Enter pressed on the "Spot On" row
+        StartZPositionCal,        // Enter pressed on the "Start Z Pos. Cal." row
         StartTachCal,             // Enter pressed on the "Start Tach. Cal." row
         SaveForceMeasurement      // value = grams read off the operator's gauge
     };
@@ -98,7 +100,17 @@ public:
          const NavigationButtons& navigationButtons,
          const ConfigurationButtons& configurationButtons);
 
-    void setRequestListenerCallback(void *ctx, RequestCallback callback);
+    // False when a ButtonChannel registry was full during construction, i.e.
+    // some hotkey silently does nothing. UserInterfaceModule surfaces this.
+    bool buttonsBound() const { return m_buttonsBound; }
+
+    // Releases every ButtonChannel listener this Menu registered. The channels
+    // are shared with UserInterfaceModule and the debug environments, so a
+    // Menu that is going away must not keep its slots.
+    void unbindButtons();
+
+    bool addRequestListenerCallback(void *ctx, RequestCallback callback);
+    bool removeRequestListenerCallback(void *ctx, RequestCallback callback);
 
     // Drives message timeouts; call from the main loop.
     void execute();
@@ -156,16 +168,19 @@ public:
     // configuration is loaded. Reached by pressing Save while on the
     // configuration selector page.
     // First kSettingsLevelRowCount rows are numeric (FloatWidget), edited
-    // with +/-. The two rows below them are action rows driven by Enter:
+    // with +/-. The rows below them are action rows driven by Enter:
     // "Spot On" fires RequestType::ToggleSpotlight (its ON/OFF TextWidget
-    // only reports the resulting state) and "Start Tach. Cal." fires
-    // RequestType::StartTachCal. +/- does nothing on either.
+    // only reports the resulting state), and the two calibrations fire
+    // RequestType::StartZPositionCal and RequestType::StartTachCal. +/- does
+    // nothing on any of them. Z position cal is listed first because the tach
+    // measures against the LVDT, so it wants a referenced axis.
     static constexpr uint8_t kSettingsLevelRowCount = 6U;
-    static constexpr uint8_t kSettingsRowCount = 8U;
+    static constexpr uint8_t kSettingsRowCount = 9U;
     // 1-based, matching m_pointerRow's convention on the settings page (row 0
     // is the header; selectable rows are numbered 1..kSettingsRowCount).
     static constexpr uint8_t kSettingsSpotOnRow = 7U;
-    static constexpr uint8_t kSettingsTachCalRow = 8U;
+    static constexpr uint8_t kSettingsZPositionCalRow = 8U;
+    static constexpr uint8_t kSettingsTachCalRow = 9U;
     void setSettingsValues(const MachineSettingsData& data);
 
     // --- Force measurement entry ----------------------------------------
@@ -316,8 +331,10 @@ private:
     PageRenderer *m_renderer;
     NavigationButtons m_buttons;
     ConfigurationButtons m_configurationButtons;
-    RequestCallback m_requestCallback;
-    void *m_requestCallbackCtx;
+    bool applyButtonBindings(bool bind);
+
+    bool m_buttonsBound{false};
+    ListenerList<const Request &> m_requestCallbacks;
     uint8_t m_pointerRow;
 
     char m_newName[kEditableNameLength + 1U];

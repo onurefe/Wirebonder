@@ -199,6 +199,8 @@ PwmRampChannel BonderDebugEnvironment::m_zMotorPwmChannel(
     TIM1_PWM_CHANNEL2_SEGMENT_LIFETIME_IN_SAMPLES,
     /* complementaryOutput = */ true);   // drives CH2 (PWM) + CH2N (nPWM)
 
+AdcTickSyncChannel BonderDebugEnvironment::m_ultrasonicTickSyncChannel;
+
 AdcService BonderDebugEnvironment::m_adc1Service(
     &hadc1, &htim2,
     ADC1_BITS, ADC1_VOLTAGE_RANGE, ADC1_NUM_CONVERSIONS,
@@ -236,6 +238,7 @@ PllModule BonderDebugEnvironment::m_pllModule(
     &BonderDebugEnvironment::m_ultrasonicDacChannel,
     &BonderDebugEnvironment::m_ultrasonicVsensChannel,
     &BonderDebugEnvironment::m_ultrasonicIsensChannel,
+    &BonderDebugEnvironment::m_ultrasonicTickSyncChannel,
     static_cast<float>(ADC1_SAMPLING_FREQ),
     static_cast<float>(PLL_MODULE_CONTROL_FREQ));
 
@@ -292,6 +295,7 @@ BonderDebugEnvironment::BonderDebugEnvironment()
     m_adc1Service.addChannel(&m_ultrasonicIsensChannel);
     m_adc1Service.addChannel(&m_scannerVsensChannel);
     m_adc1Service.addChannel(&m_scannerIsensChannel);
+    m_adc1Service.addChannel(&m_ultrasonicTickSyncChannel);
 
     // ADC2 channels (conversion-order ascending).
     m_adc2Service.addChannel(&m_forceCoilISensChannel);
@@ -352,9 +356,9 @@ BonderDebugEnvironment::BonderDebugEnvironment()
 
     const BonderConfig defaults{};
     m_bonder.configure(defaults);
-    m_bonder.setProtocol(protocolForMode(defaults.bondingMode));
+    selectProtocol(protocolForMode(defaults.bondingMode));
 
-    m_bonder.setTelemetryListenerCallback(this, &BonderDebugEnvironment::onTelemetry);
+    m_bonder.addTelemetryListenerCallback(this, &BonderDebugEnvironment::onTelemetry);
 }
 
 void BonderDebugEnvironment::onStart()
@@ -399,6 +403,25 @@ void BonderDebugEnvironment::abort()
     m_bonder.disengage();
 }
 
+void BonderDebugEnvironment::selectProtocol(const BonderProtocol &protocol)
+{
+    if (!m_bonder.setProtocol(protocol)) {
+        return;
+    }
+
+    /* Manual mode takes its speed from the configuration the bonder was just
+       handed; everything else uses the machine speeds, which in this sandbox
+       are the stored defaults rather than a persisted settings record. */
+    float upwardSpeed = ZMOTOR_MAX_UPWARD_SPEED_DEFAULT;
+    float downwardSpeed = ZMOTOR_MAX_DOWNWARD_SPEED_DEFAULT;
+    if (protocol.usesConfiguredZSpeed()) {
+        upwardSpeed = m_bonder.getConfig().manualZSpeed;
+        downwardSpeed = upwardSpeed;
+    }
+    m_zMotorPositionControllerModule.setOutputLimits(-downwardSpeed,
+                                                     upwardSpeed);
+}
+
 void BonderDebugEnvironment::startBonder()
 {
     // arg(0): BondingMode value; anything out of range falls back to
@@ -412,7 +435,7 @@ void BonderDebugEnvironment::startBonder()
         }
 
         m_bonder.configure(config);
-        m_bonder.setProtocol(protocolForMode(config.bondingMode));
+        selectProtocol(protocolForMode(config.bondingMode));
     }
 
     resetLog();

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <algorithm>
 
+#include "callback_list.hpp"
 #include "generic.h"
 #include "configuration.h"
 #include "stepper_service.hpp"
@@ -22,7 +23,8 @@ public:
                   float maxAcc,
                   float stepPerMm);
 
-    void addMoveCompleteListenerCallback(void *context, Callback cb);
+    bool addMoveCompleteListenerCallback(void *context, Callback cb);
+    bool removeMoveCompleteListenerCallback(void *context, Callback cb);
 
     // Move relative to the last completed logical position.
     void append(float displacement);
@@ -39,6 +41,12 @@ public:
     bool isBusy() const;
 
     float stepsToMillimeters(int32_t positionInSteps) const;
+
+    // How long a move of this size would take under the channel's own
+    // velocity and acceleration limits. Same profile formTrapezoidRoute()
+    // builds, so a caller that has to line something up with a move does not
+    // have to restate the kinematics.
+    float estimateMoveDuration(float displacement) const;
 
     void start();    // called by StepperRouterService::onStart
     void stop();     // called by StepperRouterService::onStop
@@ -70,8 +78,7 @@ private:
     bool            m_travelLimitsEnabled;
     float           m_minimumPosition;
     float           m_maximumPosition;
-    Callback        m_callback;
-    void           *m_callbackContext;
+    ListenerList<RouterChannel *> m_callbacks;
     RouteParams     m_routeParams;
     bool            m_isBusy;
     float           m_position;       // last completed logical position (mm)

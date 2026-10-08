@@ -41,10 +41,18 @@ then moves the axes again to re-home. If you need to make the machine safe,
 remove its power.
 \end{wbwarning}
 
-\TODO{State what the actual emergency stop provision is --- a mains switch, an
-E-stop mushroom, an isolator --- and where it is located. Add a labelled photo.
-If there is no E-stop, say so explicitly and state that the mains disconnect is
-the means of isolation.}
+The firmware provides no emergency stop and cannot provide one: \keycap{RESET}
+restarts the controller, and a restarting controller re-homes, which means it
+moves. Stopping the machine safely means removing its power.
+
+\begin{wbwarning}
+\textbf{Know where your machine's mains disconnect is before you operate it.}
+That disconnect --- not \keycap{RESET} --- is the means of isolation. Locate
+it, and confirm it kills power to the bond head, before you bond anything.
+\end{wbwarning}
+
+\seeks{the location of the mains inlet and switch on the 4523AD chassis, and
+the isolation procedure before any cover is removed.}
 
 \section{Ultrasonic energy}
 
@@ -62,27 +70,59 @@ before handling.
 
 \section{Lighting}
 
-The machine has an area light and a spotlight.
+The machine has two independently dimmable light sources: an area light that
+floods the work, and a spotlight. Both are driven from the controller at
+0--100\,\% and are set on the Settings page.
 
-\TODO{Confirm whether the spotlight is a laser. If it is, state its class and
-add the required warning against looking into the beam or viewing it with
-optical instruments, along with the label location. If it is an LED, say so and
-remove this block.}
+\begin{wbwarning}
+Do not stare into the spotlight at close range or view it through the
+microscope optics when it is at full brightness. Turn it down before working
+under magnification --- at 100\,\% it is bright enough to be uncomfortable
+through an eyepiece.
+\end{wbwarning}
+
+\begin{wbnote}
+The area light runs at up to 12\,V from the machine's 15\,V rail. If a lamp is
+replaced, it must be rated for that; a lower-voltage lamp fitted in its place
+will fail quickly.
+\end{wbnote}
 
 \section{Electrical}
 
-\TODO{Supply the electrical safety content: supply voltage and current, earthing
-requirements, which panels may be opened by an operator (normally none), the
-isolation procedure before any cover is removed, and fuse ratings and
-locations.}
+The controller runs the bond head, both steppers, the force coil, the clamp
+solenoid and the ultrasonic drive. There is nothing an operator needs to open,
+and nothing an operator should open.
+
+\begin{wbwarning}
+No panel or cover may be removed by the operator. The ultrasonic drive and the
+motor supplies carry voltages that remain present while the machine is powered.
+Isolate at the mains disconnect and allow the machine to discharge before any
+cover comes off, and leave that work to service personnel.
+\end{wbwarning}
+
+\seeks{supply voltage and current, earthing arrangements, fuse ratings and
+locations, and the covers-removed service procedure.}
 
 \section{Workpiece and consumables}
 
-\TODO{Supply handling guidance for the materials in use --- wire alloys, any
-solvents used for tool cleaning, and ESD precautions for the devices being
-bonded.}
+\begin{wbwarning}
+The devices being bonded are static-sensitive. Follow your normal ESD
+practice --- wrist strap, grounded mat, controlled handling --- whenever you
+load or unload work. The contact sensor connects the tool electrically to the
+workpiece, so the tool is part of that path.
+\end{wbwarning}
+
+Bonding wire is fine, sharp and easily airborne when torn. Handle offcuts with
+tweezers and dispose of them properly rather than brushing them off the stage.
+
+\seeks{approved wire types and diameters, tool part numbers, and any solvents
+approved for cleaning the tool.}
 
 \section{Regulatory}
 
-\TODO{Supply declarations of conformity, applicable standards, CE/UKCA or other
-markings, and the location of the machine's rating plate.}
+\TODO{Supply the declaration of conformity, applicable standards, CE/UKCA or
+other markings, and the location of the rating plate. Note that the base
+machine's original K\&S markings do not cover this machine as rebuilt --- the
+control electronics have been replaced, so conformity must be re-assessed and
+re-declared for the machine as it now stands. This cannot be taken from the
+\ksmanual.}

@@ -11,8 +11,6 @@ PinMonitorChannel::PinMonitorChannel(FastIO *pin, Level activeLevel)
     , m_blindTicks(0)
     , m_locked(false)
     , m_lockStartTick(0)
-    , m_callback(nullptr)
-    , m_callbackContext(nullptr)
 {
 }
 
@@ -21,10 +19,14 @@ void PinMonitorChannel::setBlindTicks(uint32_t blindTicks)
     m_blindTicks = blindTicks;
 }
 
-void PinMonitorChannel::addStateListenerCallback(void *context, Callback cb)
+bool PinMonitorChannel::addStateListenerCallback(void *context, Callback cb)
 {
-    m_callbackContext = context;
-    m_callback        = cb;
+    return m_callbacks.add(context, cb);
+}
+
+bool PinMonitorChannel::removeStateListenerCallback(void *context, Callback cb)
+{
+    return m_callbacks.remove(context, cb);
 }
 
 void PinMonitorChannel::start()
@@ -70,12 +72,12 @@ void PinMonitorChannel::update(uint32_t currentTick)
     PinState newState = levelToState(newLevel);
     m_lastLevel       = newLevel;
 
-    if (newState != oldState && m_callback != nullptr) {
+    if (newState != oldState) {
         if (m_blindTicks > 0) {
             m_locked       = true;
             m_lockStartTick = currentTick;
         }
-        m_callback(m_callbackContext, newState);
+        m_callbacks.invoke(newState);
     }
 }
 
@@ -124,9 +126,9 @@ void PinMonitorService::onStart()
         setProcessError();
         return;
     }
-    m_criticalTimer->setExpirationListenerCallback(
+    m_criticalTimer->addExpirationListenerCallback(
         this, onCriticalTimerExpired);
-    m_normalTimer->setExpirationListenerCallback(this, onNormalTimerExpired);
+    m_normalTimer->addExpirationListenerCallback(this, onNormalTimerExpired);
 
     for (uint8_t i = 0; i < m_numCriticalChannels; i++) m_criticalChannels[i]->start();
     for (uint8_t i = 0; i < m_numNormalChannels;   i++) m_normalChannels[i]->start();
@@ -145,10 +147,10 @@ void PinMonitorService::onStop()
     for (uint8_t i = 0; i < m_numNormalChannels;   i++) m_normalChannels[i]->stop();
 
     if (m_criticalTimer != nullptr) {
-        m_criticalTimer->setExpirationListenerCallback(nullptr, nullptr);
+        m_criticalTimer->removeExpirationListenerCallback(this, onCriticalTimerExpired);
     }
     if (m_normalTimer != nullptr) {
-        m_normalTimer->setExpirationListenerCallback(nullptr, nullptr);
+        m_normalTimer->removeExpirationListenerCallback(this, onNormalTimerExpired);
     }
 }
 

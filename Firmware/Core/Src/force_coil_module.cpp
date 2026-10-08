@@ -12,12 +12,10 @@ ForceCoilDriverModule::ForceCoilDriverModule(AnalogChannel *iSensChannel,
         FORCE_COIL_MODULE_PID_DERIVATIVE_TC,
         1.0f / static_cast<float>(FORCE_COIL_MODULE_CONTROL_FREQUENCY),
         FORCE_COIL_MODULE_PID_INPUT_FILTER_TC,
+        FORCE_COIL_MODULE_PID_LEAKAGE_TC,
         FORCE_COIL_MODULE_PID_OUTPUT_MIN,
         FORCE_COIL_MODULE_PID_OUTPUT_MAX})
     , m_controlState(ControlState::Disabled)
-    , m_callback(nullptr)
-    , m_currentListenerCallbacks{}
-    , m_currentListenerCallbackCount(0)
     , m_currentSetpoint(0.0f)
     , m_targetSetpoint(0.0f)
     , m_targetDuty(FORCE_COIL_MODULE_MIN_DUTY)
@@ -93,32 +91,24 @@ void ForceCoilDriverModule::setCurrentSetpoint(float currentSetpoint)
     m_newSetpoint = true;
 }
 
-void ForceCoilDriverModule::addEventListenerCallback(ForceCoilCallback callback)
+bool ForceCoilDriverModule::addEventListenerCallback(void *context, ForceCoilCallback callback)
 {
-    m_callback = callback;
+    return m_eventCallbacks.add(context, callback);
+}
+
+bool ForceCoilDriverModule::removeEventListenerCallback(void *context, ForceCoilCallback callback)
+{
+    return m_eventCallbacks.remove(context, callback);
 }
 
 bool ForceCoilDriverModule::addCurrentListenerCallback(void *context, CurrentListenerCallback callback)
 {
-    if (callback == nullptr) {
-        return false;
-    }
+    return m_currentListenerCallbacks.add(context, callback);
+}
 
-    for (uint8_t i = 0; i < m_currentListenerCallbackCount; i++) {
-        if (m_currentListenerCallbacks[i].context == context &&
-            m_currentListenerCallbacks[i].callback == callback) {
-            return true;
-        }
-    }
-
-    if (m_currentListenerCallbackCount >= kMaxCurrentListenerCallbacks) {
-        return false;
-    }
-
-    m_currentListenerCallbacks[m_currentListenerCallbackCount++] =
-        CurrentListenerRegistration{callback, context};
-
-    return true;
+bool ForceCoilDriverModule::removeCurrentListenerCallback(void *context, CurrentListenerCallback callback)
+{
+    return m_currentListenerCallbacks.remove(context, callback);
 }
 
 void ForceCoilDriverModule::enablePidBypass()
@@ -137,10 +127,7 @@ void ForceCoilDriverModule::onCurrentMeasured(float measuredCurrent)
         return;
     }
 
-    for (uint8_t i = 0; i < m_currentListenerCallbackCount; i++) {
-        m_currentListenerCallbacks[i].callback(
-            m_currentListenerCallbacks[i].context, measuredCurrent);
-    }
+    m_currentListenerCallbacks.invoke(measuredCurrent);
 
     advanceSetpointRamp();
     m_targetDuty = m_pidCtrl.execute(m_currentSetpoint, measuredCurrent);
@@ -153,9 +140,7 @@ void ForceCoilDriverModule::onCurrentMeasured(float measuredCurrent)
         if (error < FORCE_COIL_MODULE_CURRENT_ERROR_TOLERANCE) {
             m_newSetpoint = false;
 
-            if (m_callback) {
-                m_callback(Event::SetpointAchieved);
-            }
+            m_eventCallbacks.invoke(Event::SetpointAchieved);
         }
     }
 }

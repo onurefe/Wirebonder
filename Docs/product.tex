@@ -12,3 +12,19 @@
 \newcommand{\fwversion}{\TODOinline{firmware version}}
 \newcommand{\docrevision}{Revision A}
 \newcommand{\docdate}{August 2026}
+
+% ---------------------------------------------------- the base machine ------
+%
+% This machine is built on Kulicke & Soffa 4523AD mechanics. The control card
+% and firmware are our own, so this manual is authoritative for everything the
+% controller does; the K&S service manual remains authoritative for the
+% mechanics, installation and consumables.
+%
+% The bonding protocols follow the 4523AD parameter schedule -- see the comment
+% at Firmware/Core/Src/configuration_parameter_catalog.cpp:22.
+
+\newcommand{\basemachine}{Kulicke \& Soffa 4523AD}
+\newcommand{\ksmanual}{\emph{\basemachine\ Service Manual}}
+
+% \seeks{fitting the bonding tool} -> "see the K&S manual for ..."
+\newcommand{\seeks}[1]{\textit{See the \ksmanual\ for #1.}}

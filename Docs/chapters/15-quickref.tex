@@ -1,89 +1,103 @@
 \chapter{Quick Reference}
 \label{ch:quickref}
 
-Print this page and keep it at the machine.
+\vspace{-1.5em}
+{\footnotesize\itshape Print this page and keep it at the machine.\par}
+\vspace{0.8em}
 
-\section*{Keys}
+% Deliberately compact: this chapter must stay on ONE page so it can be
+% printed and taped to the machine. If you add a row, remove one.
+{\footnotesize
+\setlength{\tabcolsep}{4pt}
 
-\begin{center}\footnotesize
-\begin{tabular}{@{}L{20mm}L{40mm}@{\hspace{8mm}}L{20mm}L{40mm}@{}}
+\begin{minipage}[t]{0.48\textwidth}
+\textbf{KEYS --- Parameter Edit}\par\vspace{2pt}
+\begin{tabular}{@{}L{20mm}L{42mm}@{}}
 \toprule
-\textbf{Key} & \textbf{Parameter Edit} & \textbf{Key} & \textbf{Machine} \\
-\midrule
-\keycap{$\uparrow$ $\downarrow$} & move between parameters &
-  \keycap{TEST}       & ultrasonic test \\
-\keycap{$\leftarrow$ $\rightarrow$} & change screen (1/6 -- 6/6) &
-  \keycap{SETUP}      & force calibration \\
-\keycap{$+$ $-$}    & change the value &
-  \keycap{CLAMP OPEN} & open/close the clamp \\
-\keycap{SAVE}       & save the configuration &
-  \keycap{LIGHT}      & area light on/off \\
-\keycap{LOAD}       & choose a configuration &
-  \keycap{MANUAL}     & switch to Manual mode \\
-\keycap{ESC/DEL}    & back to the list &
-  \keycap{RESET}      & restart the machine \\
+\keycap{$\uparrow$ $\downarrow$}          & move between parameters \\
+\keycap{$\leftarrow$ $\rightarrow$}       & change screen (1/6--6/6) \\
+\keycap{$+$ $-$}                          & change the value \\
+\keycap{SAVE}                             & save the configuration \\
+\keycap{LOAD}                             & choose a configuration \\
+\keycap{ESC/DEL}                          & back to the list \\
 \bottomrule
 \end{tabular}
-\end{center}
-
-\section*{Hotkeys (Parameter Edit page only)}
-
-\begin{center}\footnotesize
-\begin{tabular}{@{}L{26mm}L{40mm}@{\hspace{10mm}}L{26mm}L{40mm}@{}}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\textbf{KEYS --- Machine}\par\vspace{2pt}
+\begin{tabular}{@{}L{24mm}L{38mm}@{}}
 \toprule
-\keycap{TAIL $\pm$}   & \menuitem{Tail} \newline (\menuitem{Table Tail} in Table Tear) &
+\keycap{TEST}       & ultrasonic test \\
+\keycap{SETUP}      & force calibration \\
+\keycap{CLAMP OPEN} & open/close the clamp \\
+\keycap{LIGHT}      & area light on/off \\
+\keycap{MANUAL}     & switch to Manual mode \\
+\keycap{RESET}      & restart the machine \\
+\bottomrule
+\end{tabular}
+\end{minipage}
+
+\vspace{1em}
+
+\begin{minipage}[t]{0.48\textwidth}
+\textbf{HOTKEYS} \emph{(Parameter Edit only)}\par\vspace{2pt}
+\begin{tabular}{@{}L{22mm}L{40mm}@{}}
+\toprule
+\keycap{TAIL $\pm$}   & \menuitem{Tail} \\
+\keycap{LOOP $\pm$}   & \menuitem{Loop Height} \\
 \keycap{SEARCH $\pm$} & \menuitem{Search 1} \\
-\addlinespace
-\keycap{LOOP $\pm$}   & \menuitem{Loop Height} &
 \keycap{STEP $\pm$}   & \menuitem{Stepback} \\
 \bottomrule
 \end{tabular}
-\end{center}
-
-\section*{The six parameter screens}
-
-\begin{center}\footnotesize
-\begin{tabular}{@{}L{14mm}L{30mm}L{78mm}@{}}
-\toprule
-\textbf{Screen} & \textbf{Group} & \textbf{Contents} \\
-\midrule
-1/6 & First bond   & \menuitem{Search 1}, \menuitem{Power 1},
-                      \menuitem{Energy 1}, \menuitem{Force 1 G} \\
-2/6 & Loop         & \menuitem{Stepback}, \menuitem{Kink Height},
-                      \menuitem{Reverse}, \menuitem{Loop Height} \\
-3/6 & Second bond  & \menuitem{Search 2}, \menuitem{Power 2},
-                      \menuitem{Energy 2}, \menuitem{Force 2 G},
-                      \menuitem{Tail}, \menuitem{Tear} \\
-4/6 & Heights      & \menuitem{Reset Height}, \menuitem{Overtravel},
-                      \menuitem{Second Z Hgt}, \menuitem{Table Tail},
-                      \menuitem{Table Tear} \\
-5/6 & Timing       & \menuitem{Bond Timeout}, \menuitem{Contact Stl},
-                      \menuitem{Cooling}, \menuitem{Tail Delay},
-                      \menuitem{Tear Stabil} \\
-6/6 & Force \& U/S & \menuitem{Constant G}, \menuitem{Tracking G},
-                      \menuitem{Scan Start}, \menuitem{Scan Stop},
-                      \menuitem{Scan Points}, \menuitem{Tail Power},
-                      \menuitem{Tail Energy} \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\section*{Holding a value key}
-
-\begin{center}\footnotesize
-\begin{tabular}{@{}L{34mm}L{34mm}@{}}
+\par\vspace{2pt}
+\emph{In Table Tear, \keycap{TAIL $\pm$} edits \menuitem{Table Tail}.}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\textbf{HOLDING A VALUE KEY}\par\vspace{2pt}
+\begin{tabular}{@{}L{24mm}L{38mm}@{}}
 \toprule
 after 0.5\,s & repeats, 1 step \\
 after 1.5\,s & repeats, 10 steps \\
 after 4.5\,s & repeats, 100 steps \\
 \bottomrule
 \end{tabular}
-\end{center}
+\par\vspace{2pt}
+\emph{$\leftarrow$ $\rightarrow$ do not repeat outside name entry.}
+\end{minipage}
 
-\section*{If something goes wrong}
+\vspace{1em}
 
-\begin{center}\footnotesize
-\begin{tabular}{@{}L{42mm}L{80mm}@{}}
+\textbf{THE SIX PARAMETER SCREENS}\par\vspace{2pt}
+% Kept a size smaller than the rest of the card: screen 6/6 lists seven
+% parameters and wraps at \footnotesize.
+{\scriptsize
+\begin{tabular}{@{}L{9mm}L{22mm}L{112mm}@{}}
+\toprule
+1/6 & First bond   & \menuitem{Search 1} \quad \menuitem{Power 1} \quad
+                     \menuitem{Energy 1} \quad \menuitem{Force 1 G} \\
+2/6 & Loop         & \menuitem{Stepback} \quad \menuitem{Kink Height} \quad
+                     \menuitem{Reverse} \quad \menuitem{Loop Height} \\
+3/6 & Second bond  & \menuitem{Search 2} \quad \menuitem{Power 2} \quad
+                     \menuitem{Energy 2} \quad \menuitem{Force 2 G} \quad
+                     \menuitem{Tail} \quad \menuitem{Tear} \\
+4/6 & Heights      & \menuitem{Reset Height} \quad \menuitem{Overtravel} \quad
+                     \menuitem{Second Z Hgt} \quad \menuitem{Table Tail} \quad
+                     \menuitem{Table Tear} \\
+5/6 & Timing       & \menuitem{Bond Timeout} \quad \menuitem{Contact Stl} \quad
+                     \menuitem{Cooling} \quad \menuitem{Tail Delay} \quad
+                     \menuitem{Tear Stabil} \\
+6/6 & Force \& U/S & \menuitem{Constant G} \quad \menuitem{Tracking G} \quad
+                     \menuitem{Scan Start} \quad \menuitem{Scan Stop} \quad
+                     \menuitem{Scan Points} \quad \menuitem{Tail Power} \quad
+                     \menuitem{Tail Energy} \\
+\bottomrule
+\end{tabular}
+}
+
+\vspace{1em}
+
+\textbf{IF SOMETHING GOES WRONG}\par\vspace{2pt}
+\begin{tabular}{@{}L{40mm}L{94mm}@{}}
 \toprule
 \msg{LOW BONDING POWER}   & Run \keycap{TEST}; check the scan window brackets resonance \\
 \msg{COIL CURR. UNSTABLE} & Check the lever moves freely; lower the force \\
@@ -93,4 +107,8 @@ after 4.5\,s & repeats, 100 steps \\
 \msg{BUSY! TRY LATER}     & Wait for the current operation, then press again \\
 \bottomrule
 \end{tabular}
-\end{center}
+
+\par\vspace{1em}
+\emph{Nothing is saved until you press \keycap{SAVE}.}
+
+}% end \scriptsize

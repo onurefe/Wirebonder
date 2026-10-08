@@ -11,13 +11,10 @@ DcMotorVelocityControllerModule::DcMotorVelocityControllerModule(
         DCMOTOR_VELOCITY_MODULE_PID_DERIVATIVE_TC,
         1.0f / static_cast<float>(DCMOTOR_VELOCITY_MODULE_CONTROL_FREQUENCY),
         DCMOTOR_VELOCITY_MODULE_PID_INPUT_FILTER_TC,
+        DCMOTOR_VELOCITY_MODULE_PID_LEAKAGE_TC,
         DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MIN,
         DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MAX})
     , m_controlState(ControlState::Disabled)
-    , m_velocityListenerCallbacks{}
-    , m_velocityListenerCallbackCount(0)
-    , m_velocityControllerCallbacks{}
-    , m_velocityControllerCallbackCount(0)
     , m_velocityMeasurement(0.0f)
     , m_targetDuty(DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY)
     , m_velocityOffset(0.0f)
@@ -72,46 +69,22 @@ void DcMotorVelocityControllerModule::disableControl()
 
 bool DcMotorVelocityControllerModule::addVelocityListenerCallback(void *context, VelocityListenerCallback cb)
 {
-    if (cb == nullptr) {
-        return false;
-    }
+    return m_velocityListenerCallbacks.add(context, cb);
+}
 
-    for (uint8_t i = 0; i < m_velocityListenerCallbackCount; i++) {
-        if (m_velocityListenerCallbacks[i].context == context &&
-            m_velocityListenerCallbacks[i].callback == cb) {
-            return true;
-        }
-    }
-
-    if (m_velocityListenerCallbackCount >= kMaxVelocityListenerCallbacks) {
-        return false;
-    }
-
-    m_velocityListenerCallbacks[m_velocityListenerCallbackCount++] =
-        VelocityListenerRegistration{cb, context};
-    return true;
+bool DcMotorVelocityControllerModule::removeVelocityListenerCallback(void *context, VelocityListenerCallback cb)
+{
+    return m_velocityListenerCallbacks.remove(context, cb);
 }
 
 bool DcMotorVelocityControllerModule::addVelocityControllerCallback(void *context, VelocityControllerCallback cb)
 {
-    if (cb == nullptr) {
-        return false;
-    }
+    return m_velocityControllerCallbacks.add(context, cb);
+}
 
-    for (uint8_t i = 0; i < m_velocityControllerCallbackCount; i++) {
-        if (m_velocityControllerCallbacks[i].context == context &&
-            m_velocityControllerCallbacks[i].callback == cb) {
-            return true;
-        }
-    }
-
-    if (m_velocityControllerCallbackCount >= kMaxVelocityControllerCallbacks) {
-        return false;
-    }
-
-    m_velocityControllerCallbacks[m_velocityControllerCallbackCount++] =
-        VelocityControllerRegistration{cb, context};
-    return true;
+bool DcMotorVelocityControllerModule::removeVelocityControllerCallback(void *context, VelocityControllerCallback cb)
+{
+    return m_velocityControllerCallbacks.remove(context, cb);
 }
 
 float DcMotorVelocityControllerModule::getVelocity() const
@@ -163,23 +136,18 @@ void DcMotorVelocityControllerModule::onTachometerMeasured(float velocity)
         return;
     }
 
-    m_velocityMeasurement = velocity - m_velocityOffset;
+    /* Turned the right way up before anything else sees it, so the offset and
+       every listener work in the machine's up-positive convention. */
+    m_velocityMeasurement = (ZMOTOR_TACHOMETER_DIRECTION * velocity) -
+                            m_velocityOffset;
 
     // Notify observers of the fresh measurement.
-    for (uint8_t i = 0; i < m_velocityListenerCallbackCount; i++) {
-        m_velocityListenerCallbacks[i].callback(
-            m_velocityListenerCallbacks[i].context, m_velocityMeasurement);
-    }
+    m_velocityListenerCallbacks.invoke(m_velocityMeasurement);
 
     // Pull the fresh setpoint at the exact instant the loop consumes it: the
     // first active controller wins, otherwise the target stays at zero.
     float target_velocity = 0.0f;
-    for (uint8_t i = 0; i < m_velocityControllerCallbackCount; i++) {
-        if (m_velocityControllerCallbacks[i].callback(
-                m_velocityControllerCallbacks[i].context, &target_velocity)) {
-            break;
-        }
-    }
+    (void)m_velocityControllerCallbacks.invokeFirst(&target_velocity);
 
     float drive = m_velocityPid.execute(
         target_velocity,
@@ -221,8 +189,14 @@ bool DcMotorVelocityControllerModule::isControlEnabled() const
 
 float DcMotorVelocityControllerModule::computeTargetDuty(float velocityControlOutput) const
 {
-    float raw_duty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY + velocityControlOutput * DCMOTOR_VELOCITY_MODULE_VOLTAGE_TO_DUTY_SCALE;
-    
+    /* ZMOTOR_DRIVE_DIRECTION carries which way duty above the zero-velocity
+       point moves the head. It is load-bearing for both closed loops -- see
+       the constraint in configuration.h -- so it is not the place to correct
+       the direction of a single open-loop move. */
+    float raw_duty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY +
+                     (ZMOTOR_DRIVE_DIRECTION * velocityControlOutput *
+                      DCMOTOR_VELOCITY_MODULE_VOLTAGE_TO_DUTY_SCALE);
+
     return clampDuty(raw_duty);
 }
 

@@ -62,6 +62,11 @@ private:
     static IQDemodulatorChannel m_ultrasonicIsensChannel;
     static SineGeneratorChannel m_ultrasonicDacChannel;
 
+    // Aligns the DAC trigger timer to the ADC tick boundary; PllModule drives
+    // its control update from this channel's callback. Must be registered
+    // after the demodulators, as in Robot.
+    static AdcTickSyncChannel m_ultrasonicTickSyncChannel;
+
     static AdcService m_adc1Service;
     static DacService m_dacService;
 

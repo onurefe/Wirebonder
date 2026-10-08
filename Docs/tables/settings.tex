@@ -19,7 +19,8 @@
 5 & \menuitem{Down Speed}       & mm/s & 0.1 & 10.0  & 0.1 & 5.0 \\
 6 & \menuitem{Setup Force}      & g    & 0.0 & 100.0 & 0.5 & 30.0 \\
 7 & \menuitem{Spot On}          & \multicolumn{5}{@{}l@{}}{on/off --- \keycap{ENTER} toggles} \\
-8 & \menuitem{Start Tach. Cal.} & \multicolumn{5}{@{}l@{}}{action --- \keycap{ENTER} runs it} \\
+8 & \menuitem{Start Z Pos. Cal.} & \multicolumn{5}{@{}l@{}}{action --- \keycap{ENTER} runs it} \\
+9 & \menuitem{Start Tach. Cal.} & \multicolumn{5}{@{}l@{}}{action --- \keycap{ENTER} runs it} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -41,6 +42,8 @@
 \item[Setup Force] Force the machine holds during a calibration run started
   with \keycap{SETUP}. This is the value your gauge reading is compared
   against.
+\item[Start Z Pos. Cal.] Runs Z position calibration, which re-establishes
+  where the bottom of the Z travel is. See Chapter~\ref{ch:calibration}.
 \item[Start Tach. Cal.] Runs tachometer calibration. See
   Chapter~\ref{ch:calibration}.
 \end{description}

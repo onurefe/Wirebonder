@@ -76,15 +76,17 @@ commanded force. If it persists at every force, the coil drive needs service. \\
 \msg{Z POS. NOT SETTLED} &
 The Z axis did not reach its commanded height, or the position loop dropped
 out. &
-Check that nothing is obstructing the bond head. Verify \menuitem{Reset Height}
-and \menuitem{Overtravel} are inside the Z travel. Run tachometer calibration. \\
+\textbf{Check every height is under 9\,mm} --- the editor allows up to 20\,mm
+but the axis cannot travel that far. Then check nothing obstructs the bond
+head, and run tachometer calibration. \\
 \addlinespace
 
 \msg{TIMEOUT} &
-The machine waited for an expected event that never arrived --- most often a
-touchdown that never happened or a button that was never released. &
-Confirm the workpiece is within reach at the search height and that the contact
-sensor is connected. Retry the cycle. \\
+The machine waited 10 seconds for something that never happened --- most often
+a touchdown, a completed move, or a button release. &
+Confirm the workpiece is within reach at the search height and the contact
+sensor is connected. \textbf{Check no height exceeds the 9\,mm Z travel.} Then
+retry. \\
 
 \bottomrule
 \end{tabular}

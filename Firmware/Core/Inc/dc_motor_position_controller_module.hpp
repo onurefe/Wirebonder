@@ -1,6 +1,7 @@
 #ifndef DC_MOTOR_POSITION_CONTROLLER_MODULE_HPP
 #define DC_MOTOR_POSITION_CONTROLLER_MODULE_HPP
 
+#include "callback_list.hpp"
 #include "configuration.h"
 #include "generic.h"
 #include "dc_motor_velocity_controller_module.hpp"
@@ -9,15 +10,24 @@
 
 class DcMotorPositionControllerModule : public Process {
 public:
-    using SetpointCallback = bool (*)(void *context, float *positionSetpoint);
+    // A provider supplies where the carriage should be and, optionally, how
+    // fast it is being asked to travel there. The velocity is fed forward past
+    // the position term, so a provider walking a profile carries its own
+    // motion and leaves the loop only the residual error to correct. Leave it
+    // at zero for a plain step setpoint.
+    using SetpointCallback = bool (*)(void *context,
+                                      float *positionSetpoint,
+                                      float *velocityFeedforward);
     using VelocityListenerCallback = void (*)(void *context, float velocity);
     using PositionListenerCallback = void (*)(void *context, float position);
 
     enum class Event : uint8_t {
-        // Fired after the position error remains within tolerance and its
-        // EMA-filtered rate remains below the configured mm/s limit for
-        // consecutive control samples. Level-triggered afterward so a
-        // listener latching a flag never misses it.
+        // Fired on every control sample whose position error is within
+        // DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR -- level-triggered, not
+        // one-shot. It reports on whichever provider won the setpoint
+        // arbiter, so it says "the loop is tracking its input", not "your
+        // move finished". A caller that needs the latter tests its own
+        // setpoint against getPosition() (see BonderCommandZMove).
         SetpointReached
     };
 
@@ -32,16 +42,21 @@ public:
     void restartControlLoop();
     bool addPositionSetpointControllerCallback(void *context,
         SetpointCallback callback);
-    void addEventListenerCallback(void *context, EventCallback callback);
+    bool removePositionSetpointControllerCallback(void *context,
+        SetpointCallback callback);
+    bool addEventListenerCallback(void *context, EventCallback callback);
+    bool removeEventListenerCallback(void *context, EventCallback callback);
 
     // Continuous push notifications (proxied from the wrapped velocity
     // controller / LVDT), for consumers that only hold a
     // DcMotorPositionControllerModule* and need every measurement rather
     // than polling getVelocity()/getPosition() at an unrelated tick rate.
     bool addVelocityListenerCallback(void *context, VelocityListenerCallback callback);
+    bool removeVelocityListenerCallback(void *context, VelocityListenerCallback callback);
     bool addPositionListenerCallback(void *context, PositionListenerCallback callback);
+    bool removePositionListenerCallback(void *context, PositionListenerCallback callback);
 
-    float execute(float positionSetpoint);
+    float execute(float positionSetpoint, float velocityFeedforward = 0.0f);
 
     float getPosition() const;
     float getVelocity() const;
@@ -55,9 +70,14 @@ public:
 
     // Velocity-setpoint clamp, in mm/s and signed (Z increases upward, so
     // minVelocity is negative). Seeded from the ZMOTOR_MAX_*_SPEED_DEFAULT
-    // macros and re-pushed by Robot::updateZPositionSpeedLimits() whenever
-    // the operator edits UP SPEED / DOWN SPEED.
+    // macros and re-pushed by Robot::updateZPositionSpeedLimits() on every
+    // protocol selection (manual mode runs at its configuration's own speed,
+    // everything else at the SETTINGS UP/DOWN SPEED) and on a settings edit.
     void setOutputLimits(float minVelocity, float maxVelocity);
+    // Read-back, so a caller that narrows the clamp for a while can put back
+    // exactly what it found (see BonderCommandMzDrive).
+    float getOutputMin() const { return m_outputMin; }
+    float getOutputMax() const { return m_outputMax; }
 
 private:
     enum class ControlState : uint8_t { Disabled, Enabled };
@@ -83,28 +103,6 @@ private:
     // Helpers
     // -----------------------------------------------------------------------
     void registerPeripheralCallbacks();
-    void resetPositionSettling();
-    void resetPositionProfile();
-    float advancePositionProfile(float targetPosition);
-
-    struct SetpointControllerRegistration {
-        SetpointCallback callback;
-        void *context;
-    };
-
-    struct VelocityListenerRegistration {
-        VelocityListenerCallback callback;
-        void *context;
-    };
-
-    struct PositionListenerRegistration {
-        PositionListenerCallback callback;
-        void *context;
-    };
-
-    static constexpr uint8_t kMaxSetpointControllerCallbacks = 4U;
-    static constexpr uint8_t kMaxVelocityListenerCallbacks = 4U;
-    static constexpr uint8_t kMaxPositionListenerCallbacks = 4U;
 
     // -----------------------------------------------------------------------
     // Members
@@ -116,17 +114,10 @@ private:
     bool m_bypassEnabled;
     bool m_hasPositionMeasurement;
 
-    SetpointControllerRegistration m_setpointControllerCallbacks[kMaxSetpointControllerCallbacks];
-    uint8_t m_setpointControllerCallbackCount;
-
-    VelocityListenerRegistration m_velocityListenerCallbacks[kMaxVelocityListenerCallbacks];
-    uint8_t m_velocityListenerCallbackCount;
-
-    PositionListenerRegistration m_positionListenerCallbacks[kMaxPositionListenerCallbacks];
-    uint8_t m_positionListenerCallbackCount;
-
-    EventCallback m_eventCallback;
-    void         *m_eventCallbackContext;
+    ArbiterList<float *, float *> m_setpointControllerCallbacks;
+    ListenerList<float>  m_velocityListenerCallbacks;
+    ListenerList<float>  m_positionListenerCallbacks;
+    ListenerList<Event>  m_eventCallbacks;
 
     float m_positionMeasurement;
     float m_lvdtMagnitudeA;
@@ -139,9 +130,6 @@ private:
     bool m_previousPositionErrorValid;
     bool m_positionErrorRateValid;
     bool m_profiledPositionSetpointValid;
-    // SetpointReached is one-shot: latched once fired and re-armed only by
-    // resetPositionSettling() (new setpoint, restart, enable, bypass change).
-    bool m_setpointReachedNotified;
 
     float m_outputMin;
     float m_outputMax;

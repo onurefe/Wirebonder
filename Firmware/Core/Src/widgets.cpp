@@ -29,21 +29,23 @@ Widget::Widget(uint8_t row, uint8_t column, uint8_t width)
     , m_width(width)
     , m_visible(true)
     , m_page(nullptr)
-    , m_clickCallback(nullptr)
-    , m_clickCallbackCtx(nullptr)
 {
 }
 
-void Widget::setClickCallback(void *ctx, ClickCallback callback)
+bool Widget::addClickCallback(void *ctx, ClickCallback callback)
 {
-    m_clickCallbackCtx = ctx;
-    m_clickCallback = callback;
+    return m_clickCallbacks.add(ctx, callback);
+}
+
+bool Widget::removeClickCallback(void *ctx, ClickCallback callback)
+{
+    return m_clickCallbacks.remove(ctx, callback);
 }
 
 void Widget::click()
 {
-    if (m_clickCallback != nullptr) {
-        m_clickCallback(m_clickCallbackCtx);
+    {
+        m_clickCallbacks.invoke();
     }
 }
 

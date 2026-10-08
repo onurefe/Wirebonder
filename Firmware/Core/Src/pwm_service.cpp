@@ -54,30 +54,15 @@ PwmRampChannel::PwmRampChannel(
     , m_dutyStepPerSample(0.0f)
     , m_running(false)
     , m_complementaryOutput(complementaryOutput)
-    , m_targetControllerCallbacks{}
-    , m_targetControllerCallbackCount(0)
 {
 }
 
 bool PwmRampChannel::addTargetDutyControllerCallback(void* context, TargetUpdateCallback targetUpdateCallback) {
-    if (targetUpdateCallback == nullptr) {
-        return false;
-    }
+    return m_targetControllerCallbacks.add(context, targetUpdateCallback);
+}
 
-    for (uint8_t i = 0; i < m_targetControllerCallbackCount; i++) {
-        if (m_targetControllerCallbacks[i].context == context &&
-            m_targetControllerCallbacks[i].callback == targetUpdateCallback) {
-            return true;
-        }
-    }
-
-    if (m_targetControllerCallbackCount >= kMaxTargetControllerCallbacks) {
-        return false;
-    }
-
-    m_targetControllerCallbacks[m_targetControllerCallbackCount++] =
-        TargetControllerRegistration{targetUpdateCallback, context};
-    return true;
+bool PwmRampChannel::removeTargetDutyControllerCallback(void* context, TargetUpdateCallback targetUpdateCallback) {
+    return m_targetControllerCallbacks.remove(context, targetUpdateCallback);
 }
 
 TIM_HandleTypeDef *PwmRampChannel::getTimHandle() const
@@ -185,12 +170,7 @@ void PwmRampChannel::beginNextRamp() {
     // ramp holds the current duty.
     float targetDuty = m_currentDuty;
 
-    for (uint8_t i = 0; i < m_targetControllerCallbackCount; i++) {
-        if (m_targetControllerCallbacks[i].callback(
-                m_targetControllerCallbacks[i].context, &targetDuty)) {
-            break;
-        }
-    }
+    (void)m_targetControllerCallbacks.invokeFirst(&targetDuty);
 
     targetDuty = clampDuty(targetDuty);
 

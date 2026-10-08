@@ -28,11 +28,25 @@ public:
     virtual void stop() = 0;
     virtual void poll() = 0;
 
-    virtual void addStateListenerCallback(void *context, Callback cb) = 0;
+    // Non-virtual: both channel flavours fan out identically, so the
+    // registry lives here rather than being duplicated per implementation.
+    bool addStateListenerCallback(void *context, Callback cb)
+    {
+        return m_stateCallbacks.add(context, cb);
+    }
+
+    bool removeStateListenerCallback(void *context, Callback cb)
+    {
+        return m_stateCallbacks.remove(context, cb);
+    }
+
     virtual bool isTransitioning() const = 0;
     virtual void energize() = 0;
     virtual void deenergize() = 0;
     virtual State getState() const = 0;
+
+protected:
+    ListenerList<State> m_stateCallbacks;
 };
 
 // -----------------------------------------------------------------------
@@ -51,8 +65,6 @@ public:
                           Timer *timer,
                           float energizeTime,
                           float deenergizeTime);
-
-    void addStateListenerCallback(void *context, Callback cb) override;
 
     bool isTransitioning() const override;
 
@@ -75,8 +87,6 @@ private:
     Timer           *m_timer;
     float           m_energizeTime;
     float           m_deenergizeTime;
-    Callback        m_callback;
-    void            *m_callbackContext;
 };
 
 // -----------------------------------------------------------------------
@@ -99,8 +109,6 @@ public:
                        float deenergizeTime,
                        float onDuty = 1.0f,
                        float offDuty = 0.0f);
-
-    void addStateListenerCallback(void *context, Callback cb) override;
 
     // Updates the energized-hold duty. Applied immediately when the coil is
     // already energized (or energizing), otherwise at the next energize().
@@ -128,8 +136,6 @@ private:
     float           m_deenergizeTime;
     float           m_onDuty;
     float           m_offDuty;
-    Callback        m_callback;
-    void            *m_callbackContext;
 };
 
 // -----------------------------------------------------------------------

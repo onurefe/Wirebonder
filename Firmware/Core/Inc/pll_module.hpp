@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "generic.h"
+#include "callback_list.hpp"
 #include "complex.h"
 #include "configuration.h"
 #include "queue.hpp"
@@ -39,6 +40,7 @@ public:
         float controlFrequency);
 
     bool addEventListenerCallback(void *context, Callback cb);
+    bool removeEventListenerCallback(void *context, Callback cb);
 
     // Recording starts at the next beginTransfer() and stops when the buffer is
     // full; pass nullptr/0 to disable.
@@ -74,13 +76,6 @@ private:
     void onStart() override;
     void onStop() override;
 
-    struct CallbackRegistration {
-        Callback callback;
-        void *context;
-    };
-
-    static constexpr uint8_t kMaxCallbacks = 4U;
-
     void updateController();
     void publishEvent(Event event);
 
@@ -101,8 +96,7 @@ private:
 
     TransferState m_transferState;
 
-    CallbackRegistration m_callbacks[kMaxCallbacks];
-    uint8_t m_callbackCount;
+    ListenerList<Event> m_callbacks;
 
     complexf m_voltage;
     complexf m_current;

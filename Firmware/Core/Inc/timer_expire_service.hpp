@@ -1,6 +1,7 @@
 #ifndef TIMER_EXPIRE_SERVICE_HPP
 #define TIMER_EXPIRE_SERVICE_HPP
 
+#include "callback_list.hpp"
 #include "generic.h"
 #include "configuration.h"
 #include "process.hpp"
@@ -14,7 +15,8 @@ public:
 
     Timer();
 
-    void setExpirationListenerCallback(void *context, Callback cb);
+    bool addExpirationListenerCallback(void *context, Callback cb);
+    bool removeExpirationListenerCallback(void *context, Callback cb);
     void start(bool oneShot, float periodInSeconds);
     void stop();
     bool isActive() const;
@@ -26,8 +28,7 @@ private:
     volatile uint32_t m_startTick;
     bool              m_oneShot;
     uint32_t          m_periodInTicks;
-    Callback          m_callback;
-    void             *m_callbackContext;
+    ListenerList<Timer *> m_callbacks;
 };
 
 // -----------------------------------------------------------------------

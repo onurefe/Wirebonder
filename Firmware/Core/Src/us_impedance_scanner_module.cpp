@@ -47,8 +47,6 @@ UsImpedanceScannerModule::UsImpedanceScannerModule(
     , m_voltagePhasors(nullptr)
     , m_currentPhasors(nullptr)
     , m_impedances(nullptr)
-    , m_callbacks{}
-    , m_callbackCount(0)
 {
     updateSynthesisBuffer();
 
@@ -149,22 +147,12 @@ void UsImpedanceScannerModule::updateSynthesisBuffer()
 // ---------------------------------------------------------------------------
 bool UsImpedanceScannerModule::addScanCompleteListenerCallback(void *context, Callback cb)
 {
-    if (cb == nullptr) {
-        return false;
-    }
+    return m_callbacks.add(context, cb);
+}
 
-    for (uint8_t i = 0; i < m_callbackCount; i++) {
-        if (m_callbacks[i].context == context && m_callbacks[i].callback == cb) {
-            return true;
-        }
-    }
-
-    if (m_callbackCount < kMaxCallbacks) {
-        m_callbacks[m_callbackCount++] = CallbackRegistration{cb, context};
-        return true;
-    }
-
-    return false;
+bool UsImpedanceScannerModule::removeScanCompleteListenerCallback(void *context, Callback cb)
+{
+    return m_callbacks.remove(context, cb);
 }
 
 void UsImpedanceScannerModule::onStart()
@@ -338,11 +326,5 @@ void UsImpedanceScannerModule::computeImpedances()
 
 void UsImpedanceScannerModule::publishScanComplete()
 {
-    for (uint8_t i = 0; i < m_callbackCount; i++) {
-        m_callbacks[i].callback(
-            m_callbacks[i].context,
-            m_voltagePhasors,
-            m_currentPhasors,
-            m_impedances);
-    }
+    m_callbacks.invoke(m_voltagePhasors, m_currentPhasors, m_impedances);
 }

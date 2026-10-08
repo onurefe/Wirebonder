@@ -21,9 +21,8 @@ void LcdControllerModule::onStart()
         setProcessError();
         return;
     }
-    m_expander->setTransferListenerCallbacks(
-        this, nullptr, onWriteCompleted);
-    m_delayTimer->setExpirationListenerCallback(this, onDelayExpired);
+    m_expander->addWriteCompletedListenerCallback(this, onWriteCompleted);
+    m_delayTimer->addExpirationListenerCallback(this, onDelayExpired);
 
     enqueueDelay(Hd44780Constants::kPowerOnDelayMs);
 
@@ -50,10 +49,10 @@ void LcdControllerModule::onStop()
     m_lcdWriteCompleted = false;
     m_channelWriteCounter = 0U;
     if (m_expander != nullptr) {
-        m_expander->setTransferListenerCallbacks(nullptr, nullptr, nullptr);
+        m_expander->removeWriteCompletedListenerCallback(this, onWriteCompleted);
     }
     if (m_delayTimer != nullptr) {
-        m_delayTimer->setExpirationListenerCallback(nullptr, nullptr);
+        m_delayTimer->removeExpirationListenerCallback(this, onDelayExpired);
     }
 }
 

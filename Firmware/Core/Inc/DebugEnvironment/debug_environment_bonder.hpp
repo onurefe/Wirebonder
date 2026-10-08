@@ -108,6 +108,11 @@ private:
     // button is still held.
     static void updateCombinedButtons();
 
+    // Selects the program and applies its Z speed limits, so manual mode --
+    // the one program that runs at its configuration's own speed rather than
+    // the machine speeds -- behaves here as it does in the firmware.
+    void selectProtocol(const BonderProtocol &protocol);
+
     void startBonder();
     void stopBonder();
     void setButton();
@@ -186,6 +191,11 @@ private:
     static SineGeneratorChannel m_lvdtExcitationChannel;
     static PwmRampChannel m_forceCoilPwmChannel;
     static PwmRampChannel m_zMotorPwmChannel;
+
+    // Aligns the DAC trigger timer to the ADC tick boundary; PllModule drives
+    // its control update from this channel's callback. Registered after the
+    // demodulators, as in Robot.
+    static AdcTickSyncChannel m_ultrasonicTickSyncChannel;
 
     /* Peripheral services. */
     static AdcService m_adc1Service;

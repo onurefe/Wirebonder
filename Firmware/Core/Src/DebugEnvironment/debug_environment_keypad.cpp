@@ -104,15 +104,24 @@ void KeypadDebugEnvironment::resetResult()
 
 void KeypadDebugEnvironment::startListening()
 {
+    // These ButtonChannels are shared with Menu and UserInterfaceModule, so a
+    // registry can legitimately be full here. Reporting beats logging nothing.
+    bool registered = true;
     for (uint8_t i = 0; i < kButtonCount; i++) {
         if (i < KEYPAD_DEBUG_LOG_DEPTH) {
             m_buttonContexts[i].owner = this;
             m_buttonContexts[i].index = i;
 
-            m_buttons[i].addPressListenerCallback(
+            registered &= m_buttons[i].addPressListenerCallback(
                 &m_buttonContexts[i],
                 &KeypadDebugEnvironment::onButtonPressed);
         }
+    }
+
+    if (!registered) {
+        stopListening();
+        setError(ERROR_NOT_INITIALIZED);
+        return;
     }
 
     resetResult();
@@ -124,6 +133,14 @@ void KeypadDebugEnvironment::startListening()
 
 void KeypadDebugEnvironment::stopListening()
 {
+    for (uint8_t i = 0; i < kButtonCount; i++) {
+        if (i < KEYPAD_DEBUG_LOG_DEPTH) {
+            m_buttons[i].removePressListenerCallback(
+                &m_buttonContexts[i],
+                &KeypadDebugEnvironment::onButtonPressed);
+        }
+    }
+
     m_listening = false;
     setIdle();
 }

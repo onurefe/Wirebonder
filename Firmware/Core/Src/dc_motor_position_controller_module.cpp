@@ -8,14 +8,6 @@ DcMotorPositionControllerModule::DcMotorPositionControllerModule(
     , m_controlState(ControlState::Disabled)
     , m_bypassEnabled(false)
     , m_hasPositionMeasurement(false)
-    , m_setpointControllerCallbacks{}
-    , m_setpointControllerCallbackCount(0)
-    , m_velocityListenerCallbacks{}
-    , m_velocityListenerCallbackCount(0)
-    , m_positionListenerCallbacks{}
-    , m_positionListenerCallbackCount(0)
-    , m_eventCallback(nullptr)
-    , m_eventCallbackContext(nullptr)
     , m_positionMeasurement(0.0f)
     , m_lvdtMagnitudeA(0.0f)
     , m_lvdtMagnitudeB(0.0f)
@@ -88,77 +80,50 @@ bool DcMotorPositionControllerModule::addPositionSetpointControllerCallback(
     void *context,
     SetpointCallback callback)
 {
-    if (callback == nullptr) {
-        return false;
-    }
-
-    for (uint8_t i = 0; i < m_setpointControllerCallbackCount; i++) {
-        if (m_setpointControllerCallbacks[i].context == context &&
-            m_setpointControllerCallbacks[i].callback == callback) {
-            return true;
-        }
-    }
-
-    if (m_setpointControllerCallbackCount >= kMaxSetpointControllerCallbacks) {
-        return false;
-    }
-
-    m_setpointControllerCallbacks[m_setpointControllerCallbackCount++] =
-        SetpointControllerRegistration{callback, context};
-    return true;
+    return m_setpointControllerCallbacks.add(context, callback);
 }
 
-void DcMotorPositionControllerModule::addEventListenerCallback(
+bool DcMotorPositionControllerModule::removePositionSetpointControllerCallback(
+    void *context,
+    SetpointCallback callback)
+{
+    return m_setpointControllerCallbacks.remove(context, callback);
+}
+
+bool DcMotorPositionControllerModule::addEventListenerCallback(
     void *context, EventCallback callback)
 {
-    m_eventCallbackContext = context;
-    m_eventCallback = callback;
+    return m_eventCallbacks.add(context, callback);
+}
+
+bool DcMotorPositionControllerModule::removeEventListenerCallback(
+    void *context, EventCallback callback)
+{
+    return m_eventCallbacks.remove(context, callback);
 }
 
 bool DcMotorPositionControllerModule::addVelocityListenerCallback(
     void *context, VelocityListenerCallback callback)
 {
-    if (callback == nullptr) {
-        return false;
-    }
+    return m_velocityListenerCallbacks.add(context, callback);
+}
 
-    for (uint8_t i = 0; i < m_velocityListenerCallbackCount; i++) {
-        if (m_velocityListenerCallbacks[i].context == context &&
-            m_velocityListenerCallbacks[i].callback == callback) {
-            return true;
-        }
-    }
-
-    if (m_velocityListenerCallbackCount >= kMaxVelocityListenerCallbacks) {
-        return false;
-    }
-
-    m_velocityListenerCallbacks[m_velocityListenerCallbackCount++] =
-        VelocityListenerRegistration{callback, context};
-    return true;
+bool DcMotorPositionControllerModule::removeVelocityListenerCallback(
+    void *context, VelocityListenerCallback callback)
+{
+    return m_velocityListenerCallbacks.remove(context, callback);
 }
 
 bool DcMotorPositionControllerModule::addPositionListenerCallback(
     void *context, PositionListenerCallback callback)
 {
-    if (callback == nullptr) {
-        return false;
-    }
+    return m_positionListenerCallbacks.add(context, callback);
+}
 
-    for (uint8_t i = 0; i < m_positionListenerCallbackCount; i++) {
-        if (m_positionListenerCallbacks[i].context == context &&
-            m_positionListenerCallbacks[i].callback == callback) {
-            return true;
-        }
-    }
-
-    if (m_positionListenerCallbackCount >= kMaxPositionListenerCallbacks) {
-        return false;
-    }
-
-    m_positionListenerCallbacks[m_positionListenerCallbackCount++] =
-        PositionListenerRegistration{callback, context};
-    return true;
+bool DcMotorPositionControllerModule::removePositionListenerCallback(
+    void *context, PositionListenerCallback callback)
+{
+    return m_positionListenerCallbacks.remove(context, callback);
 }
 
 float DcMotorPositionControllerModule::getPosition() const
@@ -171,7 +136,8 @@ float DcMotorPositionControllerModule::getVelocity() const
     return m_velocityController->getVelocity();
 }
 
-float DcMotorPositionControllerModule::execute(float positionSetpoint)
+float DcMotorPositionControllerModule::execute(float positionSetpoint,
+                                               float velocityFeedforward)
 {
     if (!isControlEnabled()) {
         return 0.0f;
@@ -185,9 +151,14 @@ float DcMotorPositionControllerModule::execute(float positionSetpoint)
         return clampOutput(positionSetpoint);
     }
 
+    /* The feedforward carries the motion the provider already knows it is
+       asking for; the proportional term is left to correct what is actually
+       missing. Both are summed before the clamp, so the machine's velocity
+       limit still bounds the total command. */
     const float positionError = positionSetpoint - m_positionMeasurement;
     const float targetVelocity =
-        DCMOTOR_POSITION_MODULE_PROPORTIONAL_GAIN * positionError;
+        (DCMOTOR_POSITION_MODULE_PROPORTIONAL_GAIN * positionError) +
+        (DCMOTOR_POSITION_MODULE_VELOCITY_FEEDFORWARD_GAIN * velocityFeedforward);
 
     return clampOutput(targetVelocity);
 }
@@ -258,18 +229,12 @@ void DcMotorPositionControllerModule::onLvdtMeasured(float position, float magA,
     m_lvdtMagnitudeB = magB;
     m_hasPositionMeasurement = true;
 
-    for (uint8_t i = 0; i < m_positionListenerCallbackCount; i++) {
-        m_positionListenerCallbacks[i].callback(
-            m_positionListenerCallbacks[i].context, m_positionMeasurement);
-    }
+    m_positionListenerCallbacks.invoke(m_positionMeasurement);
 }
 
 void DcMotorPositionControllerModule::onVelocityMeasured(float velocity)
 {
-    for (uint8_t i = 0; i < m_velocityListenerCallbackCount; i++) {
-        m_velocityListenerCallbacks[i].callback(
-            m_velocityListenerCallbacks[i].context, velocity);
-    }
+    m_velocityListenerCallbacks.invoke(velocity);
 }
 
 bool DcMotorPositionControllerModule::onControlUpdate(float *targetVelocity)
@@ -287,22 +252,18 @@ bool DcMotorPositionControllerModule::onControlUpdate(float *targetVelocity)
     }
 
     float positionSetpoint = m_positionMeasurement;
-    bool setpointProvided = false;
-    for (uint8_t i = 0; i < m_setpointControllerCallbackCount; i++) {
-        if (m_setpointControllerCallbacks[i].callback(
-                m_setpointControllerCallbacks[i].context, &positionSetpoint)) {
-            setpointProvided = true;
-            break;
-        }
-    }
+    float velocityFeedforward = 0.0f;
+    const bool setpointProvided =
+        m_setpointControllerCallbacks.invokeFirst(&positionSetpoint,
+                                                  &velocityFeedforward);
 
-    if (setpointProvided && m_eventCallback != nullptr &&
+    if (setpointProvided &&
         fabsf(positionSetpoint - m_positionMeasurement) <
             DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR) {
-        m_eventCallback(m_eventCallbackContext, Event::SetpointReached);
+        m_eventCallbacks.invoke(Event::SetpointReached);
     }
 
-    *targetVelocity = execute(positionSetpoint);
+    *targetVelocity = execute(positionSetpoint, velocityFeedforward);
     return true;
 }
 

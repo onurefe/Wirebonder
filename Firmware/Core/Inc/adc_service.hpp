@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "stm32f4xx_hal.h"
+#include "callback_list.hpp"
 #include "configuration.h"
 #include "process.hpp"
 #include "generic.h"
@@ -63,25 +64,18 @@ public:
     RawAdcChannel(uint16_t conversionOrder, uint16_t *buffer, uint32_t bufferSize);
 
     bool addCaptureCompleteListenerCallback(void *context, Callback cb);
+    bool removeCaptureCompleteListenerCallback(void *context, Callback cb);
     void reset();
     void process(InterleavedBuffer &buffer, uint32_t numSamples, uint8_t bits, float voltageRange) override;
     uint16_t getConversionOrder() const override;
 
 private:
-    struct CallbackRegistration {
-        Callback callback;
-        void *context;
-    };
-
-    static constexpr uint8_t kMaxCallbacks = 4U;
-
     uint16_t  m_conversionOrder;
     uint16_t *m_buffer;
     uint32_t  m_bufferSize;
     uint32_t  m_writeIndex;
     bool      m_done;
-    CallbackRegistration m_callbacks[kMaxCallbacks];
-    uint8_t   m_callbackCount;
+    ListenerList<uint16_t *, uint32_t> m_callbacks;
 };
 
 // -----------------------------------------------------------------------
@@ -94,17 +88,11 @@ public:
     AnalogChannel(uint16_t conversionOrder, uint32_t oversampling, float gain, float bias);
 
     bool addMeasurementListenerCallback(void *context, AnalogCallback cb);
+    bool removeMeasurementListenerCallback(void *context, AnalogCallback cb);
     void process(InterleavedBuffer &buffer, uint32_t numSamples, uint8_t bits, float voltageRange) override;
     uint16_t getConversionOrder() const override;
-    
+
 private:
-    struct CallbackRegistration {
-        AnalogCallback callback;
-        void *context;
-    };
-
-    static constexpr uint8_t kMaxCallbacks = 4U;
-
     void report(uint8_t bits, float voltageRange);
     void resetAccumulators(void);
 
@@ -114,8 +102,7 @@ private:
     float    m_bias;
     float    m_sum;
     uint32_t m_sampleCounter;
-    CallbackRegistration m_callbacks[kMaxCallbacks];
-    uint8_t m_callbackCount;
+    ListenerList<float> m_callbacks;
 };
 
 // -----------------------------------------------------------------------
@@ -131,25 +118,14 @@ public:
     IQDemodulatorChannel(uint16_t conversionOrder, uint32_t samplesPerMeasurement, float targetNormalizedFreq, float gain);
 
     bool addMeasurementListenerCallback(void *context, MeasurementListenerCallback cb);
+    bool removeMeasurementListenerCallback(void *context, MeasurementListenerCallback cb);
     bool addFrequencyControllerCallback(void *context, FrequencyControllerCallback cb);
+    bool removeFrequencyControllerCallback(void *context, FrequencyControllerCallback cb);
     void setDemodulationFrequency(float normalizedFrequency);
     void process(InterleavedBuffer &buffer, uint32_t numSamples, uint8_t bits, float voltageRange) override;
     uint16_t getConversionOrder() const override;
 
 private:
-    struct MeasurementListenerRegistration {
-        MeasurementListenerCallback callback;
-        void *context;
-    };
-
-    struct FrequencyControllerRegistration {
-        FrequencyControllerCallback callback;
-        void *context;
-    };
-
-    static constexpr uint8_t kMaxMeasurementListenerCallbacks = 4U;
-    static constexpr uint8_t kMaxFrequencyControllerCallbacks = 4U;
-
     void updateDemodulator(void);
     void report(uint8_t bits, float voltageRange, float *targetNormalizedFrequency);
     void resetAccumulators(void);
@@ -167,11 +143,8 @@ private:
     uint32_t m_samplesPerMeasurement;
     uint32_t m_dropLast;
 
-    MeasurementListenerRegistration m_measurementListenerCallbacks[kMaxMeasurementListenerCallbacks];
-    uint8_t m_measurementListenerCallbackCount;
-
-    FrequencyControllerRegistration m_frequencyControllerCallbacks[kMaxFrequencyControllerCallbacks];
-    uint8_t m_frequencyControllerCallbackCount;
+    ListenerList<float, float> m_measurementListenerCallbacks;
+    ArbiterList<float *>       m_frequencyControllerCallbacks;
 };
 
 // -----------------------------------------------------------------------
@@ -191,19 +164,12 @@ public:
     AdcTickSyncChannel();
 
     bool addTickListenerCallback(void *context, TickListenerCallback cb);
+    bool removeTickListenerCallback(void *context, TickListenerCallback cb);
     void process(InterleavedBuffer &buffer, uint32_t numSamples, uint8_t bits, float voltageRange) override;
     uint16_t getConversionOrder() const override;
 
 private:
-    struct CallbackRegistration {
-        TickListenerCallback callback;
-        void *context;
-    };
-
-    static constexpr uint8_t kMaxCallbacks = 4U;
-
-    CallbackRegistration m_callbacks[kMaxCallbacks];
-    uint8_t m_callbackCount;
+    ListenerList<> m_callbacks;
 };
 
 // -----------------------------------------------------------------------

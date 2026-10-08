@@ -34,6 +34,8 @@ SineGeneratorChannel PllDebugEnvironment::m_ultrasonicDacChannel(
     PllDebugEnvironment::m_dac1Buffer, 2 * DAC1_SAMPLES,
     DAC1_SAMPLES, DAC1_BITS, DAC1_VOLTAGE_RANGE);
 
+AdcTickSyncChannel PllDebugEnvironment::m_ultrasonicTickSyncChannel;
+
 AdcService PllDebugEnvironment::m_adc1Service(
     &hadc1, &htim2,
     ADC1_BITS, ADC1_VOLTAGE_RANGE, ADC1_NUM_CONVERSIONS,
@@ -46,6 +48,7 @@ PllModule PllDebugEnvironment::m_pllModule(
     &PllDebugEnvironment::m_ultrasonicDacChannel,
     &PllDebugEnvironment::m_ultrasonicVsensChannel,
     &PllDebugEnvironment::m_ultrasonicIsensChannel,
+    &PllDebugEnvironment::m_ultrasonicTickSyncChannel,
     static_cast<float>(ADC1_SAMPLING_FREQ),
     static_cast<float>(PLL_MODULE_CONTROL_FREQ));
 
@@ -54,6 +57,7 @@ PllDebugEnvironment::PllDebugEnvironment()
     // VSENS before ISENS so voltage dispatches first.
     m_adc1Service.addChannel(&m_ultrasonicVsensChannel);
     m_adc1Service.addChannel(&m_ultrasonicIsensChannel);
+    m_adc1Service.addChannel(&m_ultrasonicTickSyncChannel);
 
     m_dacService.addChannel(&m_ultrasonicDacChannel);
 

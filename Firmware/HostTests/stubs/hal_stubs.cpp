@@ -1,7 +1,12 @@
 #include "stm32f4xx_hal.h"
 
-extern "C" void __disable_irq(void) {}
-extern "C" void __enable_irq(void)  {}
+/* The mask is modelled rather than ignored: InterruptLock's save/restore
+   behaviour is the thing several callback-registry guarantees rest on. */
+extern "C" uint32_t g_hostPrimask = 0U;
+
+extern "C" void     __disable_irq(void)  { g_hostPrimask = 1U; }
+extern "C" void     __enable_irq(void)   { g_hostPrimask = 0U; }
+extern "C" uint32_t __get_PRIMASK(void)  { return g_hostPrimask; }
 extern "C" void Error_Handler(void) {}
 extern "C" void HAL_TIM_MspPostInit(TIM_HandleTypeDef *) {}
 

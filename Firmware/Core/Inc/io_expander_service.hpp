@@ -1,6 +1,7 @@
 #ifndef IO_EXPANDER_SERVICE_HPP
 #define IO_EXPANDER_SERVICE_HPP
 
+#include "callback_list.hpp"
 #include "stm32f4xx_hal.h"
 #include "queue.hpp"
 #include "configuration.h"
@@ -63,9 +64,13 @@ public:
     bool setPort1OutputValues(uint8_t value, uint8_t *transactionId = nullptr);
     bool setPin(uint8_t port, uint8_t pin, bool value);
 
-    void setTransferListenerCallbacks(void *context, 
-        InputChangedCallback inputChangedCb, 
-        WriteCompletedCallback writeCompletedCb);
+    // Two independent registries rather than one paired setter: a listener
+    // that only cares about one of the two events should not have to register
+    // for both, and a paired slot cannot be removed selectively.
+    bool addInputChangedListenerCallback(void *context, InputChangedCallback cb);
+    bool removeInputChangedListenerCallback(void *context, InputChangedCallback cb);
+    bool addWriteCompletedListenerCallback(void *context, WriteCompletedCallback cb);
+    bool removeWriteCompletedListenerCallback(void *context, WriteCompletedCallback cb);
 
     // IoExpanderChannel
     bool                  initializePorts()            override;
@@ -98,9 +103,8 @@ private:
     IoExpanderTransaction           m_transactionQueueBuffer[kQueueDepth + 1U];
     Queue<IoExpanderTransaction>    m_transactionQueue;
 
-    InputChangedCallback            m_inputChangedCallback;
-    WriteCompletedCallback          m_writeCompletedCallback;
-    void                            *m_callbackContext;
+    ListenerList<uint8_t, uint8_t> m_inputChangedCallbacks;
+    ListenerList<uint8_t>          m_writeCompletedCallbacks;
 };
 
 // ---------------------------------------------------------------------------
@@ -121,9 +125,10 @@ public:
     bool setOutput(uint8_t value);
     bool setPin(uint8_t pin, bool value);
 
-    void setTransferListenerCallbacks(void *context,
-        InputChangedCallback  readCompletedCb,
-        WriteCompletedCallback writeCompletedCb);
+    bool addInputChangedListenerCallback(void *context, InputChangedCallback cb);
+    bool removeInputChangedListenerCallback(void *context, InputChangedCallback cb);
+    bool addWriteCompletedListenerCallback(void *context, WriteCompletedCallback cb);
+    bool removeWriteCompletedListenerCallback(void *context, WriteCompletedCallback cb);
 
     // IoExpanderChannel
     bool                  initializePorts()                                   override;
@@ -150,9 +155,8 @@ private:
     IoExpanderTransaction        m_transactionQueueBuffer[kQueueDepth + 1U];
     Queue<IoExpanderTransaction> m_transactionQueue;
 
-    InputChangedCallback        m_inputChangedCallback;
-    WriteCompletedCallback       m_writeCompletedCallback;
-    void                        *m_callbackContext;
+    ListenerList<uint8_t> m_inputChangedCallbacks;
+    ListenerList<>        m_writeCompletedCallbacks;
 };
 
 // ---------------------------------------------------------------------------

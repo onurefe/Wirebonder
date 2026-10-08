@@ -117,6 +117,41 @@ A wider window is more tolerant of drift but takes marginally longer to sweep
 and gives a coarser fit for a given \menuitem{Scan Points}. If you widen the
 window, consider raising \menuitem{Scan Points} to keep the resolution.
 
+\section{Z position calibration}
+\label{sec:z-position-cal}
+
+Establishes where the bottom of the Z travel is. Every height the machine works
+to --- reset height, search height, overtravel --- is measured up from there, so
+this is the calibration the rest of the Z numbers rest on.
+
+\subsection*{Procedure}
+
+\begin{enumerate}[leftmargin=*]
+\item Make sure nothing obstructs the bond head --- it will move through its
+  full travel, and it will press against the bottom stop.
+\item Go to the Settings page (\keycap{SAVE} from the configuration list).
+\item Move the \texttt{*} to \menuitem{Start Z Pos. Cal.} and press
+  \keycap{ENTER}.
+\item The head rises for two and a half seconds, then descends for two and a
+  half seconds and rests against the bottom stop.
+\item Where it came to rest is recorded as the bottom of travel, and saved
+  immediately.
+\end{enumerate}
+
+\begin{wbnote}
+The rise before the descent is not wasted motion: it takes up the play in the
+drive and leaves the mechanism in the same state every run, so the bottom is
+always approached from the same direction. Interrupting the run part way
+through gives a reading you should not keep --- run it again.
+\end{wbnote}
+
+\subsection*{When to run it}
+
+After anything that moves the head relative to the mechanism, if the heights
+the machine works to no longer match what you set, and before tachometer
+calibration --- which measures against the position sensor and so wants a
+referenced axis.
+
 \section{Tachometer calibration}
 \label{sec:tach-cal}
 
@@ -130,8 +165,8 @@ the axis creep or hold imperfectly.
 \item Go to the Settings page (\keycap{SAVE} from the configuration list).
 \item Move the \texttt{*} to \menuitem{Start Tach. Cal.} and press
   \keycap{ENTER}.
-\item The head moves to 6\,mm and holds still while the machine samples for two
-  seconds.
+\item The head moves to the calibration height and holds still while the
+  machine samples for two seconds.
 \item The correction is applied and saved immediately.
 \end{enumerate}
 

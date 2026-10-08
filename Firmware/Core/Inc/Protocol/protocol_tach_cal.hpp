@@ -1,15 +1,14 @@
 #pragma once
 
-#include "bonder_module.hpp"
+#include "Protocol/protocol_common.hpp"
 
-// Start Tach. Cal.: holds Z at ZMOTOR_TACH_CAL_POSITION_MM until settled,
-// then averages the tachometer velocity over ZMOTOR_TACH_CAL_SAMPLE_DURATION_S
-// and reports it via BonderModule::TachCalReportCallback.
-class TachCalProtocol final : public BonderProtocol {
+// Measures the tachometer's zero-offset residual against the LVDT over a fixed
+// window, at a dedicated cal height.
+class TachCalProtocol {
 public:
-    const Instruction *getProtocolPtr() const override;
-    uint8_t getProtocolSize() const override;
+    static const BonderModule::Instruction *getProtocolPtr();
+    static uint8_t getProtocolSize();
 
 private:
-    static const Instruction s_protocol[];
+    static const BonderModule::Instruction s_protocol[];
 };

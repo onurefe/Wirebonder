@@ -1,12 +1,14 @@
 #pragma once
 
-#include "bonder_module.hpp"
+#include "Protocol/protocol_common.hpp"
 
-class LangeCouplingBondingProtocol final : public BonderProtocol {
+// Lange coupling: like semi-automatic, but the phase-1 loop is formed by the T
+// axis alone and the Y reverse stroke happens during the second-bond descent.
+class LangeCouplingBondingProtocol {
 public:
-    const BonderModule::Instruction *getProtocolPtr() const override;
-    uint8_t getProtocolSize() const override;
+    static const BonderModule::Instruction *getProtocolPtr();
+    static uint8_t getProtocolSize();
 
 private:
-    static const Instruction s_protocol[];
+    static const BonderModule::Instruction s_protocol[];
 };

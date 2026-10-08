@@ -250,12 +250,19 @@ void MotorPositionDebugEnvironment::abort()
 
 bool MotorPositionDebugEnvironment::onProvidePositionSetpoint(
     void *context,
-    float *positionSetpoint)
+    float *positionSetpoint,
+    float *velocityFeedforward)
 {
     auto *self = static_cast<MotorPositionDebugEnvironment *>(context);
 
     if (self == nullptr || !self->m_captureActive) {
         return false;
+    }
+
+    // Step and stall-scan setpoints carry no profile; this exercises the
+    // position loop on its own, which is the point of the environment.
+    if (velocityFeedforward != nullptr) {
+        *velocityFeedforward = 0.0f;
     }
 
     if (self->m_mode == Mode::STALL_SCAN) {

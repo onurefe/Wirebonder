@@ -1,5 +1,6 @@
 #pragma once
 
+#include "callback_list.hpp"
 #include <cstddef>
 #include <cstdint>
 
@@ -19,8 +20,9 @@ public:
     uint8_t column() const { return m_column; }
     uint8_t width() const { return m_width; }
 
-    void setClickCallback(void *ctx, ClickCallback callback);
-    bool isClickable() const { return m_clickCallback != nullptr; }
+    bool addClickCallback(void *ctx, ClickCallback callback);
+    bool removeClickCallback(void *ctx, ClickCallback callback);
+    bool isClickable() const { return !m_clickCallbacks.isEmpty(); }
     void click();
 
     // Hidden widgets are skipped when the page composes its rows.
@@ -46,8 +48,7 @@ private:
     uint8_t m_width;
     bool m_visible;
     Page *m_page;
-    ClickCallback m_clickCallback;
-    void *m_clickCallbackCtx;
+    ListenerList<> m_clickCallbacks;
 };
 
 class TextWidget : public Widget {

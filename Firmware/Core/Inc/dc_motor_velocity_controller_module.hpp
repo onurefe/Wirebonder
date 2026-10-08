@@ -1,6 +1,7 @@
 #ifndef DC_MOTOR_VELOCITY_CONTROLLER_MODULE_HPP
 #define DC_MOTOR_VELOCITY_CONTROLLER_MODULE_HPP
 
+#include "callback_list.hpp"
 #include "configuration.h"
 #include "generic.h"
 #include "pwm_service.hpp"
@@ -22,7 +23,9 @@ public:
     void disableControl();
 
     bool addVelocityListenerCallback(void *context, VelocityListenerCallback cb);
+    bool removeVelocityListenerCallback(void *context, VelocityListenerCallback cb);
     bool addVelocityControllerCallback(void *context, VelocityControllerCallback cb);
+    bool removeVelocityControllerCallback(void *context, VelocityControllerCallback cb);
 
     float getVelocity() const;
     bool isControlEnabled() const;
@@ -39,19 +42,6 @@ private:
 
     void onStart() override;
     void onStop() override;
-
-    struct VelocityListenerRegistration {
-        VelocityListenerCallback callback;
-        void *context;
-    };
-
-    struct VelocityControllerRegistration {
-        VelocityControllerCallback callback;
-        void *context;
-    };
-
-    static constexpr uint8_t kMaxVelocityListenerCallbacks = 4U;
-    static constexpr uint8_t kMaxVelocityControllerCallbacks = 4U;
 
     // -----------------------------------------------------------------------
     // Peripheral-Bridge-Callbacks
@@ -85,13 +75,11 @@ private:
     // Listeners (observers of the measured velocity) and the single
     // controller that supplies the target velocity each tick — mirrors the
     // IQDemodulatorChannel measurement-listener / controller pattern.
-    VelocityListenerRegistration m_velocityListenerCallbacks[kMaxVelocityListenerCallbacks];
-    uint8_t m_velocityListenerCallbackCount;
-
-    VelocityControllerRegistration m_velocityControllerCallbacks[kMaxVelocityControllerCallbacks];
-    uint8_t m_velocityControllerCallbackCount;
+    ListenerList<float> m_velocityListenerCallbacks;
+    ArbiterList<float *> m_velocityControllerCallbacks;
 
     float m_velocityMeasurement;
+
     float m_targetDuty;
     float m_velocityOffset;
 };

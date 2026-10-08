@@ -152,9 +152,6 @@ Pca9535ExpanderChannel::Pca9535ExpanderChannel(uint8_t deviceAddress,
     , m_transactionEnumerator(0U)
     , m_transactionQueueBuffer{}
     , m_transactionQueue(m_transactionQueueBuffer, kQueueDepth)
-    , m_inputChangedCallback(nullptr)
-    , m_writeCompletedCallback(nullptr)
-    , m_callbackContext(nullptr)
 {
 }
 
@@ -219,13 +216,24 @@ bool Pca9535ExpanderChannel::setPin(uint8_t port, uint8_t pin, bool value)
     return enqueueWrite(addr, &registerAddress, 1U);
 }
 
-void Pca9535ExpanderChannel::setTransferListenerCallbacks(void *context, 
-        InputChangedCallback readCompletedCb, 
-        WriteCompletedCallback writeCompletedCb)
+bool Pca9535ExpanderChannel::addInputChangedListenerCallback(void *context, InputChangedCallback cb)
 {
-    m_callbackContext = context;
-    m_inputChangedCallback   = readCompletedCb;
-    m_writeCompletedCallback = writeCompletedCb;
+    return m_inputChangedCallbacks.add(context, cb);
+}
+
+bool Pca9535ExpanderChannel::removeInputChangedListenerCallback(void *context, InputChangedCallback cb)
+{
+    return m_inputChangedCallbacks.remove(context, cb);
+}
+
+bool Pca9535ExpanderChannel::addWriteCompletedListenerCallback(void *context, WriteCompletedCallback cb)
+{
+    return m_writeCompletedCallbacks.add(context, cb);
+}
+
+bool Pca9535ExpanderChannel::removeWriteCompletedListenerCallback(void *context, WriteCompletedCallback cb)
+{
+    return m_writeCompletedCallbacks.remove(context, cb);
 }
 
 bool Pca9535ExpanderChannel::enqueueWrite(uint8_t registerAddress,
@@ -291,12 +299,12 @@ void Pca9535ExpanderChannel::ontransactionCompleted(IoExpanderTransaction &trans
         m_inputPort0 = new_port0;
         m_inputPort1 = new_port1;
 
-        if (m_inputChangedCallback) {
-            m_inputChangedCallback(m_callbackContext, m_inputPort0, m_inputPort1);
+        {
+            m_inputChangedCallbacks.invoke(m_inputPort0, m_inputPort1);
         }
     } else {
-        if (m_writeCompletedCallback) {
-            m_writeCompletedCallback(m_callbackContext, transaction.id);
+        {
+            m_writeCompletedCallbacks.invoke(transaction.id);
         }
     }
 }
@@ -314,9 +322,6 @@ Pca9538ExpanderChannel::Pca9538ExpanderChannel(uint8_t deviceAddress,
     , m_transactionEnumerator(0U)
     , m_transactionQueueBuffer{}
     , m_transactionQueue(m_transactionQueueBuffer, kQueueDepth)
-    , m_inputChangedCallback(nullptr)
-    , m_writeCompletedCallback(nullptr)
-    , m_callbackContext(nullptr)
 {
 }
 
@@ -364,13 +369,24 @@ bool Pca9538ExpanderChannel::setPin(uint8_t pin, bool value)
     return enqueueWrite(kOutputPortAddr, &m_output, 1U);
 }
 
-void Pca9538ExpanderChannel::setTransferListenerCallbacks(void *context,
-        InputChangedCallback  readCompletedCb,
-        WriteCompletedCallback writeCompletedCb)
+bool Pca9538ExpanderChannel::addInputChangedListenerCallback(void *context, InputChangedCallback cb)
 {
-    m_callbackContext        = context;
-    m_inputChangedCallback  = readCompletedCb;
-    m_writeCompletedCallback = writeCompletedCb;
+    return m_inputChangedCallbacks.add(context, cb);
+}
+
+bool Pca9538ExpanderChannel::removeInputChangedListenerCallback(void *context, InputChangedCallback cb)
+{
+    return m_inputChangedCallbacks.remove(context, cb);
+}
+
+bool Pca9538ExpanderChannel::addWriteCompletedListenerCallback(void *context, WriteCompletedCallback cb)
+{
+    return m_writeCompletedCallbacks.add(context, cb);
+}
+
+bool Pca9538ExpanderChannel::removeWriteCompletedListenerCallback(void *context, WriteCompletedCallback cb)
+{
+    return m_writeCompletedCallbacks.remove(context, cb);
 }
 
 bool Pca9538ExpanderChannel::enqueueWrite(uint8_t registerAddress, uint8_t *data, uint16_t length)
@@ -415,12 +431,12 @@ void Pca9538ExpanderChannel::ontransactionCompleted(IoExpanderTransaction &trans
 
         m_input = newInput;
 
-        if (m_inputChangedCallback) {
-            m_inputChangedCallback(m_callbackContext, m_input);
+        {
+            m_inputChangedCallbacks.invoke(m_input);
         }
     } else {
-        if (m_writeCompletedCallback) {
-            m_writeCompletedCallback(m_callbackContext);
+        {
+            m_writeCompletedCallbacks.invoke();
         }
     }
 }

@@ -45,6 +45,7 @@ class RobotRequest {
             TestUs,
             TestForce,
             CalibrateTachometer,
+            CalibrateZPosition,
             ExecuteBondingProtocol,
         };
 
@@ -123,12 +124,25 @@ private:
     void completeExecutingRequest(RobotRequest &request, bool success);
     bool startHoming();
     bool startBonderInitializing();
+    /* Stops whatever the bonder is running and queues the initialization
+       protocol behind it. reason == nullptr schedules the recovery only,
+       leaving the request machinery to report what happened (the error path);
+       a reason additionally abandons the active and queued requests, releases
+       an Error lock and shows the message (the reset button). */
+    void beginBonderRecovery(const char *reason);
+    static const char *bonderErrorMessage(BonderModule::Error error);
+    /* Whether a fault leaves the machine untrustworthy: anything that moves
+       (either axis, the force coil). */
+    static bool isCriticalBonderError(BonderModule::Error error);
     bool startUsTest();
     bool startForceTest();
     bool startTachometerCalibration();
+    bool startZPositionCalibration();
     bool startBondingProtocol();
 
-    bool requestStartProtocol(const BonderProtocol &protocol);
+    /* Loads a protocol into the bonder VM. Must follow configureBonderModule()
+       and engage(), since a protocol only walks on an engaged module. */
+    bool startBonderProtocol(const struct BonderProtocolSelection &protocol);
     /* Hands the active configuration to the bonder with the machine-wide
        values (setup tracking force, force-coil offset) stamped over whatever
        the persisted profile carried. Every configure() goes through here so
@@ -142,6 +156,7 @@ private:
        one actually running. */
     static void updateRequestIndicators();
     void updateTachometerOffsetCorrection();
+    void updateZPositionReference();
     void updateZPositionSpeedLimits();
 
     static void turnoffPeripherals(void);
@@ -156,6 +171,7 @@ private:
     static void onUltrasonicReport(
         void *context, const BonderModule::UltrasonicReport& report);
     static void onTachCalReport(void *context, float offsetResidual);
+    static void onZReferenceReport(void *context, float settledPosition);
     static void onUserInterfaceEvent(void *ctx, UserInterfaceModule::Event event);
     static void onMouseButtonEvent(void *ctx,
                                    UserInterfaceModule::MouseButtonEvent event);
@@ -173,7 +189,18 @@ private:
     static bool                             m_isClampEnergized;
     
     static uint32_t                         m_events;
-    
+
+    /* Set when the bonder has to be put back at its reference posture (reset
+       pressed, or a protocol failed); consumed by execute() once the bonder
+       has finished winding down. */
+    static bool                             m_bonderRecoveryPending;
+
+    /* A critical bonder fault locks the machine, but only once the recovery
+       has put the axes back at their references; the reason is held until
+       then so the lock can name the cause. */
+    static bool                             m_bonderLockPending;
+    static const char                      *m_bonderLockReason;
+
     // =========================================================================
     // Request Queue & Request.
     // =========================================================================
@@ -188,6 +215,7 @@ private:
     static const RobotRequest               m_testUsRequest;
     static const RobotRequest               m_testForceRequest;
     static const RobotRequest               m_calibrateTachometerRequest;
+    static const RobotRequest               m_calibrateZPositionRequest;
     static const RobotRequest               m_executeBondingRequest;
 
     // =========================================================================

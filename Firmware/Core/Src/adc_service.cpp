@@ -35,41 +35,27 @@ AnalogChannel::AnalogChannel(uint16_t conversionOrder, uint32_t oversampling, fl
     , m_bias(bias)
     , m_sum(0.0f)
     , m_sampleCounter(0)
-    , m_callbacks{}
-    , m_callbackCount(0)
 {
 }
 
 bool AnalogChannel::addMeasurementListenerCallback(void *context, AnalogCallback cb)
 {
-    if (cb == nullptr) {
-        return false;
-    }
+    return m_callbacks.add(context, cb);
+}
 
-    for (uint8_t i = 0; i < m_callbackCount; i++) {
-        if (m_callbacks[i].context == context && m_callbacks[i].callback == cb) {
-            return true;
-        }
-    }
-
-    if (m_callbackCount < kMaxCallbacks) {
-        m_callbacks[m_callbackCount++] = CallbackRegistration{cb, context};
-        return true;
-    }
-
-    return false;
+bool AnalogChannel::removeMeasurementListenerCallback(void *context, AnalogCallback cb)
+{
+    return m_callbacks.remove(context, cb);
 }
 
 uint16_t AnalogChannel::getConversionOrder() const { return m_conversionOrder; }
 
 void AnalogChannel::report(uint8_t bits, float voltageRange)
 {
-    if (m_callbackCount > 0U) {
+    if (!m_callbacks.isEmpty()) {
         float avg = m_sum / (float)m_oversampling;
         float val = adcToVolts(avg, bits, voltageRange) * m_gain + m_bias;
-        for (uint8_t i = 0; i < m_callbackCount; i++) {
-            m_callbacks[i].callback(m_callbacks[i].context, val);
-        }
+        m_callbacks.invoke(val);
     }
 }
 
@@ -115,29 +101,17 @@ RawAdcChannel::RawAdcChannel(uint16_t conversionOrder, uint16_t *buffer, uint32_
     , m_bufferSize(bufferSize)
     , m_writeIndex(0)
     , m_done(false)
-    , m_callbacks{}
-    , m_callbackCount(0)
 {
 }
 
 bool RawAdcChannel::addCaptureCompleteListenerCallback(void *context, Callback cb)
 {
-    if (cb == nullptr) {
-        return false;
-    }
+    return m_callbacks.add(context, cb);
+}
 
-    for (uint8_t i = 0; i < m_callbackCount; i++) {
-        if (m_callbacks[i].context == context && m_callbacks[i].callback == cb) {
-            return true;
-        }
-    }
-
-    if (m_callbackCount < kMaxCallbacks) {
-        m_callbacks[m_callbackCount++] = CallbackRegistration{cb, context};
-        return true;
-    }
-
-    return false;
+bool RawAdcChannel::removeCaptureCompleteListenerCallback(void *context, Callback cb)
+{
+    return m_callbacks.remove(context, cb);
 }
 
 void RawAdcChannel::reset()
@@ -153,7 +127,7 @@ void RawAdcChannel::process(InterleavedBuffer &buffer, uint32_t numSamples, uint
     (void)bits;
     (void)voltageRange;
 
-    if (m_callbackCount == 0U || m_done) return;
+    if (m_callbacks.isEmpty() || m_done) return;
 
     buffer.setIterator(0);
 
@@ -162,9 +136,7 @@ void RawAdcChannel::process(InterleavedBuffer &buffer, uint32_t numSamples, uint
 
         if (m_writeIndex >= m_bufferSize) {
             m_done = true;
-            for (uint8_t j = 0; j < m_callbackCount; j++) {
-                m_callbacks[j].callback(m_callbacks[j].context, m_buffer, m_bufferSize);
-            }
+            m_callbacks.invoke(m_buffer, m_bufferSize);
             break;
         }
     }
@@ -187,10 +159,6 @@ IQDemodulatorChannel::IQDemodulatorChannel(uint16_t conversionOrder, uint32_t sa
     , m_sampleCounter(0)
     , m_samplesPerMeasurement(samplesPerMeasurement)
     , m_dropLast(0)
-    , m_measurementListenerCallbacks{}
-    , m_measurementListenerCallbackCount(0)
-    , m_frequencyControllerCallbacks{}
-    , m_frequencyControllerCallbackCount(0)
 {
     updateDemodulator();
     resetAccumulators();
@@ -198,46 +166,22 @@ IQDemodulatorChannel::IQDemodulatorChannel(uint16_t conversionOrder, uint32_t sa
 
 bool IQDemodulatorChannel::addMeasurementListenerCallback(void *context, MeasurementListenerCallback cb)
 {
-    if (cb == nullptr) {
-        return false;
-    }
+    return m_measurementListenerCallbacks.add(context, cb);
+}
 
-    for (uint8_t i = 0; i < m_measurementListenerCallbackCount; i++) {
-        if (m_measurementListenerCallbacks[i].context == context &&
-            m_measurementListenerCallbacks[i].callback == cb) {
-            return true;
-        }
-    }
-
-    if (m_measurementListenerCallbackCount >= kMaxMeasurementListenerCallbacks) {
-        return false;
-    }
-
-    m_measurementListenerCallbacks[m_measurementListenerCallbackCount++] =
-        MeasurementListenerRegistration{cb, context};
-    return true;
+bool IQDemodulatorChannel::removeMeasurementListenerCallback(void *context, MeasurementListenerCallback cb)
+{
+    return m_measurementListenerCallbacks.remove(context, cb);
 }
 
 bool IQDemodulatorChannel::addFrequencyControllerCallback(void *context, FrequencyControllerCallback cb)
 {
-    if (cb == nullptr) {
-        return false;
-    }
+    return m_frequencyControllerCallbacks.add(context, cb);
+}
 
-    for (uint8_t i = 0; i < m_frequencyControllerCallbackCount; i++) {
-        if (m_frequencyControllerCallbacks[i].context == context &&
-            m_frequencyControllerCallbacks[i].callback == cb) {
-            return true;
-        }
-    }
-
-    if (m_frequencyControllerCallbackCount >= kMaxFrequencyControllerCallbacks) {
-        return false;
-    }
-
-    m_frequencyControllerCallbacks[m_frequencyControllerCallbackCount++] =
-        FrequencyControllerRegistration{cb, context};
-    return true;
+bool IQDemodulatorChannel::removeFrequencyControllerCallback(void *context, FrequencyControllerCallback cb)
+{
+    return m_frequencyControllerCallbacks.remove(context, cb);
 }
 
 uint16_t IQDemodulatorChannel::getConversionOrder() const { return m_conversionOrder; }
@@ -275,22 +219,11 @@ void IQDemodulatorChannel::report(uint8_t bits, float voltageRange, float *targe
     float re = (m_s1 * m_cosOmega - m_s2) * normScale;
     float im = (m_s1 * m_sinOmega)         * normScale;
 
-    for (uint8_t i = 0; i < m_measurementListenerCallbackCount; i++) {
-        m_measurementListenerCallbacks[i].callback(
-            m_measurementListenerCallbacks[i].context,
-            re,
-            im);
-    }
+    m_measurementListenerCallbacks.invoke(re, im);
 
     // First active controller supplies the demodulation frequency; if none is
     // active the pointed-to value is left unchanged (no retune).
-    for (uint8_t i = 0; i < m_frequencyControllerCallbackCount; i++) {
-        if (m_frequencyControllerCallbacks[i].callback(
-                m_frequencyControllerCallbacks[i].context,
-                targetNormalizedFrequency)) {
-            break;
-        }
-    }
+    (void)m_frequencyControllerCallbacks.invokeFirst(targetNormalizedFrequency);
 }
 
 void IQDemodulatorChannel::setDemodulationFrequency(float normalizedFrequency)
@@ -362,30 +295,16 @@ void IQDemodulatorChannel::process(InterleavedBuffer &buffer, uint32_t numSample
 // =======================================================================
 // AdcTickSyncChannel
 // =======================================================================
-AdcTickSyncChannel::AdcTickSyncChannel()
-    : m_callbacks{}
-    , m_callbackCount(0)
-{
-}
+AdcTickSyncChannel::AdcTickSyncChannel() = default;
 
 bool AdcTickSyncChannel::addTickListenerCallback(void *context, TickListenerCallback cb)
 {
-    if (cb == nullptr) {
-        return false;
-    }
+    return m_callbacks.add(context, cb);
+}
 
-    for (uint8_t i = 0; i < m_callbackCount; i++) {
-        if (m_callbacks[i].context == context && m_callbacks[i].callback == cb) {
-            return true;
-        }
-    }
-
-    if (m_callbackCount >= kMaxCallbacks) {
-        return false;
-    }
-
-    m_callbacks[m_callbackCount++] = CallbackRegistration{cb, context};
-    return true;
+bool AdcTickSyncChannel::removeTickListenerCallback(void *context, TickListenerCallback cb)
+{
+    return m_callbacks.remove(context, cb);
 }
 
 uint16_t AdcTickSyncChannel::getConversionOrder() const { return 0; }
@@ -397,9 +316,7 @@ void AdcTickSyncChannel::process(InterleavedBuffer &buffer, uint32_t numSamples,
     (void)bits;
     (void)voltageRange;
 
-    for (uint8_t i = 0; i < m_callbackCount; i++) {
-        m_callbacks[i].callback(m_callbacks[i].context);
-    }
+    m_callbacks.invoke();
 }
 
 // =======================================================================

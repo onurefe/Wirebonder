@@ -56,7 +56,12 @@
 \fancypagestyle{plain}{\fancyhf{}\fancyfoot[C]{\small\thepage}%
   \renewcommand{\headrulewidth}{0pt}}
 
-\renewcommand{\chaptermark}[1]{\markboth{\thechapter.\ #1}{}}
+% Front-matter chapters are unnumbered, so \thechapter is 0 there -- prefixing
+% the number unconditionally would give headers like "0. About This Manual".
+\makeatletter
+\renewcommand{\chaptermark}[1]{%
+  \markboth{\if@mainmatter\thechapter.\ \fi #1}{}}
+\makeatother
 
 \titleformat{\chapter}[display]
   {\normalfont\huge\bfseries}
@@ -68,9 +73,13 @@
 
 % \keycap{SAVE} -- a panel button. Use for every physical button reference so
 % the reader can always tell a button from a menu label.
+%
+% Deliberately inherits the surrounding font size rather than forcing one:
+% long key names such as CLAMP OPEN otherwise overflow the narrow columns of
+% the \footnotesize reference tables.
 \newcommand{\keycap}[1]{%
   \setlength{\fboxsep}{2pt}%
-  \raisebox{-0.5pt}{\fcolorbox{wbkeyline}{wbkeybg}{\small\textsf{#1}}}%
+  \raisebox{-0.5pt}{\fcolorbox{wbkeyline}{wbkeybg}{\textsf{#1}}}%
 }
 
 % \menuitem{Loop Height} -- a label as it appears on the LCD.
@@ -104,14 +113,14 @@
 
 \newtcolorbox{wbnotebox}[1][Note]{%
   enhanced, sharp corners, boxrule=0pt, leftrule=3pt,
-  colback=wbnote!4, colframe=wbnote,
+  colback=wbnote!4, colframe=wbnote, coltitle=wbnote,
   left=8pt, right=8pt, top=6pt, bottom=6pt,
   fonttitle=\bfseries\small, title={#1},
   attach title to upper=\par}
 
 \newtcolorbox{wbwarnbox}[1][Warning]{%
   enhanced, sharp corners, boxrule=0pt, leftrule=3pt,
-  colback=wbwarn!5, colframe=wbwarn,
+  colback=wbwarn!5, colframe=wbwarn, coltitle=wbwarn,
   left=8pt, right=8pt, top=6pt, bottom=6pt,
   fonttitle=\bfseries\small, title={#1},
   attach title to upper=\par}
@@ -126,7 +135,7 @@
 %     grep -rn 'TODO' Docs/chapters/
 \newtcolorbox{wbtodobox}{%
   enhanced, sharp corners, boxrule=1pt,
-  colback=wbtodo!6, colframe=wbtodo,
+  colback=wbtodo!6, colframe=wbtodo, coltitle=wbtodo,
   left=8pt, right=8pt, top=6pt, bottom=6pt,
   fonttitle=\bfseries\small, title={TO BE WRITTEN},
   attach title to upper=\par}

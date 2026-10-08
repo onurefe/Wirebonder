@@ -19,7 +19,10 @@ $(MAIN).pdf: $(MAIN).tex product.tex wirebonder-manual.cls \
 watch:
 	latexmk -lualatex -pvc -interaction=nonstopmode $(MAIN).tex
 
-# Everything still to be written. Part IV (reference) must produce no hits.
+# Everything still to be written. Expected hits are the narrative chapters plus
+# tables/specifications.tex (installation and consumables data, which the
+# firmware cannot supply). The parameter, message and quick-reference material
+# is complete and must stay that way.
 todo:
 	@grep -rn 'TODO' chapters/ tables/ || echo "No TODOs remaining."
 

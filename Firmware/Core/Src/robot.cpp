@@ -11,7 +11,8 @@
 #include "Protocol/protocol_ultrasonic_test.hpp"
 #include "Protocol/protocol_force_setup.hpp"
 #include "Protocol/protocol_tach_cal.hpp"
-#include "Protocol/protocol_reset_prologue.hpp"
+#include "Protocol/protocol_z_position_cal.hpp"
+#include "Protocol/protocol_initialization.hpp"
 #include "stdio.h"
 
 extern ADC_HandleTypeDef hadc1;
@@ -38,13 +39,25 @@ extern I2C_HandleTypeDef hi2c1;
 // start() after MX_xxx_Init() has completed and Robot_Init() constructs Robot.
 // =============================================================================
 
+// A protocol is a plain instruction table and its length.
+struct BonderProtocolSelection {
+    const BonderModule::Instruction *instructions;
+    uint8_t length;
+};
+
 // Protocol accessors are defined further down, next to the callbacks that use
 // them; the startXxx() helpers reach for them before that point.
-static const BonderProtocol& resetProtocol();
-static const BonderProtocol& ultrasonicTestProtocol();
-static const BonderProtocol& forceSetupProtocol();
-static const BonderProtocol& tachCalProtocol();
-static const BonderProtocol& protocolForMode(BondingMode mode);
+static BonderProtocolSelection zPositionCalProtocol()
+{
+    return {ZPositionCalProtocol::getProtocolPtr(),
+            ZPositionCalProtocol::getProtocolSize()};
+}
+
+static BonderProtocolSelection initializationProtocol();
+static BonderProtocolSelection ultrasonicTestProtocol();
+static BonderProtocolSelection forceSetupProtocol();
+static BonderProtocolSelection tachCalProtocol();
+static BonderProtocolSelection protocolForMode(BondingMode mode);
 
 // -----------------------------------------------------------------------------
 // States
@@ -57,6 +70,10 @@ bool Robot::m_isAreaLightEnergized = true;
 bool Robot::m_isClampEnergized     = false;
 
 uint32_t Robot::m_events = 0U;
+
+bool Robot::m_bonderRecoveryPending = false;
+bool Robot::m_bonderLockPending = false;
+const char *Robot::m_bonderLockReason = nullptr;
 
 // -----------------------------------------------------------------------------
 // Buffers  —  raw DMA / processing memory
@@ -134,6 +151,8 @@ AdcTickSyncChannel Robot::m_ultrasonicTickSyncChannel;
 AnalogChannel Robot::m_tachometerChannel(
     ADC_CHANNEL_ZMOTOR_TACHOMETER_CONVERSION_ORDER,
     static_cast<uint32_t>(ADC_CHANNEL_ZMOTOR_TACHOMETER_OVERSAMPLING_RATIO),
+    /* Magnitude only: which way the tachometer counts is
+       ZMOTOR_TACHOMETER_DIRECTION, applied by the velocity module. */
     ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC,
     -ZMOTOR_MODULE_TACHOMETER_ZERO_VELOCITY_VOLTAGE *
         ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC);
@@ -397,6 +416,8 @@ BonderModule Robot::m_bonderModule(
     &Robot::m_impedanceScannerModule,
     &Robot::m_clampSolenoidChannel,
     &Robot::m_contactSensorChannel,
+    &Robot::m_mouseLeftButtonChannel,
+    &Robot::m_mouseRightButtonChannel,
     &Robot::m_bonderTimer);
 
 // -----------------------------------------------------------------------------
@@ -459,6 +480,8 @@ const RobotRequest Robot::m_testForceRequest(
     RobotRequest::RequestCode::TestForce, "FORCE TEST", false);
 const RobotRequest Robot::m_calibrateTachometerRequest(
     RobotRequest::RequestCode::CalibrateTachometer, "TACH. CAL.", false);
+const RobotRequest Robot::m_calibrateZPositionRequest(
+    RobotRequest::RequestCode::CalibrateZPosition, "Z POS. CAL.", false);
 const RobotRequest Robot::m_executeBondingRequest(
     RobotRequest::RequestCode::ExecuteBondingProtocol, "BONDING", false);
 
@@ -703,21 +726,25 @@ Robot::Robot()
     m_routerService.addChannel(&m_tAxisRouterChannel);
 
     // Bonder.
-    m_bonderModule.addEventListenerCallbacks(
-        this, &Robot::onBonderModuleStateChanged, &Robot::onBonderModuleErrorOccurred);
-    m_bonderModule.setUltrasonicReportListenerCallback(
+    m_bonderModule.addStateChangedListenerCallback(
+        this, &Robot::onBonderModuleStateChanged);
+    m_bonderModule.addErrorListenerCallback(
+        this, &Robot::onBonderModuleErrorOccurred);
+    m_bonderModule.addUltrasonicReportListenerCallback(
         this, &Robot::onUltrasonicReport);
-    m_bonderModule.setTachCalReportListenerCallback(
+    m_bonderModule.addTachCalReportListenerCallback(
         this, &Robot::onTachCalReport);
+    m_bonderModule.addZReferenceReportListenerCallback(
+        this, &Robot::onZReferenceReport);
 
     // Y-axis homing.
     m_yAxisHomingModule.addEventListenerCallback(
         this, &Robot::onYAxisHomingEvent);
 
     // UI events are relayed here for machine-state arbitration.
-    m_userInterfaceModule.setEventListenerCallback(this, &Robot::onUserInterfaceEvent);
-    m_userInterfaceModule.setMouseButtonListenerCallback(this, &Robot::onMouseButtonEvent);
-    m_userInterfaceModule.setControlPanelButtonListenerCallback(
+    m_userInterfaceModule.addEventListenerCallback(this, &Robot::onUserInterfaceEvent);
+    m_userInterfaceModule.addMouseButtonListenerCallback(this, &Robot::onMouseButtonEvent);
+    m_userInterfaceModule.addControlPanelButtonListenerCallback(
         this, &Robot::onControlPanelButtonEvent);
 }
 
@@ -770,6 +797,7 @@ void Robot::start()
     updateAreaLightDrive();
     updateSpotlightDrive();
     updateTachometerOffsetCorrection();
+    updateZPositionReference();
     updateZPositionSpeedLimits();
 
     /* Nothing may move until the Y axis has a position reference. */
@@ -803,14 +831,23 @@ void Robot::execute()
     m_bonderModule.execute();
 
     if (m_robotState == RobotState::Idle) {
+        /* A stopped protocol keeps running until the commands it left in
+           flight finish, so the recovery waits for the bonder to go idle
+           before the initialization protocol is queued. */
+        if (m_bonderRecoveryPending && !m_bonderModule.isRunning()) {
+            m_bonderRecoveryPending = false;
+            m_requestQueue.enqueue(m_initializeRequest);
+        }
+
         if (m_requestQueue.getElementCount() > 0) {
             m_activeRequest = m_requestQueue.dequeue();
             startExecutingRequest(m_activeRequest);
         }
     } else if (m_robotState == RobotState::Busy) {
-        /* failVm() reports the error and then reports the module going idle,
-           so a failure arrives with both bits set. Failure wins, and both are
-           consumed so a stale Completed can't terminate the next request. */
+        /* A failure is reported before the bonder finishes winding down, so
+           Failed can arrive on its own or alongside Completed. Failure wins,
+           and both are consumed so a stale Completed can't terminate the next
+           request. */
         if (m_events & RobotEvents::OperationFailed) {
             m_events &= ~(RobotEvents::OperationFailed |
                           RobotEvents::OperationCompleted);
@@ -846,6 +883,9 @@ void Robot::startExecutingRequest(RobotRequest &request)
     }
     else if (request_code == RobotRequest::RequestCode::CalibrateTachometer) {
         success = startTachometerCalibration();
+    }
+    else if (request_code == RobotRequest::RequestCode::CalibrateZPosition) {
+        success = startZPositionCalibration();
     }
     else if (request_code == RobotRequest::RequestCode::ExecuteBondingProtocol) {
         success = startBondingProtocol();
@@ -892,6 +932,21 @@ void Robot::completeExecutingRequest(RobotRequest &request, bool success)
         m_robotState = RobotState::Idle;
     }
 
+    /* The machine is back at its references now, so a critical fault that was
+       waiting for the recovery can take effect. A recovery that failed has
+       already locked the machine through the critical-request path above. */
+    if (m_bonderLockPending &&
+        (request.getRequestCode() == RobotRequest::RequestCode::Initialize)) {
+        m_bonderLockPending = false;
+
+        if (success) {
+            m_userInterfaceModule.raiseError(m_bonderLockReason);
+            m_robotState = RobotState::Error;
+        }
+
+        m_bonderLockReason = nullptr;
+    }
+
     updateRequestIndicators();
 }
 
@@ -900,36 +955,86 @@ bool Robot::startHoming()
     return m_yAxisHomingModule.home();
 }
 
+/* The reset button and a bonder failure both end the same way: stop whatever
+   the bonder is running and put the machine back at its reference posture.
+   The stop is not instantaneous -- the commands in flight are left to finish
+   -- so the initialization protocol is only queued once the bonder reports
+   idle, which execute() watches for. */
+void Robot::beginBonderRecovery(const char *reason)
+{
+    m_bonderModule.stopProtocol();
+    m_bonderRecoveryPending = true;
+
+    /* A reset supersedes the active request and anything queued behind it,
+       and releases a machine locked in Error -- this is the abort that used
+       to be an MCU reset. */
+    if (reason != nullptr) {
+        while (m_requestQueue.getElementCount() > 0) {
+            (void)m_requestQueue.dequeue();
+        }
+
+        m_events = 0U;
+        m_bonderLockPending = false;
+        m_bonderLockReason = nullptr;
+        m_robotState = RobotState::Idle;
+        m_userInterfaceModule.notifyUser(reason);
+        updateRequestIndicators();
+    }
+}
+
 bool Robot::startBonderInitializing()
-{    
+{
     configureBonderModule();
-    m_bonderModule.setProtocol(resetProtocol());
-    
-    return m_bonderModule.engage();
+
+    if (!m_bonderModule.engage()) {
+        return false;
+    }
+
+    return startBonderProtocol(initializationProtocol());
 }
 
 bool Robot::startUsTest()
 {
     configureBonderModule();
-    m_bonderModule.setProtocol(ultrasonicTestProtocol());
 
-    return m_bonderModule.engage();
+    if (!m_bonderModule.engage()) {
+        return false;
+    }
+
+    return startBonderProtocol(ultrasonicTestProtocol());
 }
 
 bool Robot::startForceTest()
 {
     configureBonderModule();
-    m_bonderModule.setProtocol(forceSetupProtocol());
 
-    return m_bonderModule.engage();
+    if (!m_bonderModule.engage()) {
+        return false;
+    }
+
+    return startBonderProtocol(forceSetupProtocol());
 }
 
 bool Robot::startTachometerCalibration()
 {
     configureBonderModule();
-    m_bonderModule.setProtocol(tachCalProtocol());
 
-    return m_bonderModule.engage();
+    if (!m_bonderModule.engage()) {
+        return false;
+    }
+
+    return startBonderProtocol(tachCalProtocol());
+}
+
+bool Robot::startZPositionCalibration()
+{
+    configureBonderModule();
+
+    if (!m_bonderModule.engage()) {
+        return false;
+    }
+
+    return startBonderProtocol(zPositionCalProtocol());
 }
 
 bool Robot::startBondingProtocol()
@@ -938,9 +1043,25 @@ bool Robot::startBondingProtocol()
         m_userInterfaceModule.activeConfiguration().bondingMode;
 
     configureBonderModule();
-    m_bonderModule.setProtocol(protocolForMode(mode));
 
-    return m_bonderModule.engage();
+    if (m_isClampEnergized) {
+        m_isClampEnergized = false;
+        updateClampDrive();
+        updateClampIndicator();
+    }
+
+    if (!m_bonderModule.engage()) {
+        return false;
+    }
+
+    /* The bonder reads the mouse buttons off their monitors itself, so there
+       is no held state to seed here. */
+    return startBonderProtocol(protocolForMode(mode));
+}
+
+bool Robot::startBonderProtocol(const BonderProtocolSelection &protocol)
+{
+    return m_bonderModule.startProtocol(protocol.instructions, protocol.length);
 }
 
 void Robot::configureBonderModule()
@@ -1027,57 +1148,67 @@ void Robot::updateTachometerOffsetCorrection()
     m_zMotorVelocityControllerModule.setVelocityOffset(data.tachometerVelocityOffset);
 }
 
+void Robot::updateZPositionReference()
+{
+    const MachineSettingsData& data = m_machineSettingsStore.data();
+    m_lvdtSensorModule.setPositionOffsetMm(data.zPositionOffset);
+}
+
 void Robot::updateZPositionSpeedLimits()
 {
     const MachineSettingsData& data = m_machineSettingsStore.data();
-    /* Settings hold positive magnitudes; the position loop's lower bound is
-       the downward direction, so it takes the negated value. */
+
+    /* Speeds are positive magnitudes; the position loop's lower bound is the
+       downward direction, so it takes the negated value. */
     m_zMotorPositionControllerModule.setOutputLimits(
         -data.zMotorMaxDownwardSpeed, data.zMotorMaxUpwardSpeed);
 }
 
-static const BonderProtocol& protocolForMode(BondingMode mode)
+static BonderProtocolSelection protocolForMode(BondingMode mode)
 {
-    static const SemiAutoBondingProtocol semiAutoProtocol;
-    static const ManualBondingProtocol manualProtocol;
-    static const TableTearBondingProtocol tableTearProtocol;
-    static const LangeCouplingBondingProtocol langeCouplingProtocol;
-
     switch (mode) {
     case BondingMode::Manual:
-        return manualProtocol;
+        /* Machine speed, like every other mode. The profile's manualZSpeed is
+           meant for the hand-driven descent alone; applying it to the whole
+           protocol also slows the automatic kink rise, which then lags the
+           tail feed. */
+        return {ManualBondingProtocol::getProtocolPtr(),
+                ManualBondingProtocol::getProtocolSize()};
     case BondingMode::TableTear:
-        return tableTearProtocol;
+        return {TableTearBondingProtocol::getProtocolPtr(),
+                TableTearBondingProtocol::getProtocolSize()};
     case BondingMode::LangeCoupling:
-        return langeCouplingProtocol;
+        return {LangeCouplingBondingProtocol::getProtocolPtr(),
+                LangeCouplingBondingProtocol::getProtocolSize()};
     case BondingMode::SemiAutomatic:
     default:
-        return semiAutoProtocol;
+        return {SemiAutoBondingProtocol::getProtocolPtr(),
+                SemiAutoBondingProtocol::getProtocolSize()};
     }
 }
 
-static const BonderProtocol& ultrasonicTestProtocol()
+static BonderProtocolSelection ultrasonicTestProtocol()
 {
-    static const UltrasonicTestProtocol protocol;
-    return protocol;
+    return {UltrasonicTestProtocol::getProtocolPtr(),
+            UltrasonicTestProtocol::getProtocolSize()};
 }
 
-static const BonderProtocol& forceSetupProtocol()
+static BonderProtocolSelection forceSetupProtocol()
 {
-    static const ForceSetupProtocol protocol;
-    return protocol;
+    return {ForceSetupProtocol::getProtocolPtr(),
+            ForceSetupProtocol::getProtocolSize()};
 }
 
-static const BonderProtocol& tachCalProtocol()
+static BonderProtocolSelection tachCalProtocol()
 {
-    static const TachCalProtocol protocol;
-    return protocol;
+    return {TachCalProtocol::getProtocolPtr(),
+            TachCalProtocol::getProtocolSize()};
 }
 
-static const BonderProtocol& resetProtocol()
+static BonderProtocolSelection initializationProtocol()
 {
-    static const ProtocolResetPrologue protocol;
-    return protocol;
+    return {InitializationProtocol::getProtocolPtr(),
+            InitializationProtocol::getProtocolSize()};
 }
 
 /* Callbacks -----------------------------------------------------------------*/
@@ -1117,7 +1248,8 @@ static bool isBonderDrivenRequest(RobotRequest::RequestCode code)
            (code == RobotRequest::RequestCode::Initialize) ||
            (code == RobotRequest::RequestCode::TestForce) ||
            (code == RobotRequest::RequestCode::TestUs) ||
-           (code == RobotRequest::RequestCode::CalibrateTachometer);
+           (code == RobotRequest::RequestCode::CalibrateTachometer) ||
+           (code == RobotRequest::RequestCode::CalibrateZPosition);
 }
 
 void Robot::onBonderModuleStateChanged(void *context, bool isIdle)
@@ -1140,6 +1272,20 @@ void Robot::onBonderModuleErrorOccurred(void *context, BonderModule::Error error
     Robot *robot = static_cast<Robot *>(context);
     if (robot == nullptr) return;
 
+    /* The bonder has already stopped its protocol; queue the initialization
+       protocol behind it so the machine is put back at its reference posture.
+       The request machinery is left alone -- the failed request reports the
+       cause below, and this runs once it has. */
+    robot->beginBonderRecovery(nullptr);
+
+    /* A critical fault locks the machine, but not before the recovery has
+       run: the axes are brought back to their references first, and the lock
+       is applied when that finishes (see completeExecutingRequest). */
+    if (isCriticalBonderError(error)) {
+        m_bonderLockPending = true;
+        m_bonderLockReason = bonderErrorMessage(error);
+    }
+
     if (m_robotState == RobotState::Busy) {
         RobotRequest &active_request = robot->m_activeRequest;
         if (!isBonderDrivenRequest(active_request.getRequestCode())) {
@@ -1148,21 +1294,63 @@ void Robot::onBonderModuleErrorOccurred(void *context, BonderModule::Error error
 
         m_events |= RobotEvents::OperationFailed;
 
-        switch (error) {
-        case BonderModule::Error::InsufficientBondingPower:
-            active_request.appendInfoMessage("LOW BONDING POWER");
-            break;
-        case BonderModule::Error::UnableToSetForceCoilCurrent:
-            active_request.appendInfoMessage("COIL CURR. UNSTABLE");
-            break;
-        case BonderModule::Error::UnableToSetPosition:
-            active_request.appendInfoMessage("Z POS. NOT SETTLED");
-            break;
-        case BonderModule::Error::ProtocolTimeout:
-            active_request.appendInfoMessage("TIMEOUT");
-            break;
-        }
+        active_request.appendInfoMessage(bonderErrorMessage(error));
     }
+}
+
+const char *Robot::bonderErrorMessage(BonderModule::Error error)
+{
+    switch (error) {
+    case BonderModule::Error::InsufficientBondingPower:
+        return "LOW BONDING POWER";
+    case BonderModule::Error::UnableToSetForceCoilCurrent:
+        return "COIL CURR. UNSTABLE";
+    case BonderModule::Error::UnableToSetPosition:
+        return "Z POS. NOT SETTLED";
+    case BonderModule::Error::UnableToStartPositionControl:
+        return "Z CTRL DIDN'T START";
+    case BonderModule::Error::UnableToMoveAxis:
+        return "AXIS DID NOT MOVE";
+    case BonderModule::Error::ProtocolTimeout:
+    default:
+        return "TIMEOUT";
+    }
+}
+
+/* A fault in something that moves -- either axis, or the force coil -- leaves
+   the machine untrustworthy, so it is locked out. Ultrasonic shortfalls and
+   lapsed waits are conditions the operator can simply retry. */
+bool Robot::isCriticalBonderError(BonderModule::Error error)
+{
+    /* UnableToStartPositionControl is deliberately absent: the loop never
+       ran, so the axis was never commanded and the machine is not left in an
+       unknown posture. Reporting it without locking is what lets the operator
+       see it, retry, and still reach the calibration. */
+    return (error == BonderModule::Error::UnableToSetPosition) ||
+           (error == BonderModule::Error::UnableToMoveAxis) ||
+           (error == BonderModule::Error::UnableToSetForceCoilCurrent);
+}
+
+/* The head has been run onto the bottom of its travel, so wherever the LVDT
+   says it is now must read as the bottom of the travel window. The correction
+   is the difference, applied to the offset the sensor is already using. */
+void Robot::onZReferenceReport(void *context, float settledPosition)
+{
+    Robot *robot = static_cast<Robot *>(context);
+    if (robot == nullptr) return;
+
+    if (m_robotState != RobotState::Busy) return;
+
+    if (robot->m_activeRequest.getRequestCode() !=
+        RobotRequest::RequestCode::CalibrateZPosition) {
+        return;
+    }
+
+    MachineSettingsData& data = robot->m_machineSettingsStore.mutableData();
+    data.zPositionOffset += (BONDER_MODULE_ZAXIS_MIN_POSITION - settledPosition);
+
+    robot->m_machineSettingsStore.save();
+    robot->updateZPositionReference();
 }
 
 void Robot::onTachCalReport(void *context, float offsetResidual)
@@ -1236,6 +1424,28 @@ void Robot::onUserInterfaceEvent(void *ctx, UserInterfaceModule::Event event)
     case UserInterfaceModule::Event::ConfigurationSelectionStarted: 
         break;
 
+    /* The one request accepted out of Error, because it is the only one that
+       does not need a valid Z frame -- it is what establishes one. A lost
+       frame is precisely what puts the machine here: BONDER INIT cannot reach
+       a reset height expressed in coordinates that no longer mean anything,
+       and its failure is critical. Refusing the calibration in that state
+       would leave the operator with no way back, since reset only re-runs the
+       initialization that is failing. Releasing Error the same way reset does
+       also re-queues that initialization, so it runs again behind the
+       calibration -- against the frame just measured. */
+    case UserInterfaceModule::Event::StartZPositionCalRequested:
+        if (((m_robotState == RobotState::Idle) ||
+             (m_robotState == RobotState::Error)) && \
+            (self->m_requestQueue.getElementCount() == 0)) {
+             if (m_robotState == RobotState::Error) {
+                 self->beginBonderRecovery("Z POS. CAL.");
+             }
+             self->m_requestQueue.enqueue(self->m_calibrateZPositionRequest);
+        } else {
+            m_userInterfaceModule.warnUser("BUSY! TRY LATER");
+        }
+        break;
+
     case UserInterfaceModule::Event::StartTachCalRequested:
         if ((m_robotState == RobotState::Idle) && \
             (self->m_requestQueue.getElementCount() == 0)) {
@@ -1297,7 +1507,7 @@ void Robot::onControlPanelButtonEvent(
         break;
 
     case UserInterfaceModule::ControlPanelButtonEvent::ResetPressed:
-        NVIC_SystemReset();
+        self->beginBonderRecovery("RESET");
         break;
     }
 }
@@ -1313,35 +1523,10 @@ void Robot::onMouseButtonEvent(void *ctx, UserInterfaceModule::MouseButtonEvent 
             (event == UserInterfaceModule::MouseButtonEvent::RightPressed)) {
             self->m_requestQueue.enqueue(self->m_executeBondingRequest);
         }
-    } 
-    else if (m_robotState == RobotState::Busy) {
-        /* Only protocols that read the mouse get the events. Force setup is
-           driven entirely by the right button (press to descend under the
-           tracking force, release to finish), so it has to be relayed too —
-           without this its opening WAIT never completes and the machine sits
-           in Busy until reset. */
-        const RobotRequest::RequestCode code =
-            self->m_activeRequest.getRequestCode();
-        if ((code != RobotRequest::RequestCode::ExecuteBondingProtocol) &&
-            (code != RobotRequest::RequestCode::TestForce)) {
-            return;
-        }
-
-        switch (event) {
-        case UserInterfaceModule::MouseButtonEvent::RightPressed:
-            m_bonderModule.notifyRightButton(true);
-            break;
-        case UserInterfaceModule::MouseButtonEvent::RightReleased:
-            m_bonderModule.notifyRightButton(false);
-            break;
-        case UserInterfaceModule::MouseButtonEvent::LeftPressed:
-            m_bonderModule.notifyLeftButton(true);
-            break;
-        case UserInterfaceModule::MouseButtonEvent::LeftReleased:
-            m_bonderModule.notifyLeftButton(false);
-            break;
-        }
     }
+
+    /* Nothing to do while a protocol runs: its wait commands read the button
+       monitors themselves. */
 }
 
 #endif // FIRMWARE_MODE == FIRMWARE_MODE_NORMAL

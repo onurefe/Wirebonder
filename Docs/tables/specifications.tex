@@ -5,7 +5,8 @@
 %   Firmware/Core/Inc/machine_settings.hpp, configuration_manager.hpp (storage)
 %
 % These are FIRMWARE limits. Mechanical, electrical and environmental
-% specifications are not derivable from the firmware and remain TODO.
+% specifications belong to the base machine and are referred to the K&S
+% service manual instead -- see Appendix C.
 
 \subsection*{Axes}
 
@@ -14,7 +15,8 @@
 \toprule
 \textbf{Item} & \textbf{Value} & \textbf{Notes} \\
 \midrule
-Z travel            & 9\,mm          & Measured by LVDT; absolute, no homing needed \\
+Z travel            & 9\,mm          & Measured by LVDT; absolute, no homing
+                                       needed. See the warning below \\
 Z speed, up         & 0.1--10\,mm/s  & Set by \menuitem{Up Speed} \\
 Z speed, down       & 0.1--10\,mm/s  & Set by \menuitem{Down Speed} \\
 Y travel            & 18\,mm         & Limits applied only after a successful home \\
@@ -26,6 +28,18 @@ T resolution        & 400 steps/mm   & Relative moves only; the T axis is not ho
 \bottomrule
 \end{tabular}
 \end{center}
+
+\begin{wbwarning}
+\textbf{The height parameters accept values the Z axis cannot reach.} The
+editor allows \menuitem{Reset Height}, \menuitem{Loop Height},
+\menuitem{Search 1}, \menuitem{Search 2} and \menuitem{Second Z Hgt} up to
+20\,mm, but the axis has only 9\,mm of travel. A height above roughly 9\,mm is
+commanded, never arrives, and the cycle fails with \msg{Z POS. NOT SETTLED} or
+\msg{TIMEOUT}.
+
+Keep every height comfortably inside 9\,mm. If a cycle times out on a move and
+the path is clear, check the heights first.
+\end{wbwarning}
 
 \subsection*{Process ranges}
 
@@ -71,15 +85,43 @@ Clamp voltage       & 8.0--12.0\,V   & \\
 \derivedfrom{\texttt{configuration.h}, \texttt{machine\_settings.hpp},
              \texttt{configuration\_manager.hpp}}
 
+\subsection*{Timeouts}
+
+Every step that waits for something has a deadline. Exceeding it produces
+\msg{TIMEOUT}.
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}L{30mm}L{55mm}@{}}
+\toprule
+\textbf{Waiting for} & \textbf{Deadline} & \textbf{Notes} \\
+\midrule
+Motion, contact, clamp, force & 10\,s & Fixed; not adjustable \\
+Ultrasonic delivery   & 65\,s        & Fixed outer limit \\
+Ultrasonic delivery   & \menuitem{Bond Timeout} & The one you can set;
+                                        reached first in practice \\
+Operator button press & none         & The machine waits indefinitely between
+                                        the two bonds \\
+\bottomrule
+\end{tabular}
+\end{center}
+
 \subsection*{Installation and environment}
 
-\TODO{Supply mechanical and electrical installation data: overall dimensions
-and mass, bench mounting requirements, mains supply voltage/frequency/current,
-compressed air if required, ambient temperature and humidity limits, ESD
-requirements, and any regulatory markings. None of this is derivable from the
-firmware.}
+The chassis, stage, bond head and their installation requirements are those of
+the base machine and are unchanged.
+
+\seeks{overall dimensions and mass, bench mounting, mains supply requirements,
+and ambient temperature and humidity limits.}
+
+\begin{wbnote}
+The electrical supply requirement is \emph{not} necessarily the base machine's.
+The control electronics have been replaced, so confirm the actual supply
+against the machine as built rather than assuming the original figure.
+\end{wbnote}
 
 \subsection*{Consumables and tooling}
 
-\TODO{Supply the supported wire types and diameters, bonding tool/wedge part
-numbers and their fitting procedure, and the clamp and guide part numbers.}
+Bonding tools, wire guides, clamps and wire are the base machine's.
+
+\seeks{tool and wedge part numbers and their fitting procedure, wire guide and
+clamp part numbers, and supported wire types and diameters.}

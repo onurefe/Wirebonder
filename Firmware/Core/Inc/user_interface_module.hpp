@@ -1,5 +1,6 @@
 #pragma once
 
+#include "callback_list.hpp"
 #include "configuration_manager.hpp"
 #include "control_panel_service.hpp"
 #include "lcd_controller_module.hpp"
@@ -22,6 +23,7 @@ public:
         ActiveConfigurationChanged,
         ConfigurationConfirmed,
         ConfigurationSelectionStarted,
+        StartZPositionCalRequested,
         StartTachCalRequested,
         MachineSettingsChanged
     };
@@ -68,12 +70,14 @@ public:
         PinMonitorChannel *mouseLeftButtonChannel,
         const ControlPanelButtons& controlPanelButtons);
 
-    void setEventListenerCallback(void *ctx, EventCallback callback);
-    void setMouseButtonListenerCallback(void *ctx,
-                                        MouseButtonCallback callback);
-    void setControlPanelButtonListenerCallback(
-        void *ctx,
-        ControlPanelButtonCallback callback);
+    bool addEventListenerCallback(void *ctx, EventCallback callback);
+    bool removeEventListenerCallback(void *ctx, EventCallback callback);
+    bool addMouseButtonListenerCallback(void *ctx, MouseButtonCallback callback);
+    bool removeMouseButtonListenerCallback(void *ctx, MouseButtonCallback callback);
+    bool addControlPanelButtonListenerCallback(void *ctx,
+                                               ControlPanelButtonCallback callback);
+    bool removeControlPanelButtonListenerCallback(void *ctx,
+                                                  ControlPanelButtonCallback callback);
 
     // Robot-owned RAM-level working configuration. Persisted only when the
     // operator presses save.
@@ -114,7 +118,8 @@ private:
                       bool isRepeat);
     void adjustByDescriptor(
         const ConfigurationParameterCatalog::Descriptor *descriptor,
-        float delta);
+        int8_t sign,
+        uint16_t stepScale);
     void saveConfiguration();
     void saveConfigurationAs(const char *name);
     void beginSelection();
@@ -155,10 +160,7 @@ private:
     char m_activeConfigurationName[ConfigurationManager::kNameSize];
     BondingMode m_selectionProtocol;
 
-    EventCallback m_eventCallback;
-    void *m_eventCallbackCtx;
-    MouseButtonCallback m_mouseButtonCallback;
-    void *m_mouseButtonCallbackCtx;
-    ControlPanelButtonCallback m_controlPanelButtonCallback;
-    void *m_controlPanelButtonCallbackCtx;
+    ListenerList<Event>                  m_eventCallbacks;
+    ListenerList<MouseButtonEvent>       m_mouseButtonCallbacks;
+    ListenerList<ControlPanelButtonEvent> m_controlPanelButtonCallbacks;
 };

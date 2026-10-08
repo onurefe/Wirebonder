@@ -79,15 +79,62 @@ do about them are in Chapter~\ref{ch:messages}.
 A failed bond cycle is a warning, not an error: clear the message, fix the
 cause, and bond again. Only homing and initialisation lock the machine.
 
-\section{Routine checks}
+\section{Start-of-shift checks}
 
-\TODO{Write the shift routine for this shop: what to check at start of shift
-(run \keycap{TEST} and record frequency and Q, verify force calibration,
-inspect the tool), how often to re-run \keycap{SETUP}, the pull-test schedule
-and its acceptance criteria, and when the tool must be changed.}
+These take a couple of minutes and catch most of what goes wrong.
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Power up and watch the homing sequence.} Both operations must
+  report \msg{OPERATION SUCCEEDED}.
+\item \textbf{Press \keycap{TEST}. Write down the frequency and Q.} Keep a log
+  next to the machine. You are looking for change, not for any particular
+  number --- a frequency that has moved or a Q that has dropped since
+  yesterday is telling you something before the bonds do.
+\item \textbf{Inspect the tool} under magnification for wear, build-up or
+  damage.
+\item \textbf{Run \keycap{SETUP}} and confirm the gauge reads close to
+  \menuitem{Setup Force}. If the correction it produces is large or has changed
+  noticeably, find out why before bonding.
+\item \textbf{Load your configuration and bond a few wires on scrap.} Pull-test
+  them.
+\end{enumerate}
+
+Re-run \keycap{SETUP} after any tool change, after anything is disturbed on the
+bond lever, and whenever bond quality drifts without a recipe change.
+
+\begin{wbnote}
+A log of frequency and Q over weeks is the single most useful record you can
+keep on this machine. It turns transducer degradation from a surprise into
+something you can see coming.
+\end{wbnote}
 
 \section{Loading wire}
 
-\TODO{Write the wire loading procedure with photographs: threading the spool,
-routing through the guides and clamp, setting tension, forming the initial tail
-and its correct length, and what to do after a wire break mid-cycle.}
+Wire threading, clamp and guide adjustment, spool mounting and tension setting
+are mechanical operations on the 4523AD bond head and are unchanged on this
+machine.
+
+\seeks{the complete wire threading procedure, guide and clamp adjustment, and
+tail formation.}
+
+What the controller contributes:
+
+\begin{itemize}[leftmargin=*]
+\item \keycap{CLAMP OPEN} toggles the clamp so you can thread wire through it.
+  The \keycap{CLAMP OPEN} lamp shows the clamp is open. It is refused with
+  \msg{BUSY! TRY LATER} while the machine is running.
+\item \menuitem{Clamp Volt} on the Settings page sets the clamp's holding
+  force.
+\item After threading, the tail length you form by hand only has to get the
+  first cycle started. From then on \menuitem{Tail} sets it.
+\end{itemize}
+
+\subsection*{After a wire break}
+
+\begin{enumerate}[leftmargin=*]
+\item Let the current cycle finish or press \keycap{RESET} if it has faulted.
+\item Press \keycap{CLAMP OPEN} and re-thread.
+\item Form a tail by hand.
+\item Bond onto scrap until the tail is coming out at a consistent length ---
+  the first cycle or two after re-threading will not be representative.
+\end{enumerate}

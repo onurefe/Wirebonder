@@ -1,6 +1,7 @@
 #ifndef PIN_MONITOR_SERVICE_HPP
 #define PIN_MONITOR_SERVICE_HPP
 
+#include "callback_list.hpp"
 #include "configuration.h"
 #include "generic.h"
 #include "fast_io.hpp"
@@ -24,7 +25,8 @@ public:
 
     PinMonitorChannel(FastIO *pin, Level activeLevel);
 
-    void addStateListenerCallback(void *context, Callback cb);
+    bool addStateListenerCallback(void *context, Callback cb);
+    bool removeStateListenerCallback(void *context, Callback cb);
     void  start();
     void  stop();
     Level getLevel() const;
@@ -55,8 +57,7 @@ private:
     bool       m_locked;
     uint32_t   m_lockStartTick;
 
-    Callback   m_callback;
-    void      *m_callbackContext;
+    ListenerList<PinState> m_callbacks;
 };
 
 // -----------------------------------------------------------------------

@@ -37,8 +37,12 @@ Date          & \docdate \\
 {\large \manufacturer\par}
 \end{titlepage}
 
+% \frontmatter suppresses chapter numbers but not section numbers, which
+% would otherwise appear as "0.1", "0.2" in the safety chapter.
+\setcounter{secnumdepth}{0}
 \include{chapters/00-about}
 \include{chapters/00-safety}
+\setcounter{secnumdepth}{2}
 
 \tableofcontents
 
@@ -72,5 +76,6 @@ Date          & \docdate \\
 \appendix
 \include{chapters/A-glossary}
 \include{chapters/B-defaults}
+\include{chapters/C-service-manual}
 
 \end{document}

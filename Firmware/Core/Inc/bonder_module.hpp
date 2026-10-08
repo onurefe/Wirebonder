@@ -1,5 +1,6 @@
 #pragma once
 
+#include "callback_list.hpp"
 #include <atomic>
 #include <cstdint>
 #include "generic.h"
@@ -16,173 +17,11 @@
 #include "pll_module.hpp"
 #include "us_impedance_scanner_module.hpp"
 #include "process.hpp"
+#include "bonder_vm_resources.hpp"
+#include "bonder_commands.hpp"
 
-class BonderProtocol;
-
-class BonderModule : public Process {
-public:
-    enum class Error {
-        // PLL reached its duration limit before delivering the requested energy.
-        InsufficientBondingPower,
-        // Force-coil current control could not reach its requested setpoint.
-        UnableToSetForceCoilCurrent,
-        // Z-axis position control is unavailable while a move is required.
-        UnableToSetPosition,
-        // A protocol step did not produce its completion events in time.
-        ProtocolTimeout
-    };
-
-    using Config = BonderConfig;
-
-    using BonderStateChangedCallback = void (*)(void *context, bool isIdle);
-    using BonderErrorCallback        = void (*)(void *context, Error error);
-
-    struct UltrasonicReport {
-        float resonanceFrequency;
-        float qualityFactor;
-        float transferredPower;
-        float bondingDuration;
-    };
-    using UltrasonicReportCallback =
-        void (*)(void *context, const UltrasonicReport& report);
-
-    // Reports the tachometer's zero-offset residual measured over
-    // TACHSAMPLE's window (Start Tach. Cal.): the tachometer's own average
-    // velocity minus the ground-truth average velocity derived from the
-    // independent LVDT position delta over the same window (so real motion
-    // during an imperfect hold isn't misattributed to sensor offset).
-    // Consumed by Robot to update/persist the velocity controller's
-    // zero-offset correction.
-    using TachCalReportCallback = void (*)(void *context, float offsetResidual);
-
-    // Hardware event flags as a bitmask. Events latch when their callback
-    // fires and stay latched until consumed by a WAIT/MZDRIVE mask, cleared by
-    // CLRFLAGS, or re-armed by the command that produces them.
-    enum EventFlag : uint32_t {
-        EVENT_T_MOVE_COMPLETED      = 1u << 0,
-        EVENT_Y_MOVE_COMPLETED      = 1u << 1,
-        EVENT_FORCE_COIL_SETTLED    = 1u << 2,
-        EVENT_CONTACT_CONNECTED     = 1u << 3,
-        EVENT_CONTACT_DISCONNECTED  = 1u << 4,
-        EVENT_TIMER_EXPIRED         = 1u << 5,
-        EVENT_SCAN_COMPLETED        = 1u << 6,
-        EVENT_US_POWER_TRANSFERRED  = 1u << 7,
-        EVENT_RIGHT_BUTTON_PRESSED  = 1u << 8,
-        EVENT_RIGHT_BUTTON_RELEASED = 1u << 9,
-        EVENT_POSITION_ERROR        = 1u << 10,
-        EVENT_FORCE_COIL_ERROR      = 1u << 11,
-        EVENT_US_POWER_ERROR        = 1u << 12,
-        EVENT_Z_POSITION_REACHED    = 1u << 13,
-        EVENT_CLAMP_SETTLED         = 1u << 14,
-        EVENT_WAIT_TIMEOUT          = 1u << 15,
-        EVENT_LEFT_BUTTON_PRESSED   = 1u << 16,
-        EVENT_LEFT_BUTTON_RELEASED  = 1u << 17,
-        // Set by notifyClampToggle() when the operator asks a running
-        // ClampOpenProtocol to reverse direction (open->close or vice versa).
-        EVENT_CLAMP_TOGGLE_REQUESTED = 1u << 18
-    };
-
-    // =========================================================================
-    // Protocol VM
-    //
-    // A protocol is a flat array of instructions. Commands issue an action and
-    // complete immediately; WAIT and the manual Z instructions block. WAIT
-    // and MZDRIVE consume their masked flags on completion. Commands that
-    // produce a completion event re-arm (clear) that event when issued, so a
-    // stale latch can never satisfy the matching WAIT.
-    //
-    // Motion protocols do not start at pc 0 directly: beginBonding() first
-    // runs a built-in reset prologue (force coil to zero, clamp closed, Z to
-    // resetHeight, wait until reached) and clears every event flag. pc 0 is
-    // therefore always entered from the idle posture — protocols never need
-    // to re-establish or wait for it themselves.
-    // =========================================================================
-
-    enum class Opcode : uint8_t {
-        ZMOVE = 0,   // arg: height (mm); re-arms Z_POSITION_REACHED
-        YMOVE,       // arg: position (mm); re-arms Y_MOVE_COMPLETED
-        YREVERSE,    // arg: displacement (mm); moves to
-                     // currentYPosition - displacement; re-arms Y_MOVE_COMPLETED
-        TMOVE,       // arg: position (mm); re-arms T_MOVE_COMPLETED
-        TIMER,       // arg: duration (s); re-arms TIMER_EXPIRED
-        WAIT,        // mask: flags that must all be set; timeoutMs == 0 waits
-                     // indefinitely; consumed on completion
-        CLRFLAGS,    // mask: flags to clear unconditionally
-        CLAMPOPEN,   // re-arms CLAMP_SETTLED (set immediately if already open)
-        CLAMPCLOSE,  // re-arms CLAMP_SETTLED (set immediately if already closed)
-        SCAN,        // arg: target power (W); re-arms SCAN_COMPLETED; the
-                     // operating point is computed when the scan finishes
-        PLL,         // arg: energy (J); drives the last computed operating
-                     // point; re-arms US_POWER_TRANSFERRED
-        SETFORCE,    // arg: force (g); re-arms FORCE_COIL_SETTLED
-        USREPORT,    // emits the latest scan/PLL result
-        MZDRIVE,     // arg: raise target (mm); left button drives toward
-                     // lowest overtravel, right button drives toward arg, at
-                     // the axis's normal move speed; releasing both stops in
-                     // place, re-pressing resumes; blocks until Z is at
-                     // lowest overtravel and mask flags are set; consumes mask
-        MZSETUP,     // arg: raise target (mm); left button drives toward
-                     // lowest overtravel, right button drives toward arg, at
-                     // the axis's normal move speed, same as MZDRIVE, but
-                     // completes as soon as the left button is released
-                     // (regardless of position); does not consume mask
-        TACHMOVE,    // moves to ZMOTOR_TACH_CAL_POSITION_MM; re-arms Z_POSITION_REACHED
-        TACHSAMPLE,  // arms a ZMOTOR_TACH_CAL_SAMPLE_DURATION_S timer (re-arms
-                     // TIMER_EXPIRED, same as TIMER), starts accumulating
-                     // tachometer velocity pushed from the velocity
-                     // controller, and snapshots the current Z position as
-                     // the window's start
-        TACHREPORT   // emits the TACHSAMPLE offset residual (tachometer
-                     // average minus the LVDT-derived true average velocity)
-                     // via TachCalReportCallback
-    };
-
-    // Operands are bound to configuration fields so protocols always read the
-    // live runtime configuration; nullptr reads as 0.0f (axis origin).
-    using ConfigField = float BonderConfig::*;
-
-    struct Instruction {
-        Opcode      opcode;
-        ConfigField arg;
-        uint32_t    mask;
-        uint32_t    timeoutMs;
-    };
-
-    // Emitted once per completed (or failed) instruction while a telemetry
-    // listener is registered. The scan fields are populated only on records
-    // whose mask consumed EVENT_SCAN_COMPLETED; impedances is nullptr
-    // otherwise.
-    struct Telemetry {
-        uint8_t  pc;
-        uint8_t  opcode;
-        bool     succeeded;
-        uint32_t mask;
-        uint32_t eventFlags;
-        float    argValue;
-        float    zPosition;
-        float    zSetpoint;
-        float    yPosition;
-        float    tPosition;
-        uint8_t  clampState;
-        float    transferredEnergy;
-        uint16_t scanCount;
-        float    centerFrequency;
-        float    driveAmplitude;
-        const complexf *impedances;
-    };
-
-    using TelemetryCallback = void (*)(void *context, const Telemetry &telemetry);
-
-    // Read-only snapshot of where the VM currently is, for debug observation.
-    // opcode/mask describe the instruction at pc and are valid while running.
-    struct VmStatus {
-        bool     running;
-        uint8_t  pc;
-        uint8_t  opcode;
-        uint32_t mask;
-        uint32_t eventFlags;
-    };
-
+class BonderModule: public Process {
+    public:
     BonderModule(DcMotorPositionControllerModule *zMotorController,
                  ForceCoilDriverModule *forceCoilDriver,
                  RouterChannel *yAxisRouter,
@@ -191,246 +30,416 @@ public:
                  UsImpedanceScannerModule *impedanceScanner,
                  SolenoidChannel *clampSolenoid,
                  PinMonitorChannel *contactSensorMonitor,
+                 PinMonitorChannel *leftMouseButtonMonitor,
+                 PinMonitorChannel *rightMouseButtonMonitor,
                  Timer *timer);
 
-    void configure(const Config& config);
-    const Config& getConfig() const;
+    enum Opcode : uint8_t {
+        ZMOVE = 0,   // arg: height (mm); re-arms Z_POSITION_REACHED
+        YMOVE,       // arg: position (mm); re-arms Y_MOVE_COMPLETED
+        YREVERSE,    // arg: displacement (mm); moves to
+                     // currentYPosition - displacement; re-arms Y_MOVE_COMPLETED
+        TMOVE,       // arg: position (mm); re-arms T_MOVE_COMPLETED
+        TIMER,       // arg: duration (s); re-arms TIMER_EXPIRED
+        WAITFLAGS,   // bonderVmArg: mask of flags that must all be set;
+                     // consumed on completion. Instruction-only: the VM tests
+                     // its own latch, so no command backs this opcode
+        WAITCONTACTEVENTS, // arg0: awaited edge (true = connecting);
+                     // bonderVmArg: timeout. Edge-triggered, so the state the
+                     // sensor already sits in does not satisfy it
+        WAITCONTACTSTATE,  // arg0: awaited state (true = connected);
+                     // bonderVmArg: timeout. Blocks until the contact sensor
+                     // *reads* that state, i.e. the lever has caught up with
+                     // the Z carriage; unlike WAITCONTACTEVENTS this is level-
+                     // not edge-triggered, so it completes immediately when
+                     // the lever is already seated
+        WAITZPOSITION, // arg0: height (mm); bonderVmArg: timeout. Blocks
+                     // until the carriage reaches that height from wherever
+                     // it started, so an action can be hung off a height
+                     // rather than off a delay. Observes only -- the move
+                     // belongs to the ZMOVE or MZDRIVE in flight
+        WAITMOUSELEFTBUTTONEVENTS,  // arg0: awaited edge (true = press);
+                     // bonderVmArg: timeout. Edge-triggered
+        WAITMOUSELEFTBUTTONSTATE,   // arg0: awaited state (true = pressed);
+                     // bonderVmArg: timeout. Level-triggered, so a button
+                     // already held satisfies it immediately
+        WAITMOUSERIGHTBUTTONEVENTS, // right button, edge-triggered
+        WAITMOUSERIGHTBUTTONSTATE,  // right button, level-triggered
+        CLRFLAGS,    // bonderVmArg: mask of flags to clear unconditionally.
+                     // Instruction-only, like WAITFLAGS
+        CLAMPOPEN,   // re-arms CLAMP_SETTLED (set immediately if already open)
+        CLAMPCLOSE,  // re-arms CLAMP_SETTLED (set immediately if already closed)
+        SCAN,        // arg: target power (W); re-arms SCAN_COMPLETED; the
+                     // operating point is computed when the scan finishes
+        PLL,         // arg: energy (J); drives the last computed operating
+                     // point; re-arms US_POWER_TRANSFERRED
+        SETFORCE,    // arg: force (g); re-arms FORCE_COIL_SETTLED
+        USREPORT,    // emits the latest scan/PLL result
+        MZDRIVE,     // arg0/arg1: the heights the operator drives between;
+                     // arg2: the speed they drive at (0 keeps the machine's
+                     // own limits). Right button drives toward arg0, left
+                     // toward arg1; releasing both stops in place and
+                     // re-pressing resumes. Raises Z_POSITION_REACHED once
+                     // the carriage settles at arg0
+        OPENZMOVE,   // arg0: signed drive (V), arg1: duration (s). Bypasses
+                     // both loops and pushes for that long; nothing is
+                     // controlled and nothing measured
+        ZREFERENCE,  // declares wherever the head is now to be the Z origin
+                     // and reports it, so the LVDT offset can be corrected
+        TACHMOVE,    // moves to ZMOTOR_TACH_CAL_POSITION_MM; re-arms Z_POSITION_REACHED
+        TACHSAMPLE,  // arms a ZMOTOR_TACH_CAL_SAMPLE_DURATION_S timer (re-arms
+                     // TIMER_EXPIRED, same as TIMER), starts accumulating
+                     // tachometer velocity pushed from the velocity
+                     // controller, and snapshots the current Z position as
+                     // the window's start
+        TACHREPORT,  // emits the TACHSAMPLE offset residual (tachometer
+                     // average minus the LVDT-derived true average velocity)
+                     // via TachCalReportCallback
+        NUM_COMMANDS    // JUST FOR COUNTING NUMBER OF COMMANDS.
+    };
+    
+    enum EventFlag : uint32_t {
+        EVENT_T_MOVE_COMPLETED          = 1u << 0,
+        EVENT_Y_MOVE_COMPLETED          = 1u << 1,
+        EVENT_FORCE_COIL_SETTLED        = 1u << 2,
+        EVENT_CONTACT_CONNECTED         = 1u << 3,
+        EVENT_CONTACT_DISCONNECTED      = 1u << 4,
+        EVENT_TIMER_EXPIRED             = 1u << 5,
+        EVENT_SCAN_COMPLETED            = 1u << 6,
+        EVENT_SCAN_ERROR                = 1u << 7,
+        EVENT_US_POWER_TRANSFERRED      = 1u << 8,
+        EVENT_RIGHT_BUTTON_PRESSED      = 1u << 9,
+        EVENT_RIGHT_BUTTON_RELEASED     = 1u << 10,
+        EVENT_POSITION_ERROR            = 1u << 11,
+        // The Z position loop was not running when a move went to service it.
+        // Kept apart from EVENT_POSITION_ERROR, which means the loop ran and
+        // the carriage did not arrive: one is a control chain that never
+        // started, the other a move that failed. They call for opposite
+        // investigations, so they are not worth merging.
+        EVENT_Z_CONTROLLER_INIT_ERROR   = 1u << 12,
+        EVENT_FORCE_COIL_ERROR          = 1u << 13,
+        EVENT_US_POWER_ERROR            = 1u << 14,
+        EVENT_Z_POSITION_REACHED        = 1u << 15,
+        EVENT_CLAMP_SETTLED             = 1u << 16,
+        EVENT_WAIT_TIMEOUT              = 1u << 17,
+        EVENT_LEFT_BUTTON_PRESSED       = 1u << 18,
+        EVENT_LEFT_BUTTON_RELEASED      = 1u << 19,
+        EVENT_CLAMP_TOGGLE_REQUESTED    = 1u << 20,
+        EVENT_US_REPORT_READY           = 1u << 21,
+        EVENT_TACH_REPORT_READY         = 1u << 22,
+        // A Y or T move did not complete within its deadline. Kept apart from
+        // EVENT_WAIT_TIMEOUT so a stalled axis is distinguishable from a wait
+        // that simply lapsed.
+        EVENT_AXIS_MOVE_ERROR           = 1u << 23,
+        // A WAITZPOSITION saw its height go by. Kept apart from
+        // EVENT_Z_POSITION_REACHED, which means a commanded move has settled.
+        EVENT_Z_HEIGHT_REACHED          = 1u << 24,
+        EVENT_Z_REFERENCE_MEASURED      = 1u << 25,
+        EVENT_Z_OPEN_MOVE_COMPLETED     = 1u << 26
+    };
+    
+    enum class Error {
+        // The transducer could not be driven to the requested power/energy.
+        InsufficientBondingPower,
+        // Force-coil current control could not reach its requested setpoint.
+        UnableToSetForceCoilCurrent,
+        // Z-axis position control ran, but the carriage did not reach its
+        // setpoint in time.
+        UnableToSetPosition,
+        // The Z position loop was not running when a move needed it, so the
+        // axis was never commanded at all.
+        UnableToStartPositionControl,
+        // A Y or T move did not complete in time.
+        UnableToMoveAxis,
+        // A wait did not see its completion within its timeout.
+        ProtocolTimeout
+    };
 
-    // Selects the protocol program the VM runs from Idle. The module is
-    // protocol-agnostic; the caller (Robot) maps the configured bonding mode
-    // to a program. Must be idle.
-    bool setProtocol(const BonderProtocol& protocol);
-    bool isActive() const { return m_activityState == ActivityState::Running; }
-    bool isIdle() const { return !isActive(); }
+    struct UltrasonicReport {
+        float resonanceFrequency;
+        float qualityFactor;
+        float transferredPower;
+        float bondingDuration;
+    };
 
-    void addEventListenerCallbacks(
-        void *context, BonderStateChangedCallback stateCb, BonderErrorCallback errorCb);
-    void setUltrasonicReportListenerCallback(
-        void *context, UltrasonicReportCallback callback);
-    void setTachCalReportListenerCallback(
-        void *context, TachCalReportCallback callback);
-    void setTelemetryListenerCallback(void *context, TelemetryCallback callback);
+    // isIdle: whether a protocol is running, not whether the module is engaged.
+    using BonderStateChangedCallback = void (*)(void *context, bool isIdle);
+    using BonderErrorCallback        = void (*)(void *context, Error error);
+    using UltrasonicReportCallback   =
+        void (*)(void *context, const UltrasonicReport &report);
+    // The tachometer's zero-offset residual measured over TACHSAMPLE's window.
+    using TachCalReportCallback      = void (*)(void *context, float offsetResidual);
+    // Where the head was found at the origin, in the coordinates the LVDT
+    // currently reports. The difference from
+    // BONDER_MODULE_ZAXIS_MIN_POSITION is the correction to its offset.
+    using ZReferenceReportCallback   = void (*)(void *context, float settledPosition);
 
-    VmStatus getVmStatus() const;
+    static const uint8_t BONDER_INSTRUCTION_MAX_ARGS = 4;
 
-    void notifyRightButton(bool pressed);
-    void notifyLeftButton(bool pressed);
+    struct Instruction {
+        Opcode      opcode;
+        void        *args[BONDER_INSTRUCTION_MAX_ARGS];
+        // Opcode-specific scalar operand. A wait's timeout in milliseconds
+        // most of the time; the flag mask for WAITFLAGS and CLRFLAGS.
+        uint32_t    bonderVmArg;
+    };
 
-    void notifyClampToggle();
+    // Producers run in mixed contexts (main loop, control-update chain, timer
+    // and pin-monitor ISRs) while the VM consumes from the main loop, so the
+    // latch is atomic: fetch_or/fetch_and compile to LDREX/STREX on Cortex-M4
+    // and no set can be lost to a concurrent clear.
+    std::atomic<uint32_t> m_events{0U};
 
+    // Live machine configuration. Instruction operands are raw pointers, so a
+    // protocol binds an operand to a field of this and always reads the
+    // current value. Static because the address has to be a compile-time
+    // constant for a protocol table to live in flash -- and because the module
+    // is a singleton in practice, like the command instances below.
+    static BonderConfig m_config;
+
+    /* Height at which the tail feed is released on the way up from the tear.
+       Not part of the profile: configure() derives it from the reset height,
+       and it is a plain variable so the value can be moved while the timing
+       is being dialled in. A protocol binds its WAITZPOSITION operand here. */
+    static float m_tailFeedHeight;
+
+    /* Dwell (s) between starting the tail-assist drive and drawing the tail,
+       so the transducer has rung up and the wire is pulled through a tool
+       that is already vibrating. Same treatment as the height above: module
+       state, not a profile parameter, while the timing is being dialled in. */
+    static float m_tailVibrationBuildupTime;
+
+    /* Anti-stiction dither for the hand-driven descent, injected on MZDRIVE's
+       velocity feedforward -- so it reaches the velocity loop's command, where
+       the derivative term turns each edge into a torque kick, and never
+       touches the position setpoint. Amplitude zero leaves it off; the divider
+       is in control ticks per half period (2 -> 250 Hz on a 1 kHz loop). */
+    static float m_mzDriveDitherAmplitude;
+    static uint8_t m_mzDriveDitherDivider;
+
+    /* Energy (J) the tail-assist drive is given. Derived, not configured:
+       configure() sizes it so the drive outlasts the T axis's restore move
+       (see BONDER_MODULE_TAIL_ASSIST_ENERGY_SAFETY_FACTOR). */
+    static float m_tailAssistEnergy;
+
+
+    void setEventFlags(uint32_t mask);
+    void clearFlagsMask(uint32_t mask);
+    uint32_t getEventFlags() const;
+
+    void configure(const BonderConfig &config);
+    const BonderConfig &getConfig() const { return m_config; }
+
+    // Loads a protocol and runs it from pc 0. Must not be called while one is
+    // running. Independent of engagement -- the protocol is walked only while
+    // the module is engaged, so either may come first.
+    bool startProtocol(const Instruction *protocol, uint8_t protocolLength);
+
+    // Ends the running protocol where it stands. The pc stops advancing and
+    // the commands already in flight are left to finish; the module goes idle
+    // (isRunning() false, listeners told) once the last of them is done. The
+    // module stays engaged.
+    void stopProtocol();
+
+    // Switches on the mechanisms the module holds continuously; disengage()
+    // switches them back off. Programs are run on an engaged module, but
+    // engaging needs no protocol of its own. Distinct from the Process
+    // lifecycle: a disengaged module is still operating, it just holds no
+    // actuator.
     bool engage();
     void disengage();
 
-private:
-    enum class ActivityState : uint8_t { Idle, Running };
-    enum class InstrStatus { Running, Done };
+    bool isEngaged() const { return m_engaged; }
+    bool isRunning() const { return m_running; }
 
+    // Separate registries, so a listener interested in only one of these does
+    // not have to register a stub for the others.
+    bool addStateChangedListenerCallback(void *context, BonderStateChangedCallback cb);
+    bool removeStateChangedListenerCallback(void *context, BonderStateChangedCallback cb);
+    bool addErrorListenerCallback(void *context, BonderErrorCallback cb);
+    bool removeErrorListenerCallback(void *context, BonderErrorCallback cb);
+    bool addUltrasonicReportListenerCallback(void *context, UltrasonicReportCallback cb);
+    bool removeUltrasonicReportListenerCallback(void *context, UltrasonicReportCallback cb);
+    bool addTachCalReportListenerCallback(void *context, TachCalReportCallback cb);
+    bool removeTachCalReportListenerCallback(void *context, TachCalReportCallback cb);
+    bool addZReferenceReportListenerCallback(void *context, ZReferenceReportCallback cb);
+    bool removeZReferenceReportListenerCallback(void *context, ZReferenceReportCallback cb);
+
+    private:
     void onStart() override;
-    void onStop() override;
     void onExecute() override;
+    void onStop() override;
 
-    void executeVM();
-    InstrStatus executeInstruction(const Instruction& instr);
-    InstrStatus executeMzDrive(const Instruction& instr);
-    InstrStatus executeMzSetup(const Instruction& instr);
-    InstrStatus executeClampCommand(SolenoidChannel::State target);
+    // Services every command that has been started and has not finished yet,
+    // so instructions the pc has already walked past keep running in the
+    // background.
+    void executeCommands();
+    // Advances the pc by one instruction per call, except on a wait, which
+    // holds it until satisfied. The protocol ends when the pc has run off the
+    // end and every command it started has finished.
+    void executeProtocol();
+    // Starts the instruction at the pc and marks its command in flight; a
+    // non-wait advances the pc in the same call.
+    void beginInstruction(const Instruction &instruction);
+    void advanceProgramCounter();
+    // Whether the wait holding the pc may release it.
+    bool isWaitSatisfied(const Instruction &instruction);
+    // Tests the mask against the latch and clears it once satisfied.
+    bool consumeEventFlags(uint32_t mask);
+    // Whether the command backing a wait has finished; a failed one faults
+    // the VM instead of releasing the pc.
+    bool isCommandFinished(uint8_t index);
+    bool isAnyCommandActive() const;
+    // Only these hold the pc; everything else is fire-and-forget, and a
+    // protocol that needs to sit on a command's completion follows it with a
+    // WAITFLAGS on the flag that command raises.
+    static bool isWaitOpcode(Opcode opcode);
+    // The flags an opcode's command can raise. Dropped when the instruction
+    // is issued, so a latch left over from an earlier one cannot satisfy the
+    // wait that follows it.
+    static uint32_t producedEventFlags(Opcode opcode);
 
-    void emergencyStop();
-    // Enables/disables the force-coil + Z-motor control loops to match
-    // `enabled`, tracking m_motionControlEnabled; no-op if already there.
-    // Only the enable direction can fail (hardware refuses to arm).
-    bool setMotionControlEnabled(bool enabled);
-    // Switches control loops to what the (already pointed-to) program needs
-    // and resets VM position to its pc 0 (reset prologue first, if the
-    // program needs motion control).
-    bool activateProgram(bool requiresMotionControl);
-    // Aborts the VM to Idle on error.
-    void failVm(Error error);
+    // Single place a protocol's idle/busy transition is announced from.
+    void setRunning(bool running);
+    void publishError(Error error);
 
-    // =========================================================================
-    // Configuration and VM runtime state
-    // =========================================================================
+    // Every failure the module reports goes through here: read the latched
+    // error flags on the main loop, report the first one, and end the protocol.
+    void checkErrorFlags();
+    void failProtocol(Error error);
+    static Error errorFor(uint32_t errorFlags);
 
-    Config  m_config;
-    float   m_centerFrequency;
-    float   m_driveAmplitude;
-    float   m_scanTargetPower;
-    float   m_qualityFactor;
-
-    // Reset prologue executed before every motion protocol; guarantees pc 0
-    // is entered at reset height with force off and the clamp closed.
-    static const Instruction kResetPrologue[5];
-    static constexpr uint8_t kResetPrologueLength = 5U;
-
-    ActivityState m_activityState;
-    const Instruction *m_program;   // active protocol, set via setProtocol()
-    uint8_t m_programLength;
-    bool    m_protocolRequiresMotionControl;
-    // Control loops actually enabled at engage(); tracked separately from the
-    // protocol's requirement so a swap to a motion-free protocol while
-    // engaged still disables the loops when the VM idles.
-    bool    m_motionControlEnabled;
-    uint8_t m_pc;                   // position in m_program[] (or prologue)
-    bool    m_instrStarted;         // one-shot entry guard for blocking ops
-    uint32_t m_waitStartTick;
-
-    // =========================================================================
-    // Hardware event flags (set by callback bridges, consumed by the VM)
-    //
-    // Producers run in mixed contexts (main loop, control-update chain, timer
-    // and pin-monitor ISRs) while the VM consumes from the main loop, so the
-    // latch is an atomic bitmask: fetch_or/fetch_and compile to LDREX/STREX
-    // on Cortex-M4 and no set can be lost to a concurrent clear.
-    // =========================================================================
-
-    std::atomic<uint32_t> m_eventFlags;
-
+    // Flags that mean the protocol cannot go on. Raised by the command that
+    // failed (possibly from an ISR) and consumed by checkErrorFlags().
     static constexpr uint32_t kErrorFlagsMask =
-        EVENT_POSITION_ERROR | EVENT_FORCE_COIL_ERROR | EVENT_US_POWER_ERROR |
-        EVENT_WAIT_TIMEOUT;
+        EVENT_POSITION_ERROR | EVENT_Z_CONTROLLER_INIT_ERROR |
+        EVENT_AXIS_MOVE_ERROR | EVENT_FORCE_COIL_ERROR | EVENT_US_POWER_ERROR |
+        EVENT_SCAN_ERROR | EVENT_WAIT_TIMEOUT;
 
-    // Clamp state a CLAMPOPEN/CLAMPCLOSE is driving towards; the solenoid
-    // state callback raises CLAMP_SETTLED when this state is reached.
-    SolenoidChannel::State m_clampCommandTarget;
+    // Enable/disable the continuously held mechanisms (the Z position loop and
+    // the force coil). Rolls back on a partial failure.
+    bool activateResources();
+    void deactivateResources();
+    // Releases whatever the in-flight commands still hold.
+    void stopActiveCommands();
+    // Drops only the in-flight commands that may be cut short, leaving the
+    // rest to finish. Used when a protocol is stopped.
+    void stopStoppableCommands();
 
-    // Manual Z-drive button state. Held states are written by the
-    // user-interface relay (possibly from monitor sampling context) and read by
-    // the VM in the main loop.
-    std::atomic<bool> m_raiseButtonHeld;
-    std::atomic<bool> m_lowerButtonHeld;
+    void registerCommands();
+    void registerCommand(Opcode opcode, BonderCommand &command,
+                         BonderCommand::EventOccurredCallback handler);
+    void startInstruction(const Instruction &instruction);
 
-    // Button-driven state shared by MZDRIVE/MZSETUP: which direction's target
-    // is currently commanded, so a held-state change is only issued once
-    // (not every tick).
-    enum class ManualDriveDir : uint8_t { None, Lower, Raise };
-    ManualDriveDir m_manualDriveDir;
+    // Each dispatcher unpacks the instruction's raw argument slots into its
+    // command's Args and starts it. Values a command needs but the protocol
+    // does not carry (the operating point a scan produced, the residual a
+    // tach sample produced) are routed here, so no command reads another's
+    // state.
+    void startInstructionZMove(void **args);
+    void startInstructionYMove(void **args);
+    void startInstructionYReverse(void **args);
+    void startInstructionTMove(void **args);
+    void startInstructionTimer(void **args);
+    void startInstructionWaitZPosition(void **args, uint32_t timeoutMs);
+    void startInstructionWaitContactEvents(void **args, uint32_t timeoutMs);
+    void startInstructionWaitContactState(void **args, uint32_t timeoutMs);
+    void startInstructionWaitMouseLeftButtonEvents(void **args, uint32_t timeoutMs);
+    void startInstructionWaitMouseLeftButtonState(void **args, uint32_t timeoutMs);
+    void startInstructionWaitMouseRightButtonEvents(void **args, uint32_t timeoutMs);
+    void startInstructionWaitMouseRightButtonState(void **args, uint32_t timeoutMs);
+    void startInstructionClampOpen(void **args);
+    void startInstructionClampClose(void **args);
+    void startInstructionScan(void **args);
+    void startInstructionPll(void **args);
+    void startInstructionSetForce(void **args);
+    void startInstructionUsReport(void **args);
+    void startInstructionMzDrive(void **args);
+    void startInstructionOpenZMove(void **args);
+    void startInstructionZReference(void **args);
+    void startInstructionTachMove(void **args);
+    void startInstructionTachSample(void **args);
+    void startInstructionTachReport(void **args);
 
-    // =========================================================================
-    // External notifications
-    // =========================================================================
+    // Everything the commands drive, in one bag they can be handed by init().
+    BonderVMResources m_resources;
 
-    BonderStateChangedCallback m_stateChangedCallback;
-    BonderErrorCallback        m_errorCallback;
-    void                      *m_eventCallbackContext;
-    UltrasonicReportCallback   m_ultrasonicReportCallback;
-    void                      *m_ultrasonicReportCallbackContext;
-    TachCalReportCallback      m_tachCalReportCallback;
-    void                      *m_tachCalReportCallbackContext;
-    TelemetryCallback          m_telemetryCallback;
-    void                      *m_telemetryCallbackContext;
+    ListenerList<bool>                    m_stateChangedCallbacks;
+    ListenerList<Error>                   m_errorCallbacks;
+    ListenerList<const UltrasonicReport &> m_ultrasonicReportCallbacks;
+    ListenerList<float>                   m_tachCalReportCallbacks;
+    ListenerList<float>                   m_zReferenceReportCallbacks;
 
-    // =========================================================================
-    // Injected dependencies
-    // =========================================================================
+    BonderCommand *m_commandList[Opcode::NUM_COMMANDS] = {};
 
-    DcMotorPositionControllerModule *m_zMotorControllerModule;
-    ForceCoilDriverModule   *m_forceCoilControllerModule;
-    RouterChannel            *m_yAxisRouter;
-    RouterChannel            *m_tAxisRouter;
-    PllModule                *m_pllModule;
-    UsImpedanceScannerModule *m_impedanceScannerModule;
-    SolenoidChannel          *m_clampSolenoid;
-    PinMonitorChannel        *m_contactSensorMonitor;
-    Timer                    *m_timer;
+    // Which commands have been started and not yet reported completion, and
+    // what they last reported. Indexed by opcode, like m_commandList.
+    bool m_commandActive[Opcode::NUM_COMMANDS] = {};
+    BonderCommand::InstrStatus m_commandStatus[Opcode::NUM_COMMANDS] = {};
 
-    // =========================================================================
-    // Impedance scan buffers
-    // =========================================================================
+    const Instruction *m_protocol = nullptr;
+    uint8_t m_protocolLength = 0U;
+    uint8_t m_pc = 0U;
+    // Entry guard for the instruction at the pc, so a blocking one is started
+    // once and then only polled.
+    bool m_instructionStarted = false;
+    bool m_running = false;
+    // Set by stopProtocol(): the pc is frozen and the module is waiting for
+    // the in-flight commands to finish before it reports idle.
+    bool m_stopping = false;
+    // Whether the continuously held mechanisms are switched on. Tracked apart
+    // from m_running: a protocol that runs to its end leaves the module engaged
+    // until the caller disengages it.
+    bool m_engaged = false;
 
-    complexf m_voltagePhasors[BONDER_MODULE_SCAN_MAX_FREQUENCIES];
-    complexf m_currentPhasors[BONDER_MODULE_SCAN_MAX_FREQUENCIES];
-    complexf m_impedances[BONDER_MODULE_SCAN_MAX_FREQUENCIES];
+    static BonderCommandZMove             m_CmdZMove;
+    static BonderCommandYMove             m_CmdYMove;
+    static BonderCommandYReverse          m_CmdYReverse;
+    static BonderCommandTMove             m_CmdTMove;
+    static BonderCommandTimer             m_CmdTimer;
+    static BonderCommandWaitZPosition     m_CmdWaitZPosition;
+    static BonderCommandWaitContactEvents m_CmdWaitContactEvents;
+    static BonderCommandWaitContactState  m_CmdWaitContactState;
+    static BonderCommandWaitMouseLeftButtonEvents  m_CmdWaitMouseLeftButtonEvents;
+    static BonderCommandWaitMouseLeftButtonState   m_CmdWaitMouseLeftButtonState;
+    static BonderCommandWaitMouseRightButtonEvents m_CmdWaitMouseRightButtonEvents;
+    static BonderCommandWaitMouseRightButtonState  m_CmdWaitMouseRightButtonState;
+    static BonderCommandClampOpen         m_CmdClampOpen;
+    static BonderCommandClampClose        m_CmdClampClose;
+    static BonderCommandScan              m_CmdScan;
+    static BonderCommandPll               m_CmdPll;
+    static BonderCommandSetForce          m_CmdSetForce;
+    static BonderCommandUsReport          m_CmdUsReport;
+    static BonderCommandMzDrive           m_CmdMzDrive;
+    static BonderCommandOpenZMove         m_CmdOpenZMove;
+    static BonderCommandZReference        m_CmdZReference;
+    static BonderCommandTachMove          m_CmdTachMove;
+    static BonderCommandTachSample        m_CmdTachSample;
+    static BonderCommandTachReport        m_CmdTachReport;
 
-    // =========================================================================
-    // Tach-cal sampling (TACHSAMPLE/TACHREPORT) — accumulated from velocity
-    // measurements pushed by the velocity controller (via
-    // DcMotorPositionControllerModule's proxy), not polled, so every real
-    // tachometer sample is counted exactly once regardless of this module's
-    // own tick rate.
-    // =========================================================================
+    static void onZMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onYMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onYReverseCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onTMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onTimerCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onWaitZPositionCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onWaitContactEventsCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onWaitContactStateCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onWaitMouseLeftButtonEventsCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onWaitMouseLeftButtonStateCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onWaitMouseRightButtonEventsCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onWaitMouseRightButtonStateCmdEvent(void *context, uint8_t eventId, void *eventParams);
 
-    bool     m_tachSamplingActive;
-    float    m_tachVelocitySum;
-    uint32_t m_tachSampleCount;
-    // Z position (independent LVDT measurement, not the tachometer) at the
-    // instant TACHSAMPLE armed — compared against the position at TACHREPORT
-    // to separate real motion (imperfect position hold during the window)
-    // from genuine tachometer zero-offset error.
-    float    m_tachPositionAtSampleStart;
-
-    // =========================================================================
-    // VM utilities
-    // =========================================================================
-
-    float    resolveArg(const Instruction& instr) const;
-    uint32_t collectEventFlags() const;
-    bool     flagsSatisfied(uint32_t mask) const;
-    void     setEventFlags(uint32_t mask);
-    void     clearFlagsMask(uint32_t mask);
-    void     clearAllFlags();
-    void     fireTelemetry(const Instruction& instr, bool succeeded);
-    void     setZMotorPosition(float position);
-    void     computeOperatingPoint(float targetPower);
-    float    amplitudeForTargetPower(float realAdmittance, float targetPower);
-    float    correctedForceGrams(float grams) const;
-    static float forceGramsToAmps(float grams);
-    uint8_t  findResonanceIndex();
-    float    calculateCenterFrequency(uint8_t resonanceIndex);
-    float    calculateDriveAmplitude(uint8_t resonanceIndex, float targetPower);
-
-    // =========================================================================
-    // Peripheral callback bridges
-    // =========================================================================
-
-    static BonderModule *s_instance;
-
-    static void onContactSensorStateChanged(void *context, PinMonitorChannel::PinState state);
-    static void onTimerDone(void *context, Timer *t);
-    static void onYAxisRouterDone(void *context, RouterChannel *channel);
-    static void onTAxisRouterDone(void *context, RouterChannel *channel);
-    static void onPllEvent(void *context, PllModule::Event event);
-    static void onForceCoilEvent(ForceCoilDriverModule::Event eventId);
-    static bool onZMotorPositionSetpoint(void *context, float *positionSetpoint);
-    static void onZMotorEvent(void *context, DcMotorPositionControllerModule::Event event);
-    static void onClampStateChanged(void *context, SolenoidChannel::State state);
-    static void onImpedanceScanned(void *context, complexf *v, complexf *c, complexf *i);
-    static void onZVelocityMeasured(void *context, float velocity);
-    void handleZVelocityMeasured(float velocity);
-
-    float m_zMotorPositionSetpoint;
-    bool  m_zMotorSetpointActive;
-};
-
-// Base interface for flat instruction programs executed by BonderModule's VM.
-// The aliases keep concrete protocol tables compact and tied to the VM's
-// canonical opcode and event definitions.
-class BonderProtocol {
-public:
-    using Instruction = BonderModule::Instruction;
-    using Op = BonderModule::Opcode;
-    using B = BonderConfig;
-
-    static constexpr uint32_t WAIT_TIMEOUT_MS = 10000U;
-    static constexpr uint32_t US_TRANSFER_WAIT_TIMEOUT_MS = 65000U;
-
-    static constexpr uint32_t EVENT_T_MOVE_COMPLETED      = BonderModule::EVENT_T_MOVE_COMPLETED;
-    static constexpr uint32_t EVENT_Y_MOVE_COMPLETED      = BonderModule::EVENT_Y_MOVE_COMPLETED;
-    static constexpr uint32_t EVENT_FORCE_COIL_SETTLED    = BonderModule::EVENT_FORCE_COIL_SETTLED;
-    static constexpr uint32_t EVENT_CONTACT_CONNECTED     = BonderModule::EVENT_CONTACT_CONNECTED;
-    static constexpr uint32_t EVENT_CONTACT_DISCONNECTED  = BonderModule::EVENT_CONTACT_DISCONNECTED;
-    static constexpr uint32_t EVENT_TIMER_EXPIRED         = BonderModule::EVENT_TIMER_EXPIRED;
-    static constexpr uint32_t EVENT_SCAN_COMPLETED        = BonderModule::EVENT_SCAN_COMPLETED;
-    static constexpr uint32_t EVENT_US_POWER_TRANSFERRED  = BonderModule::EVENT_US_POWER_TRANSFERRED;
-    static constexpr uint32_t EVENT_RIGHT_BUTTON_PRESSED  = BonderModule::EVENT_RIGHT_BUTTON_PRESSED;
-    static constexpr uint32_t EVENT_RIGHT_BUTTON_RELEASED = BonderModule::EVENT_RIGHT_BUTTON_RELEASED;
-    static constexpr uint32_t EVENT_LEFT_BUTTON_PRESSED   = BonderModule::EVENT_LEFT_BUTTON_PRESSED;
-    static constexpr uint32_t EVENT_LEFT_BUTTON_RELEASED   = BonderModule::EVENT_LEFT_BUTTON_RELEASED;
-    static constexpr uint32_t EVENT_Z_POSITION_REACHED    = BonderModule::EVENT_Z_POSITION_REACHED;
-    static constexpr uint32_t EVENT_CLAMP_SETTLED         = BonderModule::EVENT_CLAMP_SETTLED;
-    static constexpr uint32_t EVENT_CLAMP_TOGGLE_REQUESTED = BonderModule::EVENT_CLAMP_TOGGLE_REQUESTED;
-
-    virtual ~BonderProtocol() = default;
-    virtual const Instruction *getProtocolPtr() const = 0;
-    virtual uint8_t getProtocolSize() const = 0;
-    virtual bool requiresMotionControl() const { return true; }
+    static void onClampOpenCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onClampCloseCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onScanCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onPllCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onSetForceCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onUsReportCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onMzDriveCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onOpenZMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onZReferenceCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onTachMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onTachSampleCmdEvent(void *context, uint8_t eventId, void *eventParams);
+    static void onTachReportCmdEvent(void *context, uint8_t eventId, void *eventParams);
 };

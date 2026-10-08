@@ -7,6 +7,7 @@
 #include "generic.h"
 #include "configuration.h"
 #include "complex.h"
+#include "callback_list.hpp"
 #include "process.hpp"
 #include "adc_service.hpp"
 #include "dac_service.hpp"
@@ -41,6 +42,7 @@ public:
     void setScanParameters(uint16_t numFrequencies, float minFrequency, float frequencyStep);
 
     bool addScanCompleteListenerCallback(void *context, Callback cb);
+    bool removeScanCompleteListenerCallback(void *context, Callback cb);
     bool beginScan(complexf *voltagePhasors,
                    complexf *currentPhasors,
                    complexf *impedances);
@@ -53,13 +55,6 @@ private:
     void onStart() override;
     void onStop() override;
     void onExecute() override;
-
-    struct CallbackRegistration {
-        Callback callback;
-        void *context;
-    };
-
-    static constexpr uint8_t kMaxCallbacks = 4U;
 
     static void onVoltageCaptureDone(void *context, uint16_t *buffer, uint32_t numSamples);
     static void onCurrentCaptureDone(void *context, uint16_t *buffer, uint32_t numSamples);
@@ -104,8 +99,7 @@ private:
     complexf *m_currentPhasors;
     complexf *m_impedances;
 
-    CallbackRegistration m_callbacks[kMaxCallbacks];
-    uint8_t m_callbackCount;
+    ListenerList<complexf *, complexf *, complexf *> m_callbacks;
 };
 
 #endif /* US_IMPEDANCE_SCANNER_MODULE_HPP */

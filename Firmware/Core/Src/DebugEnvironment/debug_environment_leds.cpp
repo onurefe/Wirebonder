@@ -47,10 +47,10 @@ LedsDebugEnvironment::LedsDebugEnvironment()
         m_controlPanelService.addLed(&m_leds[i]);
     }
 
-    m_controlPanelService.setOutputWriteListenerCallbacks(
-        this,
-        &LedsDebugEnvironment::onOutputWriteQueued,
-        &LedsDebugEnvironment::onOutputWriteCompleted);
+    m_controlPanelService.addOutputWriteQueuedListenerCallback(
+        this, &LedsDebugEnvironment::onOutputWriteQueued);
+    m_controlPanelService.addOutputWriteCompletedListenerCallback(
+        this, &LedsDebugEnvironment::onOutputWriteCompleted);
 
     addProcess(&m_timerExpireService);
     addProcess(&m_ioExpanderService);

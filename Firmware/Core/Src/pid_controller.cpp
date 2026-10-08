@@ -7,6 +7,7 @@ PidController::PidController(const Config& config)
     : m_config(config)
     , m_internalState(STATE_READY)
     , m_bypassEnabled(false)
+    , m_decayMultiplier(1.0f)
     , m_prevFilteredError(0.0f)
 {
     m_state = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
@@ -45,6 +46,7 @@ bool PidController::isBypassEnabled() const
 void PidController::start(void) {
     if (m_internalState != STATE_READY) return;
 
+    m_decayMultiplier = expf(-m_config.dt/m_config.leakTc);
     m_state.integral = 0.0f;
     m_state.errorFiltered = 0.0f;
     m_prevFilteredError = 0.0f;
@@ -121,6 +123,7 @@ void PidController::updateIntegral() {
         return;
     }
     m_state.integral += m_state.errorFiltered * m_config.dt;
+    m_state.integral *= m_decayMultiplier;
 }
 
 float PidController::computePidOutput() {

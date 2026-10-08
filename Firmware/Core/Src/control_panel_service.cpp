@@ -25,90 +25,27 @@ ButtonChannel::ButtonChannel(uint8_t idcPin0, uint8_t idcPin1, uint32_t prolonge
     , m_lastChangeTick(0U)
     , m_pressStartTick(0U)
     , m_lastProlongedTick(0U)
-    , m_pressCallbacks{}
-    , m_prolongedPressCallbacks{}
-    , m_pressCallbackCount(0)
-    , m_prolongedPressCallbackCount(0)
 {
 }
 
 bool ButtonChannel::addPressListenerCallback(void *context, PressCallback callback)
 {
-    if (callback == nullptr) {
-        return false;
-    }
-
-    for (uint8_t i = 0; i < m_pressCallbackCount; i++) {
-        if (m_pressCallbacks[i].context == context && m_pressCallbacks[i].callback == callback) {
-            return true;
-        }
-    }
-
-    if (m_pressCallbackCount < kMaxCallbacks) {
-        m_pressCallbacks[m_pressCallbackCount++] = CallbackRegistration{callback, context};
-        return true;
-    }
-
-    return false;
+    return m_pressCallbacks.add(context, callback);
 }
 
 bool ButtonChannel::addProlongedPressListenerCallback(void *context, ProlongedPressCallback callback)
 {
-    if (callback == nullptr) {
-        return false;
-    }
-
-    for (uint8_t i = 0; i < m_prolongedPressCallbackCount; i++) {
-        if (m_prolongedPressCallbacks[i].context == context && m_prolongedPressCallbacks[i].callback == callback) {
-            return true;
-        }
-    }
-
-    if (m_prolongedPressCallbackCount < kMaxCallbacks) {
-        m_prolongedPressCallbacks[m_prolongedPressCallbackCount++] =
-            ProlongedCallbackRegistration{callback, context};
-        return true;
-    }
-
-    return false;
+    return m_prolongedPressCallbacks.add(context, callback);
 }
 
 bool ButtonChannel::removePressListenerCallback(void *context, PressCallback callback)
 {
-    for (uint8_t i = 0; i < m_pressCallbackCount; ++i) {
-        if (m_pressCallbacks[i].context != context ||
-            m_pressCallbacks[i].callback != callback) {
-            continue;
-        }
-
-        for (uint8_t j = static_cast<uint8_t>(i + 1U);
-             j < m_pressCallbackCount; ++j) {
-            m_pressCallbacks[j - 1U] = m_pressCallbacks[j];
-        }
-        --m_pressCallbackCount;
-        m_pressCallbacks[m_pressCallbackCount] = {};
-        return true;
-    }
-    return false;
+    return m_pressCallbacks.remove(context, callback);
 }
 
 bool ButtonChannel::removeProlongedPressListenerCallback(void *context, ProlongedPressCallback callback)
 {
-    for (uint8_t i = 0; i < m_prolongedPressCallbackCount; ++i) {
-        if (m_prolongedPressCallbacks[i].context != context ||
-            m_prolongedPressCallbacks[i].callback != callback) {
-            continue;
-        }
-
-        for (uint8_t j = static_cast<uint8_t>(i + 1U);
-             j < m_prolongedPressCallbackCount; ++j) {
-            m_prolongedPressCallbacks[j - 1U] = m_prolongedPressCallbacks[j];
-        }
-        --m_prolongedPressCallbackCount;
-        m_prolongedPressCallbacks[m_prolongedPressCallbackCount] = {};
-        return true;
-    }
-    return false;
+    return m_prolongedPressCallbacks.remove(context, callback);
 }
 
 void ButtonChannel::update(uint16_t state)
@@ -142,9 +79,7 @@ void ButtonChannel::update(uint16_t state)
             m_lastProlongedTick = tick;
             m_wasPressed        = true;
 
-            for (uint8_t i = 0; i < m_pressCallbackCount; i++) {
-                m_pressCallbacks[i].callback(m_pressCallbacks[i].context);
-            }
+            m_pressCallbacks.invoke();
         }
         // A rejected press edge leaves m_wasPressed false: otherwise the
         // bounce that follows a release would re-arm the repeat with the
@@ -160,7 +95,7 @@ void ButtonChannel::update(uint16_t state)
 
 void ButtonChannel::tick()
 {
-    if (!m_wasPressed || m_prolongedPressCallbackCount == 0U) {
+    if (!m_wasPressed || m_prolongedPressCallbacks.isEmpty()) {
         return;
     }
 
@@ -179,9 +114,7 @@ void ButtonChannel::tick()
     }
     m_lastProlongedTick = tick;
 
-    for (uint8_t i = 0; i < m_prolongedPressCallbackCount; i++) {
-        m_prolongedPressCallbacks[i].callback(m_prolongedPressCallbacks[i].context, heldMs);
-    }
+    m_prolongedPressCallbacks.invoke(heldMs);
 }
 
 void ButtonChannel::reset()
@@ -227,9 +160,6 @@ ControlPanelService::ControlPanelService(Pca9535ExpanderChannel *expander, Timer
     , m_buttonCount(0U)
     , m_leds{}
     , m_ledCount(0U)
-    , m_outputWriteQueuedCallback(nullptr)
-    , m_outputWriteCompletedCallback(nullptr)
-    , m_outputWriteCallbackContext(nullptr)
 {}
 
 bool ControlPanelService::addButton(ButtonChannel *button)
@@ -252,7 +182,7 @@ void ControlPanelService::onStart()
         setProcessError();
         return;
     }
-    m_pollTimer->setExpirationListenerCallback(this, onPollTimerExpired);
+    m_pollTimer->addExpirationListenerCallback(this, onPollTimerExpired);
 
     m_outputPort0 = 0x00U;
     m_outputPort1 = 0x00U;
@@ -261,8 +191,8 @@ void ControlPanelService::onStart()
         m_buttons[i]->reset();
     }
 
-    m_expander->setTransferListenerCallbacks(
-        this, onKeypadStateChanged, onExpanderWriteCompleted);
+    m_expander->addInputChangedListenerCallback(this, onKeypadStateChanged);
+    m_expander->addWriteCompletedListenerCallback(this, onExpanderWriteCompleted);
     m_pollTimer->start(false, 1.0f / CONTROL_PANEL_POLL_FREQUENCY);
 }
 
@@ -270,10 +200,11 @@ void ControlPanelService::onStop()
 {
     if (m_pollTimer != nullptr) {
         m_pollTimer->stop();
-        m_pollTimer->setExpirationListenerCallback(nullptr, nullptr);
+        m_pollTimer->removeExpirationListenerCallback(this, onPollTimerExpired);
     }
     if (m_expander != nullptr) {
-        m_expander->setTransferListenerCallbacks(nullptr, nullptr, nullptr);
+        m_expander->removeInputChangedListenerCallback(this, onKeypadStateChanged);
+        m_expander->removeWriteCompletedListenerCallback(this, onExpanderWriteCompleted);
     }
 
     // A button still physically held here would otherwise stay latched as
@@ -294,8 +225,8 @@ void ControlPanelService::onExecute()
         uint8_t transactionId;
         if (m_expander->setPort0OutputValues(new_output_port0, &transactionId)) {
             m_outputPort0 = new_output_port0;
-            if (m_outputWriteQueuedCallback != nullptr) {
-                m_outputWriteQueuedCallback(m_outputWriteCallbackContext, transactionId);
+            {
+                m_outputWriteQueuedCallbacks.invoke(transactionId);
             }
         }
     }
@@ -303,8 +234,8 @@ void ControlPanelService::onExecute()
         uint8_t transactionId;
         if (m_expander->setPort1OutputValues(new_output_port1, &transactionId)) {
             m_outputPort1 = new_output_port1;
-            if (m_outputWriteQueuedCallback != nullptr) {
-                m_outputWriteQueuedCallback(m_outputWriteCallbackContext, transactionId);
+            {
+                m_outputWriteQueuedCallbacks.invoke(transactionId);
             }
         }
     }
@@ -318,14 +249,24 @@ bool ControlPanelService::ledOutputsMatch() const
     return outputPort0 == m_outputPort0 && outputPort1 == m_outputPort1;
 }
 
-void ControlPanelService::setOutputWriteListenerCallbacks(
-    void *context,
-    OutputWriteCallback queuedCallback,
-    OutputWriteCallback completedCallback)
+bool ControlPanelService::addOutputWriteQueuedListenerCallback(void *context, OutputWriteCallback cb)
 {
-    m_outputWriteCallbackContext = context;
-    m_outputWriteQueuedCallback = queuedCallback;
-    m_outputWriteCompletedCallback = completedCallback;
+    return m_outputWriteQueuedCallbacks.add(context, cb);
+}
+
+bool ControlPanelService::removeOutputWriteQueuedListenerCallback(void *context, OutputWriteCallback cb)
+{
+    return m_outputWriteQueuedCallbacks.remove(context, cb);
+}
+
+bool ControlPanelService::addOutputWriteCompletedListenerCallback(void *context, OutputWriteCallback cb)
+{
+    return m_outputWriteCompletedCallbacks.add(context, cb);
+}
+
+bool ControlPanelService::removeOutputWriteCompletedListenerCallback(void *context, OutputWriteCallback cb)
+{
+    return m_outputWriteCompletedCallbacks.remove(context, cb);
 }
 
 void ControlPanelService::onPollTimerExpired(void *context, Timer *timer)
@@ -379,10 +320,9 @@ void ControlPanelService::onExpanderWriteCompleted(void *context,
                                                     uint8_t transactionId)
 {
     ControlPanelService *self = static_cast<ControlPanelService *>(context);
-    if (self == nullptr || self->m_outputWriteCompletedCallback == nullptr) {
+    if (self == nullptr) {
         return;
     }
 
-    self->m_outputWriteCompletedCallback(
-        self->m_outputWriteCallbackContext, transactionId);
+    self->m_outputWriteCompletedCallbacks.invoke(transactionId);
 }

@@ -22,6 +22,14 @@
 #define LVDT_MODULE_EXCITATION_AVERAGE                               (DAC2_VOLTAGE_RANGE / 2.0f)
 
 #define LVDT_MODULE_STROKE_MM                                        32.0
+
+/* What (magA - magB) / (magA + magB) actually reads at full stroke. The ratio
+   does not swing the whole +/-1 across the range -- both secondaries still
+   couple at the extremes -- so scaling it by stroke/2 under-reads the
+   displacement by 1/this. Measured on the bench: a commanded 5 mm moved the
+   head 10 mm, i.e. the ratio spans +/-0.5. */
+#define LVDT_MODULE_RATIO_AT_FULL_STROKE                             0.5f
+
 #define LVDT_MODULE_MIN_TOTAL_MAGNITUDE                              1E-3
 
 /* PllModule -----------------------------------------------------------------*/
@@ -70,6 +78,7 @@
 #define PLL_MODULE_FREQ_PID_FILTER_TC                                0.004
 #define PLL_MODULE_FREQ_PID_MIN_DEVIATION                            -1000.0
 #define PLL_MODULE_FREQ_PID_MAX_DEVIATION                            500.0
+#define PLL_MODULE_FREQ_PID_LEAKAGE_TC                               10.0
 
 /* Loop-shaping targets fed to TransducerAnalyzer::frequencyPidTuning() for
    the per-bond adaptive retune. Dead time is the correction delay plus half
@@ -195,6 +204,7 @@
 
 #define FORCE_COIL_MODULE_PID_OUTPUT_MIN                             0.0
 #define FORCE_COIL_MODULE_PID_OUTPUT_MAX                             1.0
+#define FORCE_COIL_MODULE_PID_LEAKAGE_TC                             10.0
 
 /* Max rate the internal setpoint the PID chases is allowed to move, rather
    than stepping directly to a new SETFORCE target (e.g. the 0.45A->0.10A
@@ -229,6 +239,32 @@
 /* DcMotorVelocityControllerModule (inner loop: tachometer -> PWM) -----------*/
 #define DCMOTOR_VELOCITY_MODULE_CONTROL_FREQUENCY                    1000
 
+/* Z SIGN CONVENTION -- up is positive, everywhere.
+   Position (LVDT), velocity (tachometer) and drive (duty) all follow it, as do
+   the bonder's heights, so no layer inverts another.
+
+   Which way round each of those actually is depends on how the hardware is
+   wired -- which LVDT secondary is A, which way the motor leads go, which way
+   the tacho is connected -- so each is declared here as an explicit +1/-1 and
+   applied in exactly one place, rather than hidden in the sign of an
+   expression or a calibration constant.
+
+   They are not independent. Two conditions must hold or a loop becomes
+   positive feedback and the axis runs away:
+
+     velocity loop:  DRIVE_DIRECTION * TACHOMETER_DIRECTION  = +1
+                     (a positive drive must raise the reported velocity)
+     position loop:  DRIVE_DIRECTION * LVDT_DIRECTION        = +1
+                     (a positive drive must raise the reported position)
+
+   Flipping all three together satisfies both and merely reverses what the
+   machine calls "up"; flipping one alone is a runaway. Establish the drive
+   first, with the loops bypassed -- the Z calibration is exactly that
+   condition -- then set the other two to match what it does. */
+#define ZMOTOR_DRIVE_DIRECTION                                       (-1.0f)
+#define ZMOTOR_TACHOMETER_DIRECTION                                  (-1.0f)
+#define LVDT_MODULE_DIRECTION                                        (-1.0f)
+
 /* Tachometer AnalogChannel wiring (Robot-level; feeds the velocity loop). */
 #define ZMOTOR_MODULE_TACHOMETER_V_TO_MM_PER_SEC                     (3.2*48.925662f)
 #define ZMOTOR_MODULE_TACHOMETER_ZERO_VELOCITY_VOLTAGE               1.65
@@ -243,7 +279,7 @@
    A machine-wide constant, independent of whichever bonding configuration is
    loaded. Sits below BONDER_MODULE_DEFAULT_RESET_HEIGHT, so the axis travels
    to it before TACHSAMPLE starts. */
-#define ZMOTOR_TACH_CAL_POSITION_MM                                  6.0f
+#define ZMOTOR_TACH_CAL_POSITION_MM                                  9.1f
 #define ZMOTOR_TACH_CAL_SAMPLE_DURATION_S                            2.0f
 
 #define DCMOTOR_VELOCITY_MODULE_MIN_DUTY                             0.05f
@@ -267,6 +303,7 @@
 
 #define DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MIN                       -13.5f
 #define DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MAX                       13.5f
+#define DCMOTOR_VELOCITY_MODULE_PID_LEAKAGE_TC                       10.0f
 
 /* DcMotorPositionControllerModule (LVDT -> velocity correction) ------------*/
 #define DCMOTOR_POSITION_MODULE_CONTROL_FREQUENCY                    1000
@@ -274,21 +311,29 @@
 
 #define DCMOTOR_POSITION_MODULE_PROPORTIONAL_GAIN                    100.0f
 
-#define DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR                   1.0e-1f /* mm */
+/* Weight on the velocity a setpoint provider feeds forward. One means the
+   provider's own profile velocity is commanded as-is and the proportional
+   term only trims it; lower it to lean back on the position loop. */
+#define DCMOTOR_POSITION_MODULE_VELOCITY_FEEDFORWARD_GAIN             1.0f
 
-/* Z position-loop velocity clamps, operator-editable via SETTINGS
-   (UP SPEED / DOWN SPEED). Z increases upward, so the upward limit is the
-   loop's positive output bound; both are stored as positive magnitudes in
-   mm/s and the downward one is negated when applied to the lower bound. */
-#define ZMOTOR_MAX_UPWARD_SPEED_DEFAULT                              7.5f
+#define DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR                   2.0e-1f /* mm */
+
+/* Machine-wide Z position-loop velocity clamps, operator-editable via SETTINGS
+   (UP SPEED / DOWN SPEED). They govern every program except manual bonding,
+   which runs at its profile's own BonderConfig::manualZSpeed instead. Z
+   increases upward, so the upward limit is the loop's positive output bound;
+   both are stored as positive magnitudes in mm/s and the downward one is
+   negated when applied to the lower bound. */
+#define ZMOTOR_MAX_UPWARD_SPEED_DEFAULT                              3.5f
 #define ZMOTOR_MAX_UPWARD_SPEED_MIN                                  0.1f
 #define ZMOTOR_MAX_UPWARD_SPEED_MAX                                  10.0f
 #define ZMOTOR_MAX_UPWARD_SPEED_STEP                                 0.1f
 
-#define ZMOTOR_MAX_DOWNWARD_SPEED_DEFAULT                            5.0f
+#define ZMOTOR_MAX_DOWNWARD_SPEED_DEFAULT                            3.5f
 #define ZMOTOR_MAX_DOWNWARD_SPEED_MIN                                0.1f
 #define ZMOTOR_MAX_DOWNWARD_SPEED_MAX                                10.0f
 #define ZMOTOR_MAX_DOWNWARD_SPEED_STEP                               0.1f
+
 
 /* RouterModule --------------------------------------------------------------*/
 #define ROUTER_MODULE_SEGMENT_RENDER_FREQUENCY                       100.
@@ -302,7 +347,7 @@
    run through the current->grams fit below, so behavior is unchanged from
    before the grams conversion; re-tune in grams going forward. */
 #define BONDER_MODULE_DEFAULT_FORCE_COIL_CONSTANT_FORCE_GRAMS        15.0f
-#define BONDER_MODULE_DEFAULT_FORCE_COIL_TRACKING_FORCE_GRAMS        30.0f
+#define BONDER_MODULE_DEFAULT_FORCE_COIL_TRACKING_FORCE_GRAMS        20.0f
 #define BONDER_MODULE_DEFAULT_FORCE_COIL_FIRST_BOND_FORCE_GRAMS      35.0f
 #define BONDER_MODULE_DEFAULT_FORCE_COIL_SECOND_BOND_FORCE_GRAMS     35.0f
 
@@ -311,7 +356,7 @@
    during Setup. Machine-wide (MachineSettingsData::forceSetupTrackingForce,
    the "Setup Force" settings row), not part of a bonding configuration, so
    the measurement is comparable across profiles. */
-#define FORCE_SETUP_TRACKING_FORCE_DEFAULT                           30.0f
+#define FORCE_SETUP_TRACKING_FORCE_DEFAULT                           20.0f
 #define FORCE_SETUP_TRACKING_FORCE_MIN                               0.0f
 #define FORCE_SETUP_TRACKING_FORCE_MAX                               100.0f
 #define FORCE_SETUP_TRACKING_FORCE_STEP                              0.5f
@@ -326,16 +371,76 @@
 #define FORCE_SETUP_MEASURED_FORCE_MAX                               200.0f
 #define FORCE_SETUP_MEASURED_FORCE_STEP                              0.1f
 
-#define BONDER_MODULE_ZAXIS_WORKSPACE_SIZE                           9.0
+/* The Z travel window. Zero is the lowest point the axis may be driven to --
+   below the pad, so overtravel still has somewhere to go -- and the ceiling is
+   the retract limit. Every Z command clamps its target into this before
+   moving, so a protocol or a profile asking for more stops at the boundary and
+   carries on rather than failing to arrive.
 
-/* Z-axis heights (mm) — Z increases upward, bond pad contact at z≈0 */
-#define BONDER_MODULE_DEFAULT_RESET_HEIGHT                           8.0    /* retracted home position              */
-#define BONDER_MODULE_DEFAULT_LOOP_HEIGHT                            5.0    /* apex of the wire loop                */
-#define BONDER_MODULE_DEFAULT_FIRST_SEARCH_HEIGHT                    3.5    /* first-bond controlled descent        */
-#define BONDER_MODULE_DEFAULT_SECOND_SEARCH_HEIGHT                   3.5    /* second-bond controlled descent       */
-#define BONDER_MODULE_DEFAULT_KINK_HEIGHT                            4.0    /* wire kink point, just above pad      */
-#define BONDER_MODULE_DEFAULT_LOWEST_OVERTRAVEL                      (-0.3) /* maximum overtravel below pad surface */
-#define BONDER_MODULE_DEFAULT_SECOND_Z_HEIGHT                        2.5    /* table-tear height for the Y tail/tear */
+   The window, not the mechanism, is what bounds the machine: it sits inside
+   the physical travel so the head never reaches a hard stop, and below the
+   depth where the lever mechanism's tension -- and its cam bumps -- build up. */
+#define BONDER_MODULE_ZAXIS_MIN_POSITION                             0.0f
+#define BONDER_MODULE_ZAXIS_MAX_POSITION                             12.0f
+
+/* Where the pad surface falls inside that window. Every protocol height is
+   chosen relative to it, so it is the number to re-measure whenever the
+   fixture or the substrate changes. */
+#define BONDER_MODULE_ZAXIS_PAD_POSITION                             2.0f
+
+/* Z position calibration (Start Z. Pos. Cal.). The loops are bypassed and a
+   fixed drive is applied for a fixed time: first away from the origin, then
+   back towards it. The retreat puts the drivetrain's slack -- and the lever's
+   friction state -- into a known condition, so the origin is always reached
+   by the same approach and the reading does not depend on where the head
+   started or which way it last moved.
+
+   Wherever the head ends up is declared BONDER_MODULE_ZAXIS_MIN_POSITION,
+   which fixes the LVDT's offset and with it every absolute Z number.
+
+   The drive is deliberately small: enough to reach the stop and hold against
+   it, little enough that resting there is harmless. Find it by eye. */
+#define BONDER_COMMAND_ZCAL_DRIVE                                    2.5f   /* V */
+#define BONDER_COMMAND_ZCAL_PHASE_TIME                               2.5f   /* s */
+
+#define BONDER_MODULE_ZAXIS_MIN_POSITION                             0.0f
+#define BONDER_MODULE_ZAXIS_MAX_POSITION                             12.0f
+
+/* Where the pad surface falls inside that window. Every protocol height is
+   chosen relative to it, so it is the number to re-measure whenever the
+   fixture or the substrate changes. */
+#define BONDER_MODULE_ZAXIS_PAD_POSITION                             2.0f
+
+/* Z-axis positions (mm above the bottom of travel; the pad is at
+   BONDER_MODULE_ZAXIS_PAD_POSITION).
+
+   The clearances above the pad were scaled by 0.594 to fit the 12 mm window,
+   which keeps their proportions: the retract lands 0.5 mm under the ceiling
+   and everything else holds its share of the travel. Two values are not
+   scaled because they are physical rather than chosen -- the pad position
+   itself, and the overtravel's depth below it. */
+#define BONDER_MODULE_DEFAULT_RESET_HEIGHT                           11.0   /* retracted home position              */
+#define BONDER_MODULE_DEFAULT_LOOP_HEIGHT                            7.9    /* apex of the wire loop                */
+#define BONDER_MODULE_DEFAULT_FIRST_SEARCH_HEIGHT                    6.2    /* first-bond controlled descent        */
+#define BONDER_MODULE_DEFAULT_SECOND_SEARCH_HEIGHT                   6.2    /* second-bond controlled descent       */
+#define BONDER_MODULE_DEFAULT_KINK_HEIGHT                            6.8    /* wire kink point, just above pad      */
+#define BONDER_MODULE_DEFAULT_LOWEST_OVERTRAVEL                      1.4  /* maximum overtravel below pad surface */
+#define BONDER_MODULE_DEFAULT_SECOND_Z_HEIGHT                        5.0    /* table-tear height for the Y tail/tear */
+
+/* Z speed (mm/s, both directions) while the manual protocol runs. Per profile
+   rather than machine-wide: manual mode is the one program where the operator
+   drives Z with the mouse buttons, so the approach speed belongs to the job
+   being bonded -- fine wire on a shallow pad wants a slower descent than the
+   SETTINGS speed every other program uses. */
+/* Z motion profile (per profile, edited in the configuration screens). The
+   protocol's own moves ramp to _MAX_SPEED at _MAX_ACCELERATION; the
+   hand-driven ones run at MANUAL_Z_SPEED and stop over
+   MANUAL_Z_STOP_DISTANCE of travel (the ramp is a distance there so the feel
+   does not change with the speed setting). */
+#define BONDER_MODULE_DEFAULT_ZMOVE_MAX_SPEED                        3.5   /* mm/s   */
+#define BONDER_MODULE_DEFAULT_ZMOVE_MAX_ACCELERATION                 30.0  /* mm/s^2 */
+#define BONDER_MODULE_DEFAULT_MANUAL_Z_STOP_DISTANCE                 0.4   /* mm     */
+#define BONDER_MODULE_DEFAULT_MANUAL_Z_SPEED                         1.5
 
 /* Signed T-axis displacement (mm) from the router origin (T=0) */
 #define BONDER_MODULE_DEFAULT_TAIL_DISPLACEMENT                      4.5
@@ -349,18 +454,25 @@
 #define BONDER_MODULE_DEFAULT_Y_TEAR_POSITION                        3.5  /* table-tear Y position for the wire tear */
 
 /* Ultrasonic bonding */
-#define BONDER_MODULE_DEFAULT_FIRST_BONDING_POWER                    0.50   /* first-bond electrical power (W)      */
-#define BONDER_MODULE_DEFAULT_SECOND_BONDING_POWER                   0.70   /* second-bond electrical power (W)     */
-#define BONDER_MODULE_DEFAULT_FIRST_BONDING_ENERGY                   0.05   /* first-bond energy (J)                */
-#define BONDER_MODULE_DEFAULT_SECOND_BONDING_ENERGY                  0.07  /* second-bond energy (J)               */
-#define BONDER_MODULE_DEFAULT_TAIL_ASSIST_POWER                      0.200  /* ultrasonic tail-assist power (W)     */
-#define BONDER_MODULE_DEFAULT_TAIL_ASSIST_ENERGY                     0.200  /* ultrasonic tail-assist energy (J)    */
+#define BONDER_MODULE_DEFAULT_FIRST_BONDING_POWER                    0.5   /* first-bond electrical power (W)      */
+#define BONDER_MODULE_DEFAULT_SECOND_BONDING_POWER                   0.5   /* second-bond electrical power (W)     */
+#define BONDER_MODULE_DEFAULT_FIRST_BONDING_ENERGY                   0.025   /* first-bond energy (J)                */
+#define BONDER_MODULE_DEFAULT_SECOND_BONDING_ENERGY                  0.025  /* second-bond energy (J)               */
+#define BONDER_MODULE_DEFAULT_TAIL_ASSIST_POWER                      0.75  /* ultrasonic tail-assist power (W)     */
+
+/* The tail-assist energy is not configured: the drive has to last as long as
+   the T axis takes to draw the tail, so BonderModule derives it from the
+   restore travel and the axis's own profile (power x duration), with this
+   margin on top. The drive terminates on energy, so the margin only means it
+   keeps ringing a little past the end of the move -- running out early is the
+   failure that matters, since the last of the wire would then be drawn
+   through a silent tool. */
+#define BONDER_MODULE_TAIL_ASSIST_ENERGY_SAFETY_FACTOR               1.25f
 #define BONDER_MODULE_DEFAULT_MAX_BONDING_DURATION                   5.0    /* safety timeout (s)                   */
 
 /* Timing (s) */
-#define BONDER_MODULE_DEFAULT_SETTLING_TIME                          0.1   /* wait after contact for force to settle */
+#define BONDER_MODULE_DEFAULT_SETTLING_TIME                          0.2   /* wait after contact for force to settle */
 #define BONDER_MODULE_DEFAULT_COOLING_TIME                           0.01    /* wait after weld for bond to solidify   */
-#define BONDER_MODULE_DEFAULT_TAIL_RESTORE_DELAY                     1.0     /* delay before tail restore move         */
 #define BONDER_MODULE_DEFAULT_TEAR_STABILIZATION_TIME                0.1    /* wait after tear before restoring axes  */
 
 /* Impedance scan sweep (passed to UsImpedanceScannerModule::Config).
@@ -380,9 +492,51 @@
    tracking clamp even when the regression converges. */
 #define BONDER_MODULE_FIT_DIP_MAX_DEVIATION_BINS                     2.0f
 
+/* Deadlines for the bonder commands that a protocol stop has to wait out
+   (the ones driving a mechanism, which cannot simply be dropped). Each is a
+   generous multiple of the move's own worst case, so it only fires when the
+   mechanism has genuinely stalled -- a command that trips its deadline fails
+   into the normal error path instead of holding the VM forever. */
+/* Tail assist. The feed is released at a fraction of the reset height on the
+   way up from the tear -- a marker in the travel rather than a delay, so it is
+   insensitive to the Z speed -- and the drive is given a moment to ring the
+   transducer up before the wire is drawn through it. Both are being dialled in
+   on the bench, which is why they are constants here rather than profile
+   parameters. */
+#define BONDER_MODULE_TAIL_FEED_HEIGHT_FRACTION                      0.5f
+#define BONDER_MODULE_TAIL_VIBRATION_BUILDUP_TIME                    0.010f /* s */
+
+/* Anti-stiction dither for MZDRIVE's hand-driven descent, superposed on the
+   velocity handed to the loop. Amplitude zero disables it; the divider is the
+   half period in control ticks, so 2 is 250 Hz on a 1 kHz loop. Small enough
+   to average to no motion: what breaks the stiction is the edge, which the
+   velocity PID's derivative term answers with a torque impulse.
+   Keep it well below ZMOTOR_MAX_*_SPEED: the position loop clamps its output
+   to that speed, so a larger amplitude just becomes a full-speed reversal
+   every half period. It also runs while MZDRIVE is parked, and a motor that
+   cannot follow the reversals sits near stall current -- 40 mm/s burned a
+   Z motor that way. */
+#define BONDER_COMMAND_MZDRIVE_DITHER_AMPLITUDE                      0.5f   /* mm/s  */
+#define BONDER_COMMAND_MZDRIVE_DITHER_DIVIDER                        4U    /* ticks */
+
+/* How far MZDRIVE's walked setpoint may lead the carriage. Bounds the catch-up
+   motion when the axis cannot follow the commanded speed. */
+#define BONDER_COMMAND_MZDRIVE_MAX_FOLLOWING_ERROR                   1.0f  /* mm */
+
+#define BONDER_COMMAND_ZMOVE_TIMEOUT_MS                              15000  /* 9 mm at 3.5 mm/s = 2.6 s   */
+#define BONDER_COMMAND_YMOVE_TIMEOUT_MS                              5000   /* 18 mm trapezoid = 1.9 s    */
+#define BONDER_COMMAND_TMOVE_TIMEOUT_MS                              5000   /* 10 mm trapezoid = 2.0 s    */
+#define BONDER_COMMAND_SETFORCE_TIMEOUT_MS                           3000   /* 5 A/s slew, <0.5 A         */
+#define BONDER_COMMAND_CLAMP_TIMEOUT_MS                              1000   /* 0.1 s solenoid transition  */
+#define BONDER_COMMAND_SCAN_TIMEOUT_MS                               5000   /* 32 tones x 9 x 4 ms = 1.2 s*/
+/* The PLL and the tach sample carry their own duration, so their deadline is
+   that duration plus a margin rather than a flat constant. */
+#define BONDER_COMMAND_PLL_TIMEOUT_MARGIN_MS                         2000
+#define BONDER_COMMAND_TACHSAMPLE_TIMEOUT_MARGIN_MS                  1000
+
 /* Robot module --------------------------------------------------------------*/
-#define ROBOT_Y_AXIS_MAX_VELOCITY                           20.0
-#define ROBOT_Y_AXIS_MAX_ACCELERATION                       20.0
+#define ROBOT_Y_AXIS_MAX_VELOCITY                           10.0
+#define ROBOT_Y_AXIS_MAX_ACCELERATION                       10.0
 /* Homing direction: -1 seeks the workspace origin (0 mm), +1 seeks the
    far boundary (WORKSPACE_SIZE_MM). The post-home coordinate range is always
    0..WORKSPACE_SIZE_MM regardless of which end owns the limit switch. */
@@ -391,7 +545,7 @@
 #define ROBOT_Y_AXIS_HOMING_VELOCITY_MM_PER_S               2.0f
 #define ROBOT_Y_AXIS_HOMING_BACKOFF_MM                      1.0f
 #define ROBOT_Y_AXIS_HOMING_SEARCH_MARGIN_MM                1.0f
-#define ROBOT_T_AXIS_MAX_VELOCITY                           5.0
+#define ROBOT_T_AXIS_MAX_VELOCITY                           10.0
 #define ROBOT_T_AXIS_MAX_ACCELERATION                       10.0
 
 #define ROBOT_ACTIVE_CONFIG_OBJECT_ID                       1U
@@ -652,12 +806,24 @@
 #define CONFIGURATION_EDITOR_FORCE_GRAMS_MAX                           150.0f
 
 /* Z-axis heights (mm) */
-#define CONFIGURATION_EDITOR_HEIGHT_MIN                                0.0f
-#define CONFIGURATION_EDITOR_HEIGHT_MAX                                20.0f
-#define CONFIGURATION_EDITOR_KINK_HEIGHT_MIN                          -2.0f
-#define CONFIGURATION_EDITOR_KINK_HEIGHT_MAX                           5.0f
-#define CONFIGURATION_EDITOR_OVERTRAVEL_MIN                           -2.0f
-#define CONFIGURATION_EDITOR_OVERTRAVEL_MAX                            0.0f
+#define CONFIGURATION_EDITOR_HEIGHT_MIN                                BONDER_MODULE_ZAXIS_MIN_POSITION
+#define CONFIGURATION_EDITOR_HEIGHT_MAX                                BONDER_MODULE_ZAXIS_MAX_POSITION
+#define CONFIGURATION_EDITOR_KINK_HEIGHT_MIN                          BONDER_MODULE_ZAXIS_MIN_POSITION
+#define CONFIGURATION_EDITOR_KINK_HEIGHT_MAX                           BONDER_MODULE_ZAXIS_MAX_POSITION
+#define CONFIGURATION_EDITOR_OVERTRAVEL_MIN                           BONDER_MODULE_ZAXIS_MIN_POSITION
+#define CONFIGURATION_EDITOR_OVERTRAVEL_MAX                            BONDER_MODULE_ZAXIS_MAX_POSITION
+
+/* Manual-mode Z speed (mm/s). Same bounds as the machine-wide SETTINGS speeds
+   it replaces in that mode, so neither can command something the position loop
+   would refuse from the other. */
+#define CONFIGURATION_EDITOR_ZMOVE_SPEED_MIN                           ZMOTOR_MAX_UPWARD_SPEED_MIN
+#define CONFIGURATION_EDITOR_ZMOVE_SPEED_MAX                           ZMOTOR_MAX_UPWARD_SPEED_MAX
+#define CONFIGURATION_EDITOR_ZMOVE_ACCELERATION_MIN                    1.0f      /* mm/s^2 */
+#define CONFIGURATION_EDITOR_ZMOVE_ACCELERATION_MAX                    100.0f    /* mm/s^2 */
+#define CONFIGURATION_EDITOR_STOP_DISTANCE_MIN                         0.1f      /* mm */
+#define CONFIGURATION_EDITOR_STOP_DISTANCE_MAX                         4.0f      /* mm */
+#define CONFIGURATION_EDITOR_MANUAL_Z_SPEED_MIN                        ZMOTOR_MAX_UPWARD_SPEED_MIN
+#define CONFIGURATION_EDITOR_MANUAL_Z_SPEED_MAX                        ZMOTOR_MAX_UPWARD_SPEED_MAX
 
 /* XY-axis displacements (mm). T tail/tear (the only users of this bound) are
    non-negative travel commanded relative to wherever the T axis sits when
@@ -722,6 +888,10 @@
 #define CONFIGURATION_EDITOR_TEAR_STEP                CONFIGURATION_EDITOR_DISTANCE_STEP
 
 /* Motion */
+#define CONFIGURATION_EDITOR_MANUAL_Z_SPEED_STEP      ZMOTOR_MAX_UPWARD_SPEED_STEP
+#define CONFIGURATION_EDITOR_ZMOVE_SPEED_STEP         ZMOTOR_MAX_UPWARD_SPEED_STEP
+#define CONFIGURATION_EDITOR_ZMOVE_ACCELERATION_STEP  1.0f
+#define CONFIGURATION_EDITOR_STOP_DISTANCE_STEP       0.05f
 #define CONFIGURATION_EDITOR_RESET_HEIGHT_STEP        CONFIGURATION_EDITOR_DISTANCE_STEP
 #define CONFIGURATION_EDITOR_OVERTRAVEL_STEP          CONFIGURATION_EDITOR_DISTANCE_STEP
 #define CONFIGURATION_EDITOR_SECOND_Z_HEIGHT_STEP     CONFIGURATION_EDITOR_DISTANCE_STEP
@@ -732,7 +902,6 @@
 #define CONFIGURATION_EDITOR_BOND_TIMEOUT_STEP        CONFIGURATION_EDITOR_COARSE_TIMING_STEP
 #define CONFIGURATION_EDITOR_CONTACT_SETTLE_STEP      CONFIGURATION_EDITOR_PRECISE_TIMING_STEP
 #define CONFIGURATION_EDITOR_COOLING_STEP             CONFIGURATION_EDITOR_PRECISE_TIMING_STEP
-#define CONFIGURATION_EDITOR_TAIL_DELAY_STEP          CONFIGURATION_EDITOR_PRECISE_TIMING_STEP
 #define CONFIGURATION_EDITOR_TEAR_STABILIZE_STEP      CONFIGURATION_EDITOR_PRECISE_TIMING_STEP
 
 /* U/S setup */
@@ -742,7 +911,6 @@
 #define CONFIGURATION_EDITOR_SCAN_STOP_STEP           CONFIGURATION_EDITOR_FREQUENCY_STEP
 #define CONFIGURATION_EDITOR_SCAN_POINTS_STEP         1.0f
 #define CONFIGURATION_EDITOR_TAIL_ASSIST_POWER_STEP   CONFIGURATION_EDITOR_POWER_STEP 
-#define CONFIGURATION_EDITOR_TAIL_ASSIST_ENERGY_STEP  CONFIGURATION_EDITOR_ENERGY_STEP
 
 
 #endif /* CONFIGURATION_H */

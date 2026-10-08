@@ -75,7 +75,8 @@ private:
         RELAXING
     };
 
-    static bool onProvidePositionSetpoint(void *context, float *positionSetpoint);
+    static bool onProvidePositionSetpoint(void *context, float *positionSetpoint,
+                                          float *velocityFeedforward);
 
     void startStep();
     void startStallScan();

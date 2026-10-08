@@ -23,6 +23,10 @@ public:
         Tail,
         Tear,
         ResetHeight,
+        ManualZSpeed,
+        ManualZStopDist,
+        ZMoveSpeed,
+        ZMoveAcceleration,
         Overtravel,
         SecondZHeight,
         TableTail,
@@ -30,7 +34,6 @@ public:
         BondTimeout,
         ContactSettle,
         Cooling,
-        TailDelay,
         TearStabilize,
         ConstantCurrent,
         TrackingCurrent,
@@ -55,7 +58,7 @@ public:
     };
 
     static constexpr uint8_t kScreenCount = 6U;
-    static constexpr uint8_t kParameterCount = 31U;
+    static constexpr uint8_t kParameterCount = 35U;
 
     static uint8_t screenParameterCount(uint8_t screen, BondingMode mode);
     static const Descriptor *at(uint8_t screen,
@@ -66,6 +69,20 @@ public:
     // Digits after the point, derived from the step: showing more than a
     // press can change is noise, showing fewer hides the press entirely.
     static uint8_t displayDecimals(const Descriptor *descriptor);
+
+    // A held key steps by decades so long ranges stay reachable, but the same
+    // multiplier on a short range turns a hold into a slam between the limits.
+    // These cut the requested multiplier down to the largest decade that still
+    // needs at least kMinRepeatsToCrossRange repeats to walk the whole range,
+    // so every value takes a comparable amount of holding to traverse
+    // regardless of how many steps wide it happens to be.
+    static constexpr float kMinRepeatsToCrossRange = 20.0f;
+    static uint16_t limitStepScale(uint16_t requested,
+                                   float minDisplay,
+                                   float maxDisplay,
+                                   float stepDisplay);
+    static uint16_t limitStepScale(uint16_t requested,
+                                   const Descriptor *descriptor);
 
 private:
     static uint8_t modeBit(BondingMode mode);

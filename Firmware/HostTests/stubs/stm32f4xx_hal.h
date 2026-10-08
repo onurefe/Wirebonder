@@ -51,6 +51,11 @@ typedef struct __I2C_HandleTypeDef {
 
 void __disable_irq(void);
 void __enable_irq(void);
+uint32_t __get_PRIMASK(void);
+
+/* Host-only handle on the modelled interrupt mask, so tests can assert that
+   InterruptLock leaves PRIMASK as it found it. */
+extern uint32_t g_hostPrimask;
 void Error_Handler(void);
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 

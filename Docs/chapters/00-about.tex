@@ -10,8 +10,51 @@ The operator at the machine. It assumes you understand what a wire bond is and
 why one might be good or bad, but not that you have used this particular
 machine before.
 
-It does not cover installation, mechanical service, electrical repair, or
-firmware development. Those belong in a service manual.
+\section*{This manual and the \ksmanual}
+
+The \productname\ is built on \basemachine\ mechanics with a new control card
+and new firmware. That split determines which document you should reach for.
+
+\begin{center}\small
+\begin{tabular}{@{}L{58mm}L{62mm}@{}}
+\toprule
+\textbf{This manual} & \textbf{The \ksmanual} \\
+\midrule
+The control panel, display and menus &
+  The bond head, lever and its adjustment \\
+Every bonding parameter and its range &
+  Fitting and aligning the bonding tool \\
+The four bonding modes, step by step &
+  Threading wire, clamps, guides and spool \\
+Calibration from the panel &
+  Mechanical alignment and lubrication \\
+Messages, faults and what they mean &
+  Installation, power, air and environment \\
+What the firmware does and enforces &
+  Mechanical spares and consumables \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The rule of thumb: \textbf{if it happens on the screen or under software
+control, it is here; if it is something you touch, adjust or replace with your
+hands, it is in the \ksmanual.}
+
+\begin{wbnote}
+The bonding parameters follow the 4523AD parameter schedule, so bonding
+schedules developed for a 4523AD transfer to this machine directly. The names
+match. Where this machine adds parameters the 4523AD does not have --- the
+ultrasonic scan settings, the tail assist, and the timing group --- those are
+described here and only here.
+\end{wbnote}
+
+\begin{wbwarning}
+Where the two documents disagree about anything the controller does --- button
+behaviour, parameter ranges, the bonding sequence, error messages --- this
+manual is correct and the \ksmanual\ is not. The control electronics are not
+the ones its author described. Appendix~\ref{app:ks} lists the known
+differences.
+\end{wbwarning}
 
 \section*{How it is organised}
 

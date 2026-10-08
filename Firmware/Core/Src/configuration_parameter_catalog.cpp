@@ -47,6 +47,10 @@ const ConfigurationParameterCatalog::Descriptor ConfigurationParameterCatalog::k
     {Parameter::Tear,             offsetof(BonderConfig, tearDisplacement),         1.0f,    0.0f, CONFIGURATION_EDITOR_LARGE_DISPLACEMENT_MIN,   CONFIGURATION_EDITOR_LARGE_DISPLACEMENT_MAX,   CONFIGURATION_EDITOR_TEAR_STEP,               2, false, MODE_T_AXIS},
 
     {Parameter::ResetHeight,      offsetof(BonderConfig, resetHeight),              1.0f,    0.0f, CONFIGURATION_EDITOR_HEIGHT_MIN,               CONFIGURATION_EDITOR_HEIGHT_MAX,               CONFIGURATION_EDITOR_RESET_HEIGHT_STEP,       3, false, MODE_ALL},
+    {Parameter::ManualZSpeed,     offsetof(BonderConfig, manualZSpeed),             1.0f,    0.0f, CONFIGURATION_EDITOR_MANUAL_Z_SPEED_MIN,       CONFIGURATION_EDITOR_MANUAL_Z_SPEED_MAX,       CONFIGURATION_EDITOR_MANUAL_Z_SPEED_STEP,     3, false, MODE_MANUAL},
+    {Parameter::ManualZStopDist,  offsetof(BonderConfig, manualZStopDistance),      1.0f,    0.0f, CONFIGURATION_EDITOR_STOP_DISTANCE_MIN,        CONFIGURATION_EDITOR_STOP_DISTANCE_MAX,        CONFIGURATION_EDITOR_STOP_DISTANCE_STEP,      3, false, MODE_MANUAL},
+    {Parameter::ZMoveSpeed,       offsetof(BonderConfig, zMoveMaxSpeed),            1.0f,    0.0f, CONFIGURATION_EDITOR_ZMOVE_SPEED_MIN,          CONFIGURATION_EDITOR_ZMOVE_SPEED_MAX,          CONFIGURATION_EDITOR_ZMOVE_SPEED_STEP,        3, false, MODE_ALL},
+    {Parameter::ZMoveAcceleration,offsetof(BonderConfig, zMoveMaxAcceleration),     1.0f,    0.0f, CONFIGURATION_EDITOR_ZMOVE_ACCELERATION_MIN,   CONFIGURATION_EDITOR_ZMOVE_ACCELERATION_MAX,   CONFIGURATION_EDITOR_ZMOVE_ACCELERATION_STEP, 3, false, MODE_ALL},
     {Parameter::Overtravel,       offsetof(BonderConfig, lowestOvertravel),         1.0f,    0.0f, CONFIGURATION_EDITOR_OVERTRAVEL_MIN,           CONFIGURATION_EDITOR_OVERTRAVEL_MAX,           CONFIGURATION_EDITOR_OVERTRAVEL_STEP,         3, false, MODE_AUTO},
     {Parameter::SecondZHeight,    offsetof(BonderConfig, secondZHeight),            1.0f,    0.0f, CONFIGURATION_EDITOR_HEIGHT_MIN,               CONFIGURATION_EDITOR_HEIGHT_MAX,               CONFIGURATION_EDITOR_SECOND_Z_HEIGHT_STEP,    3, false, MODE_TABLE},
     {Parameter::TableTail,        offsetof(BonderConfig, yTailPosition),            1.0f,    0.0f, CONFIGURATION_EDITOR_SMALL_DISPLACEMENT_MIN,   CONFIGURATION_EDITOR_SMALL_DISPLACEMENT_MAX,   CONFIGURATION_EDITOR_TABLE_TAIL_STEP,         3, false, MODE_TABLE},
@@ -55,7 +59,6 @@ const ConfigurationParameterCatalog::Descriptor ConfigurationParameterCatalog::k
     {Parameter::BondTimeout,      offsetof(BonderConfig, maxBondingDuration),       1000.0f, 0.0f, CONFIGURATION_EDITOR_MAX_BONDING_DURATION_MIN, CONFIGURATION_EDITOR_MAX_BONDING_DURATION_MAX, CONFIGURATION_EDITOR_BOND_TIMEOUT_STEP,       4, false, MODE_ALL},
     {Parameter::ContactSettle,    offsetof(BonderConfig, contactSettlingTime),      1000.0f, 0.0f, CONFIGURATION_EDITOR_TIMING_MIN,               CONFIGURATION_EDITOR_TIMING_MAX,               CONFIGURATION_EDITOR_CONTACT_SETTLE_STEP,     4, false, MODE_ALL},
     {Parameter::Cooling,          offsetof(BonderConfig, coolingTime),              1000.0f, 0.0f, CONFIGURATION_EDITOR_TIMING_MIN,               CONFIGURATION_EDITOR_TIMING_MAX,               CONFIGURATION_EDITOR_COOLING_STEP,            4, false, MODE_ALL},
-    {Parameter::TailDelay,        offsetof(BonderConfig, tailRestoreDelay),         1000.0f, 0.0f, CONFIGURATION_EDITOR_TIMING_MIN,               CONFIGURATION_EDITOR_TIMING_MAX,               CONFIGURATION_EDITOR_TAIL_DELAY_STEP,         4, false, MODE_T_AXIS},
     {Parameter::TearStabilize,    offsetof(BonderConfig, tearStabilizationTime),    1000.0f, 0.0f, CONFIGURATION_EDITOR_TIMING_MIN,               CONFIGURATION_EDITOR_TIMING_MAX,               CONFIGURATION_EDITOR_TEAR_STABILIZE_STEP,     4, false, MODE_TABLE},
 
     {Parameter::ConstantCurrent,  offsetof(BonderConfig, forceCoilConstantForce),   1.0f,    0.0f, CONFIGURATION_EDITOR_FORCE_GRAMS_MIN,          CONFIGURATION_EDITOR_FORCE_GRAMS_MAX,          CONFIGURATION_EDITOR_CONSTANT_FORCE_STEP,     5, false, MODE_ALL},
@@ -64,7 +67,6 @@ const ConfigurationParameterCatalog::Descriptor ConfigurationParameterCatalog::k
     {Parameter::ScanStop,         offsetof(BonderConfig, scanStopFrequency),        0.001f,  0.0f, CONFIGURATION_EDITOR_SCAN_FREQ_MIN,            CONFIGURATION_EDITOR_SCAN_FREQ_MAX,            CONFIGURATION_EDITOR_SCAN_STOP_STEP,          5, false, MODE_ALL},
     {Parameter::ScanPoints,       offsetof(BonderConfig, numOfScannedFrequencies),  1.0f,    0.0f, CONFIGURATION_EDITOR_SCAN_NUM_FREQS_MIN,       CONFIGURATION_EDITOR_SCAN_NUM_FREQS_MAX,       CONFIGURATION_EDITOR_SCAN_POINTS_STEP,        5, true,  MODE_ALL},
     {Parameter::TailAssistPower,  offsetof(BonderConfig, tailAssistPower),          1000.0f, 0.0f, CONFIGURATION_EDITOR_TARGET_POWER_MIN,         CONFIGURATION_EDITOR_TARGET_POWER_MAX,         CONFIGURATION_EDITOR_TAIL_ASSIST_POWER_STEP,  5, false, MODE_T_AXIS},
-    {Parameter::TailAssistEnergy, offsetof(BonderConfig, tailAssistEnergy),         1000.0f, 0.0f, CONFIGURATION_EDITOR_BONDING_ENERGY_MIN,       CONFIGURATION_EDITOR_BONDING_ENERGY_MAX,       CONFIGURATION_EDITOR_TAIL_ASSIST_ENERGY_STEP, 5, false, MODE_T_AXIS},
 };
 // clang-format on
 
@@ -125,6 +127,35 @@ ConfigurationParameterCatalog::displayDecimals(const Descriptor *descriptor)
     if (step >= 0.1f)   return 1U;
     if (step >= 0.01f)  return 2U;
     return 3U;
+}
+
+uint16_t ConfigurationParameterCatalog::limitStepScale(uint16_t requested,
+                                                       float minDisplay,
+                                                       float maxDisplay,
+                                                       float stepDisplay)
+{
+    if (stepDisplay <= 0.0f || requested <= 1U) return 1U;
+
+    const float stepsInRange = (maxDisplay - minDisplay) / stepDisplay;
+
+    // Climb decades while the operator's hold asks for more and the range can
+    // still absorb it. Growing rather than clamping keeps this correct if the
+    // repeat schedule ever gains a decade.
+    uint16_t scale = 1U;
+    while (static_cast<uint32_t>(scale) * 10U <= requested) {
+        const float next = static_cast<float>(scale) * 10.0f;
+        if (stepsInRange / next < kMinRepeatsToCrossRange) break;
+        scale = static_cast<uint16_t>(scale * 10U);
+    }
+    return scale;
+}
+
+uint16_t ConfigurationParameterCatalog::limitStepScale(uint16_t requested,
+                                                       const Descriptor *descriptor)
+{
+    if (descriptor == nullptr) return 1U;
+    return limitStepScale(requested, descriptor->minDisplay,
+                          descriptor->maxDisplay, descriptor->stepDisplay);
 }
 
 const ConfigurationParameterCatalog::Descriptor *

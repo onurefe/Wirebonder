@@ -2,6 +2,7 @@
 #define PWM_SERVICE_HPP
 
 #include "stm32f4xx_hal.h"
+#include "callback_list.hpp"
 #include "configuration.h"
 #include "process.hpp"
 #include "generic.h"
@@ -47,6 +48,7 @@ public:
     // through the pointer. The first active controller wins (see beginNextRamp).
     using TargetUpdateCallback = bool (*)(void* context, float *targetDuty);
     bool addTargetDutyControllerCallback(void* context, TargetUpdateCallback targetUpdateCallback);
+    bool removeTargetDutyControllerCallback(void* context, TargetUpdateCallback targetUpdateCallback);
 
     bool start(float initialDuty);
     void stop() override;
@@ -83,15 +85,7 @@ private:
     bool m_running;
     bool m_complementaryOutput;
 
-    struct TargetControllerRegistration {
-        TargetUpdateCallback callback;
-        void* context;
-    };
-
-    static constexpr uint8_t kMaxTargetControllerCallbacks = 4U;
-
-    TargetControllerRegistration m_targetControllerCallbacks[kMaxTargetControllerCallbacks];
-    uint8_t m_targetControllerCallbackCount;
+    ArbiterList<float *> m_targetControllerCallbacks;
 };
 
 // -----------------------------------------------------------------------

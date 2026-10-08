@@ -14,8 +14,6 @@ RouterChannel::RouterChannel(StepperChannel *stepper,
     , m_travelLimitsEnabled(false)
     , m_minimumPosition(0.0f)
     , m_maximumPosition(0.0f)
-    , m_callback(nullptr)
-    , m_callbackContext(nullptr)
     , m_routeParams{}
     , m_isBusy(false)
     , m_position(0.0f)
@@ -26,10 +24,14 @@ RouterChannel::RouterChannel(StepperChannel *stepper,
 {
 }
 
-void RouterChannel::addMoveCompleteListenerCallback(void *context, Callback cb)
+bool RouterChannel::addMoveCompleteListenerCallback(void *context, Callback cb)
 {
-    m_callbackContext = context;
-    m_callback        = cb;
+    return m_callbacks.add(context, cb);
+}
+
+bool RouterChannel::removeMoveCompleteListenerCallback(void *context, Callback cb)
+{
+    return m_callbacks.remove(context, cb);
 }
 
 void RouterChannel::append(float displacement)
@@ -155,8 +157,8 @@ void RouterChannel::execute()
             m_isBusy = false;
             m_position = m_targetPosition;
 
-            if (m_callback != nullptr) {
-                m_callback(m_callbackContext, this);
+            {
+                m_callbacks.invoke(this);
             }
         }
         return;
@@ -169,6 +171,28 @@ void RouterChannel::execute()
 // -------------------------------------------------------------------------
 // Motion planning
 // -------------------------------------------------------------------------
+float RouterChannel::estimateMoveDuration(float displacement) const
+{
+    const float absDisplacement = std::abs(displacement);
+
+    if (absDisplacement <= 0.0f || m_maxVelocity <= 0.0f ||
+        m_maxAcceleration <= 0.0f) {
+        return 0.0f;
+    }
+
+    // Below m_maxVelocity^2 / m_maxAcceleration the profile is triangular --
+    // the move ends before the cap is reached -- and acceleration alone sets
+    // the time.
+    const float peakVelocity =
+        std::min(m_maxVelocity, sqrtf(absDisplacement * m_maxAcceleration));
+    const float accelerationTime = peakVelocity / m_maxAcceleration;
+    const float constantDistance =
+        absDisplacement - (peakVelocity * accelerationTime);
+
+    return (2.0f * accelerationTime) +
+           ((constantDistance > 0.0f) ? (constantDistance / peakVelocity) : 0.0f);
+}
+
 void RouterChannel::formTrapezoidRoute(float displacement, float velocityLimit)
 {
     const float absDisplacement = std::abs(displacement);

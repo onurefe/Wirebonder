@@ -87,49 +87,54 @@ UserInterfaceModule::UserInterfaceModule(
     , m_activeConfiguration(activeConfiguration)
     , m_activeConfigurationName{}
     , m_selectionProtocol(BondingMode::SemiAutomatic)
-    , m_eventCallback(nullptr)
-    , m_eventCallbackCtx(nullptr)
-    , m_mouseButtonCallback(nullptr)
-    , m_mouseButtonCallbackCtx(nullptr)
-    , m_controlPanelButtonCallback(nullptr)
-    , m_controlPanelButtonCallbackCtx(nullptr)
 {
-    m_menu.setRequestListenerCallback(this, onMenuRequest_);
+    m_menu.addRequestListenerCallback(this, onMenuRequest_);
 }
 
-void UserInterfaceModule::setEventListenerCallback(void *ctx,
-                                                  EventCallback callback)
+bool UserInterfaceModule::addEventListenerCallback(void *ctx, EventCallback callback)
 {
-    m_eventCallbackCtx = ctx;
-    m_eventCallback = callback;
+    return m_eventCallbacks.add(ctx, callback);
 }
 
-void UserInterfaceModule::setMouseButtonListenerCallback(
-    void *ctx, MouseButtonCallback callback)
+bool UserInterfaceModule::removeEventListenerCallback(void *ctx, EventCallback callback)
 {
-    m_mouseButtonCallbackCtx = ctx;
-    m_mouseButtonCallback = callback;
+    return m_eventCallbacks.remove(ctx, callback);
 }
 
-void UserInterfaceModule::setControlPanelButtonListenerCallback(
+bool UserInterfaceModule::addMouseButtonListenerCallback(void *ctx, MouseButtonCallback callback)
+{
+    return m_mouseButtonCallbacks.add(ctx, callback);
+}
+
+bool UserInterfaceModule::removeMouseButtonListenerCallback(void *ctx, MouseButtonCallback callback)
+{
+    return m_mouseButtonCallbacks.remove(ctx, callback);
+}
+
+bool UserInterfaceModule::addControlPanelButtonListenerCallback(
     void *ctx, ControlPanelButtonCallback callback)
 {
-    m_controlPanelButtonCallbackCtx = ctx;
-    m_controlPanelButtonCallback = callback;
+    return m_controlPanelButtonCallbacks.add(ctx, callback);
+}
+
+bool UserInterfaceModule::removeControlPanelButtonListenerCallback(
+    void *ctx, ControlPanelButtonCallback callback)
+{
+    return m_controlPanelButtonCallbacks.remove(ctx, callback);
 }
 
 void UserInterfaceModule::fireEvent(Event event)
 {
-    if (m_eventCallback != nullptr) {
-        m_eventCallback(m_eventCallbackCtx, event);
+    {
+        m_eventCallbacks.invoke(event);
     }
 }
 
 void UserInterfaceModule::fireControlPanelButtonEvent(
     ControlPanelButtonEvent event)
 {
-    if (m_controlPanelButtonCallback != nullptr) {
-        m_controlPanelButtonCallback(m_controlPanelButtonCallbackCtx, event);
+    {
+        m_controlPanelButtonCallbacks.invoke(event);
     }
 }
 
@@ -167,22 +172,32 @@ void UserInterfaceModule::onStart()
         return;
     }
 
-    m_mouseRightButtonChannel->addStateListenerCallback(
+    // A full listener registry would leave a control silently dead, which is
+    // worse than refusing to start. m_menu binds its own hotkeys in its
+    // constructor and reports the same condition through buttonsBound().
+    bool registered = m_menu.buttonsBound();
+
+    registered &= m_mouseRightButtonChannel->addStateListenerCallback(
         this, &UserInterfaceModule::onMouseRightButtonStateChanged);
-    m_mouseLeftButtonChannel->addStateListenerCallback(
+    registered &= m_mouseLeftButtonChannel->addStateListenerCallback(
         this, &UserInterfaceModule::onMouseLeftButtonStateChanged);
-    m_controlPanelButtons.setup->addPressListenerCallback(
+    registered &= m_controlPanelButtons.setup->addPressListenerCallback(
         this, &UserInterfaceModule::onSetupPressed);
-    m_controlPanelButtons.test->addPressListenerCallback(
+    registered &= m_controlPanelButtons.test->addPressListenerCallback(
         this, &UserInterfaceModule::onTestPressed);
-    m_controlPanelButtons.reset->addPressListenerCallback(
+    registered &= m_controlPanelButtons.reset->addPressListenerCallback(
         this, &UserInterfaceModule::onResetPressed);
-    m_controlPanelButtons.clampOpen->addPressListenerCallback(
+    registered &= m_controlPanelButtons.clampOpen->addPressListenerCallback(
         this, &UserInterfaceModule::onClampOpenPressed);
-    m_controlPanelButtons.light->addPressListenerCallback(
+    registered &= m_controlPanelButtons.light->addPressListenerCallback(
         this, &UserInterfaceModule::onLightPressed);
-    m_controlPanelButtons.manual->addPressListenerCallback(
+    registered &= m_controlPanelButtons.manual->addPressListenerCallback(
         this, &UserInterfaceModule::onManualPressed);
+
+    if (!registered) {
+        setProcessError();
+        return;
+    }
 
     m_pageRenderer.start();
     publishActiveConfiguration(true);
@@ -202,11 +217,12 @@ void UserInterfaceModule::onStart()
 void UserInterfaceModule::onStop()
 {
     m_pageRenderer.stop();
+    m_menu.unbindButtons();
     if (m_mouseRightButtonChannel != nullptr) {
-        m_mouseRightButtonChannel->addStateListenerCallback(nullptr, nullptr);
+        m_mouseRightButtonChannel->removeStateListenerCallback(this, &UserInterfaceModule::onMouseRightButtonStateChanged);
     }
     if (m_mouseLeftButtonChannel != nullptr) {
-        m_mouseLeftButtonChannel->addStateListenerCallback(nullptr, nullptr);
+        m_mouseLeftButtonChannel->removeStateListenerCallback(this, &UserInterfaceModule::onMouseLeftButtonStateChanged);
     }
 
     auto remove = [this](ButtonChannel *button,
@@ -319,6 +335,10 @@ void UserInterfaceModule::handleMenuRequest(const Menu::Request& request)
     case Menu::RequestType::ToggleSpotlight:
         toggleSpotlight();
         break;
+    case Menu::RequestType::StartZPositionCal:
+        fireEvent(Event::StartZPositionCalRequested);
+        break;
+
     case Menu::RequestType::StartTachCal:
         fireEvent(Event::StartTachCalRequested);
         break;
@@ -328,11 +348,21 @@ void UserInterfaceModule::handleMenuRequest(const Menu::Request& request)
     }
 }
 
+// stepScale is what the hold duration asked for; the catalog cuts it down to
+// what this parameter's range can absorb, so a short-range value cannot be
+// slammed between its limits by holding the key.
 void UserInterfaceModule::adjustByDescriptor(
     const ConfigurationParameterCatalog::Descriptor *descriptor,
-    float delta)
+    int8_t sign,
+    uint16_t stepScale)
 {
     if (descriptor == nullptr) return;
+
+    const uint16_t scale =
+        ConfigurationParameterCatalog::limitStepScale(stepScale, descriptor);
+    const float delta = static_cast<float>(sign) * static_cast<float>(scale) *
+                        descriptor->stepDisplay;
+
     uint8_t *base = reinterpret_cast<uint8_t *>(m_activeConfiguration);
 
     if (descriptor->isInteger) {
@@ -357,8 +387,7 @@ void UserInterfaceModule::adjustByDescriptor(
 }
 
 // stepScale is the multiplier the menu derived from how long the key has been
-// held; it is 1 for an ordinary press. Clamping in adjustByDescriptor() is
-// what keeps a large multiplier safe on a short-range parameter.
+// held; it is 1 for an ordinary press.
 void UserInterfaceModule::adjustParameter(uint8_t screen,
                                           uint8_t parameterIndex,
                                           int8_t sign,
@@ -368,9 +397,7 @@ void UserInterfaceModule::adjustParameter(uint8_t screen,
         ConfigurationParameterCatalog::at(
             screen, parameterIndex, m_activeConfiguration->bondingMode);
     if (descriptor == nullptr) return;
-    adjustByDescriptor(descriptor,
-                       static_cast<float>(sign) * static_cast<float>(stepScale) *
-                       descriptor->stepDisplay);
+    adjustByDescriptor(descriptor, sign, stepScale);
 }
 
 void UserInterfaceModule::adjustHotkey(Menu::Hotkey hotkey, int8_t sign,
@@ -388,9 +415,7 @@ void UserInterfaceModule::adjustHotkey(Menu::Hotkey hotkey, int8_t sign,
         if (!isRepeat) m_menu.setNotificationMessage("Not used by protocol");
         return;
     }
-    adjustByDescriptor(descriptor,
-                       static_cast<float>(sign) * static_cast<float>(stepScale) *
-                       descriptor->stepDisplay);
+    adjustByDescriptor(descriptor, sign, stepScale);
 }
 
 void UserInterfaceModule::saveConfiguration()
@@ -443,8 +468,11 @@ void UserInterfaceModule::adjustSetting(uint8_t index, int8_t sign,
     float *field = fields[index];
     const SettingLimits& limits = kSettingLimits[index];
 
+    const uint16_t scale = ConfigurationParameterCatalog::limitStepScale(
+        stepScale, limits.min, limits.max, limits.step);
+
     float value = *field +
-        static_cast<float>(sign) * static_cast<float>(stepScale) * limits.step;
+        static_cast<float>(sign) * static_cast<float>(scale) * limits.step;
     if (value < limits.min) value = limits.min;
     if (value > limits.max) value = limits.max;
     *field = value;
@@ -607,9 +635,7 @@ void UserInterfaceModule::onMouseRightButtonStateChanged(
     void *ctx, PinMonitorChannel::PinState state)
 {
     UserInterfaceModule *self = static_cast<UserInterfaceModule *>(ctx);
-    if (self->m_mouseButtonCallback == nullptr) return;
-    self->m_mouseButtonCallback(
-        self->m_mouseButtonCallbackCtx,
+    self->m_mouseButtonCallbacks.invoke(
         state == PinMonitorChannel::PinState::ACTIVE
             ? MouseButtonEvent::RightPressed
             : MouseButtonEvent::RightReleased);
@@ -619,9 +645,7 @@ void UserInterfaceModule::onMouseLeftButtonStateChanged(
     void *ctx, PinMonitorChannel::PinState state)
 {
     UserInterfaceModule *self = static_cast<UserInterfaceModule *>(ctx);
-    if (self->m_mouseButtonCallback == nullptr) return;
-    self->m_mouseButtonCallback(
-        self->m_mouseButtonCallbackCtx,
+    self->m_mouseButtonCallbacks.invoke(
         state == PinMonitorChannel::PinState::ACTIVE
             ? MouseButtonEvent::LeftPressed
             : MouseButtonEvent::LeftReleased);

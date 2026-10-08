@@ -6,11 +6,14 @@
 namespace {
 
 // Column 0 is reserved for the PageRenderer pointer on rows the operator
-// can select.
-constexpr uint8_t kValueColumn = 13U;
-constexpr uint8_t kValueWidth = 7U;
+// can select. The name field carries the unit in parentheses, so it takes
+// every column the value field can spare: no displayed value is wider than
+// 5 characters ("60000" ms, "20.00" mm, "-2.00" mm, "100.0" g), which leaves
+// at least one blank column between a full-width name and its value.
+constexpr uint8_t kValueColumn = 14U;
+constexpr uint8_t kValueWidth = 6U;
 constexpr uint8_t kNameColumn = 1U;
-constexpr uint8_t kNameWidth = 12U;
+constexpr uint8_t kNameWidth = 13U;
 constexpr uint8_t kFloatDecimals = 3U;
 
 constexpr char kNameCharacters[] =
@@ -38,41 +41,48 @@ char bondingModeCode(BondingMode mode)
     }
 }
 
+// Display units, in parentheses, are part of the name: the value field has no
+// room for them and an unlabelled number is what the operator has to guess
+// at. The unit is the one the catalog scales to, not the stored SI one, and
+// every string has to fit kNameWidth — hence the abbreviations. Scan Points
+// is dimensionless and stays bare.
 const char *parameterName(ConfigurationParameterCatalog::Parameter parameter)
 {
     using Parameter = ConfigurationParameterCatalog::Parameter;
     switch (parameter) {
-    case Parameter::Search1:          return "Search 1";
-    case Parameter::Power1:           return "Power 1";
-    case Parameter::Energy1:          return "Energy 1";
-    case Parameter::Force1Current:    return "Force 1 G";
-    case Parameter::Stepback:         return "Stepback";
-    case Parameter::KinkHeight:       return "Kink Height";
-    case Parameter::Reverse:          return "Reverse";
-    case Parameter::LoopHeight:       return "Loop Height";
-    case Parameter::Search2:          return "Search 2";
-    case Parameter::Power2:           return "Power 2";
-    case Parameter::Energy2:          return "Energy 2";
-    case Parameter::Force2Current:    return "Force 2 G";
-    case Parameter::Tail:             return "Tail";
-    case Parameter::Tear:             return "Tear";
-    case Parameter::ResetHeight:      return "Reset Height";
-    case Parameter::Overtravel:       return "Overtravel";
-    case Parameter::SecondZHeight:    return "Second Z Hgt";
-    case Parameter::TableTail:        return "Table Tail";
-    case Parameter::TableTear:        return "Table Tear";
-    case Parameter::BondTimeout:      return "Bond Timeout";
-    case Parameter::ContactSettle:    return "Contact Stl";
-    case Parameter::Cooling:          return "Cooling";
-    case Parameter::TailDelay:        return "Tail Delay";
-    case Parameter::TearStabilize:    return "Tear Stabil";
-    case Parameter::ConstantCurrent:  return "Constant G";
-    case Parameter::TrackingCurrent:  return "Tracking G";
-    case Parameter::ScanStart:        return "Scan Start";
-    case Parameter::ScanStop:         return "Scan Stop";
+    case Parameter::Search1:          return "Search 1(mm)";
+    case Parameter::Power1:           return "Power 1(mW)";
+    case Parameter::Energy1:          return "Energy 1(mJ)";
+    case Parameter::Force1Current:    return "Force 1(g)";
+    case Parameter::Stepback:         return "Stepback(mm)";
+    case Parameter::KinkHeight:       return "Kink Hgt(mm)";
+    case Parameter::Reverse:          return "Reverse(mm)";
+    case Parameter::LoopHeight:       return "Loop Hgt(mm)";
+    case Parameter::Search2:          return "Search 2(mm)";
+    case Parameter::Power2:           return "Power 2(mW)";
+    case Parameter::Energy2:          return "Energy 2(mJ)";
+    case Parameter::Force2Current:    return "Force 2(g)";
+    case Parameter::Tail:             return "Tail(mm)";
+    case Parameter::Tear:             return "Tear(mm)";
+    case Parameter::ResetHeight:      return "Reset Hgt(mm)";
+    case Parameter::ManualZSpeed:     return "Man Spd(mm/s)";
+    case Parameter::ManualZStopDist:  return "Man Stop(mm)";
+    case Parameter::ZMoveSpeed:       return "Z Spd(mm/s)";
+    case Parameter::ZMoveAcceleration:return "Z Acc(mm/s2)";
+    case Parameter::Overtravel:       return "Overtrav(mm)";
+    case Parameter::SecondZHeight:    return "2nd Z Hgt(mm)";
+    case Parameter::TableTail:        return "Tbl Tail(mm)";
+    case Parameter::TableTear:        return "Tbl Tear(mm)";
+    case Parameter::BondTimeout:      return "Bond Tmo(ms)";
+    case Parameter::ContactSettle:    return "Cont Stl(ms)";
+    case Parameter::Cooling:          return "Cooling(ms)";
+    case Parameter::TearStabilize:    return "Tear Stb(ms)";
+    case Parameter::ConstantCurrent:  return "Constant(g)";
+    case Parameter::TrackingCurrent:  return "Tracking(g)";
+    case Parameter::ScanStart:        return "F Start(kHz)";
+    case Parameter::ScanStop:         return "F Stop(kHz)";
     case Parameter::ScanPoints:       return "Scan Points";
-    case Parameter::TailAssistPower:  return "Tail Power";
-    case Parameter::TailAssistEnergy: return "Tail Energy";
+    case Parameter::TailAssistPower:  return "Tail Pwr(mW)";
     default:                          return "";
     }
 }
@@ -85,8 +95,6 @@ Menu::Menu(PageRenderer *renderer,
     : m_renderer(renderer)
     , m_buttons(navigationButtons)
     , m_configurationButtons(configurationButtons)
-    , m_requestCallback(nullptr)
-    , m_requestCallbackCtx(nullptr)
     , m_pointerRow(PageRenderer::kNoPointer)
     , m_newName{}
     , m_nameCursor(0U)
@@ -152,14 +160,15 @@ Menu::Menu(PageRenderer *renderer,
     , m_settingsPage(1U + kSettingsRowCount)
     , m_settingsHeader(0U, 0U, 20U, "SETTINGS")
     , m_settingsNames{
-          {1U, kNameColumn, kNameWidth, "Clamp Volt"},
-          {2U, kNameColumn, kNameWidth, "Area Light"},
-          {3U, kNameColumn, kNameWidth, "Spotlight"},
-          {4U, kNameColumn, kNameWidth, "Up Speed"},
-          {5U, kNameColumn, kNameWidth, "Down Speed"},
-          {6U, kNameColumn, kNameWidth, "Setup Force"},
+          {1U, kNameColumn, kNameWidth, "Clamp Volt(V)"},
+          {2U, kNameColumn, kNameWidth, "Area Light(%)"},
+          {3U, kNameColumn, kNameWidth, "Spotlight(%)"},
+          {4U, kNameColumn, kNameWidth, "Up Spd(mm/s)"},
+          {5U, kNameColumn, kNameWidth, "Dn Spd(mm/s)"},
+          {6U, kNameColumn, kNameWidth, "Setup Frc(g)"},
           {7U, kNameColumn, kNameWidth, "Spot On"},
-          {8U, kNameColumn, 19U, "Start Tach. Cal."}}
+          {8U, kNameColumn, 19U, "Start Z Pos. Cal."},
+          {9U, kNameColumn, 19U, "Start Tach. Cal."}}
     , m_settingsValues{
           {1U, kValueColumn, kValueWidth, 1U},
           {2U, kValueColumn, kValueWidth, 0U},
@@ -170,7 +179,7 @@ Menu::Menu(PageRenderer *renderer,
     , m_settingsSpotlightOnValue(kSettingsSpotOnRow, kValueColumn, kValueWidth)
     , m_forceMeasurementPage(4U)
     , m_forceMeasurementTitle(0U, 0U, 20U, "FORCE SETUP")
-    , m_forceMeasurementName(1U, 0U, 12U, "Measured Gr")
+    , m_forceMeasurementName(1U, 0U, 13U, "Measured (g)")
     , m_forceMeasurementValue(1U, kValueColumn, kValueWidth, 1U)
     , m_forceMeasurementHint(3U, 0U, 20U, "ENTER=save ESC=exit")
     , m_pageBeforeForceMeasurement(nullptr)
@@ -216,10 +225,11 @@ Menu::Menu(PageRenderer *renderer,
     }
     m_settingsPage.addWidget(&m_settingsNames[kSettingsLevelRowCount]);
     m_settingsPage.addWidget(&m_settingsSpotlightOnValue);
-    // kSettingsTachCalRow is the 1-based row number (m_pointerRow's
-    // convention, matched in handleEnter()); the array index is 0-based, so
-    // the last element is kSettingsRowCount - 1.
-    m_settingsPage.addWidget(&m_settingsNames[kSettingsRowCount - 1U]);
+    // The calibration rows carry no value widget. Their constants are 1-based
+    // row numbers (m_pointerRow's convention, matched in handleEnter()), so
+    // the array index is one less.
+    m_settingsPage.addWidget(&m_settingsNames[kSettingsZPositionCalRow - 1U]);
+    m_settingsPage.addWidget(&m_settingsNames[kSettingsTachCalRow - 1U]);
 
     m_forceMeasurementPage.addWidget(&m_forceMeasurementTitle);
     m_forceMeasurementPage.addWidget(&m_forceMeasurementName);
@@ -245,6 +255,14 @@ Menu::Menu(PageRenderer *renderer,
         renderer->registerPage(&m_messagePage);
     }
 
+    m_buttonsBound = applyButtonBindings(true);
+}
+
+// Binding and unbinding walk the same table so the two can never drift apart;
+// Menu is constructed once but UserInterfaceModule::onStop() has to be able to
+// let go of the shared ButtonChannels.
+bool Menu::applyButtonBindings(bool bind)
+{
     // A null repeat callback leaves the button press-only. Save, Load, Enter,
     // Add and Escape/Delete are deliberately in that group: one hold must
     // never save, load, delete or confirm more than once.
@@ -297,25 +315,48 @@ Menu::Menu(PageRenderer *renderer,
          onHotkeyButton_<Hotkey::Step, -1>,
          onRepeatHotkeyButton_<Hotkey::Step, -1>},
     };
+
+    bool allApplied = true;
     for (const ButtonBinding& binding : bindings) {
         if (binding.button == nullptr) continue;
-        binding.button->addPressListenerCallback(this, binding.press);
-        if (binding.repeat != nullptr) {
-            binding.button->addProlongedPressListenerCallback(this, binding.repeat);
+
+        if (bind) {
+            allApplied &= binding.button->addPressListenerCallback(this, binding.press);
+            if (binding.repeat != nullptr) {
+                allApplied &= binding.button->addProlongedPressListenerCallback(
+                    this, binding.repeat);
+            }
+        } else {
+            binding.button->removePressListenerCallback(this, binding.press);
+            if (binding.repeat != nullptr) {
+                binding.button->removeProlongedPressListenerCallback(
+                    this, binding.repeat);
+            }
         }
     }
+    return allApplied;
 }
 
-void Menu::setRequestListenerCallback(void *ctx, RequestCallback callback)
+void Menu::unbindButtons()
 {
-    m_requestCallbackCtx = ctx;
-    m_requestCallback = callback;
+    (void)applyButtonBindings(false);
+    m_buttonsBound = false;
+}
+
+bool Menu::addRequestListenerCallback(void *ctx, RequestCallback callback)
+{
+    return m_requestCallbacks.add(ctx, callback);
+}
+
+bool Menu::removeRequestListenerCallback(void *ctx, RequestCallback callback)
+{
+    return m_requestCallbacks.remove(ctx, callback);
 }
 
 void Menu::fireRequest(const Request& request)
 {
-    if (m_requestCallback != nullptr) {
-        m_requestCallback(m_requestCallbackCtx, request);
+    {
+        m_requestCallbacks.invoke(request);
     }
 }
 
@@ -494,6 +535,10 @@ void Menu::handleEnter(const InputEvent& input)
     } else if (page == &m_settingsPage && m_pointerRow == kSettingsSpotOnRow) {
         fireRequest({RequestType::ToggleSpotlight,
                      0, 0U, 0U, Hotkey::Tail, nullptr});
+    } else if (page == &m_settingsPage &&
+               m_pointerRow == kSettingsZPositionCalRow) {
+        fireRequest({RequestType::StartZPositionCal,
+                     0, 0U, 0U, Hotkey::Tail, nullptr});
     } else if (page == &m_settingsPage && m_pointerRow == kSettingsTachCalRow) {
         fireRequest({RequestType::StartTachCal,
                      0, 0U, 0U, Hotkey::Tail, nullptr});
@@ -622,8 +667,12 @@ void Menu::promptForceMeasurement(float initialGrams)
 // scaling is applied here rather than travelling through a Request.
 void Menu::adjustForceMeasurement(int8_t sign, const InputEvent& input)
 {
+    const uint16_t scale = ConfigurationParameterCatalog::limitStepScale(
+        input.stepScale, FORCE_SETUP_MEASURED_FORCE_MIN,
+        FORCE_SETUP_MEASURED_FORCE_MAX, FORCE_SETUP_MEASURED_FORCE_STEP);
+
     float value = m_forceMeasurementValue.value() +
-        static_cast<float>(sign) * static_cast<float>(input.stepScale) *
+        static_cast<float>(sign) * static_cast<float>(scale) *
         FORCE_SETUP_MEASURED_FORCE_STEP;
     if (value < FORCE_SETUP_MEASURED_FORCE_MIN) {
         value = FORCE_SETUP_MEASURED_FORCE_MIN;

@@ -16,15 +16,7 @@ DirectSolenoidChannel::DirectSolenoidChannel(FastIO *energizePin,
     , m_timer(timer)
     , m_energizeTime(energizeTime)
     , m_deenergizeTime(deenergizeTime)
-    , m_callback(nullptr)
-    , m_callbackContext(nullptr)
 {}
-
-void DirectSolenoidChannel::addStateListenerCallback(void *context, Callback cb)
-{
-    m_callbackContext = context;
-    m_callback        = cb;
-}
 
 void DirectSolenoidChannel::energize()
 {
@@ -75,7 +67,7 @@ DirectSolenoidChannel::State DirectSolenoidChannel::getState() const
 
 void DirectSolenoidChannel::start()
 {
-    m_timer->setExpirationListenerCallback(this, onTransitionTimer);
+    m_timer->addExpirationListenerCallback(this, onTransitionTimer);
     m_closePin->clear();
     m_energizePin->clear();
     m_state = State::DEENERGIZED;
@@ -89,7 +81,7 @@ void DirectSolenoidChannel::stop()
     m_timer->stop();
     m_state = State::DEENERGIZED;
     m_targetState = State::DEENERGIZED;
-    m_timer->setExpirationListenerCallback(nullptr, nullptr);
+    m_timer->removeExpirationListenerCallback(this, onTransitionTimer);
 }
 
 void DirectSolenoidChannel::onTransitionTimer(void *context, Timer *timer)
@@ -100,8 +92,8 @@ void DirectSolenoidChannel::onTransitionTimer(void *context, Timer *timer)
     self->m_state = (self->m_state == State::ENERGIZING) ? State::ENERGIZED
                                                          : State::DEENERGIZED;
 
-    if (self->m_callback != nullptr) {
-        self->m_callback(self->m_callbackContext, self->m_state);
+    {
+        self->m_stateCallbacks.invoke(self->m_state);
     }
 }
 
@@ -122,15 +114,7 @@ PwmSolenoidChannel::PwmSolenoidChannel(DirectPwmChannel *pwmChannel,
     , m_deenergizeTime(deenergizeTime)
     , m_onDuty(onDuty)
     , m_offDuty(offDuty)
-    , m_callback(nullptr)
-    , m_callbackContext(nullptr)
 {}
-
-void PwmSolenoidChannel::addStateListenerCallback(void *context, Callback cb)
-{
-    m_callbackContext = context;
-    m_callback        = cb;
-}
 
 void PwmSolenoidChannel::setOnDuty(float duty)
 {
@@ -191,7 +175,7 @@ PwmSolenoidChannel::State PwmSolenoidChannel::getState() const
 
 void PwmSolenoidChannel::start()
 {
-    m_timer->setExpirationListenerCallback(this, onTransitionTimer);
+    m_timer->addExpirationListenerCallback(this, onTransitionTimer);
     m_pwmChannel->start(m_offDuty);
     m_state = State::DEENERGIZED;
     m_targetState = State::DEENERGIZED;
@@ -203,7 +187,7 @@ void PwmSolenoidChannel::stop()
     m_timer->stop();
     m_state = State::DEENERGIZED;
     m_targetState = State::DEENERGIZED;
-    m_timer->setExpirationListenerCallback(nullptr, nullptr);
+    m_timer->removeExpirationListenerCallback(this, onTransitionTimer);
 }
 
 void PwmSolenoidChannel::onTransitionTimer(void *context, Timer *timer)
@@ -214,8 +198,8 @@ void PwmSolenoidChannel::onTransitionTimer(void *context, Timer *timer)
     self->m_state = (self->m_state == State::ENERGIZING) ? State::ENERGIZED
                                                          : State::DEENERGIZED;
 
-    if (self->m_callback != nullptr) {
-        self->m_callback(self->m_callbackContext, self->m_state);
+    {
+        self->m_stateCallbacks.invoke(self->m_state);
     }
 }
 

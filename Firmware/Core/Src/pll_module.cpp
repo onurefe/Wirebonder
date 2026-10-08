@@ -17,12 +17,11 @@ PllModule::PllModule(SineGeneratorChannel *sinusoid,
         PLL_MODULE_FREQ_PID_DERIVATIVE_TC,
         1.0f / static_cast<float>(PLL_MODULE_CONTROL_FREQ),
         PLL_MODULE_FREQ_PID_FILTER_TC,
+        PLL_MODULE_FREQ_PID_LEAKAGE_TC,
         PLL_MODULE_FREQ_PID_MIN_DEVIATION,
         PLL_MODULE_FREQ_PID_MAX_DEVIATION})
     , m_pendingStart(false)
     , m_transferState(TransferState::Idle)
-    , m_callbacks{}
-    , m_callbackCount(0)
     , m_voltage(complexf_create(0.0f, 0.0f))
     , m_current(complexf_create(0.0f, 0.0f))
     , m_currentSkewRotator(complexf_create(1.0f, 0.0f))
@@ -49,29 +48,17 @@ PllModule::PllModule(SineGeneratorChannel *sinusoid,
 
 bool PllModule::addEventListenerCallback(void *context, Callback cb)
 {
-    if (cb == nullptr) {
-        return false;
-    }
+    return m_callbacks.add(context, cb);
+}
 
-    for (uint8_t i = 0; i < m_callbackCount; i++) {
-        if (m_callbacks[i].context == context && m_callbacks[i].callback == cb) {
-            return true;
-        }
-    }
-
-    if (m_callbackCount < kMaxCallbacks) {
-        m_callbacks[m_callbackCount++] = CallbackRegistration{cb, context};
-        return true;
-    }
-
-    return false;
+bool PllModule::removeEventListenerCallback(void *context, Callback cb)
+{
+    return m_callbacks.remove(context, cb);
 }
 
 void PllModule::publishEvent(Event event)
 {
-    for (uint8_t i = 0; i < m_callbackCount; i++) {
-        m_callbacks[i].callback(m_callbacks[i].context, event);
-    }
+    m_callbacks.invoke(event);
 }
 
 void PllModule::setTelemetryBuffer(TelemetrySample *buffer, uint16_t capacity)
@@ -244,6 +231,7 @@ void PllModule::setFrequencyPidTuning(float gain, float integralTc, float deriva
         derivativeTc,
         1.0f / static_cast<float>(PLL_MODULE_CONTROL_FREQ),
         PLL_MODULE_FREQ_PID_FILTER_TC,
+        PLL_MODULE_FREQ_PID_LEAKAGE_TC,
         PLL_MODULE_FREQ_PID_MIN_DEVIATION,
         PLL_MODULE_FREQ_PID_MAX_DEVIATION});
 }

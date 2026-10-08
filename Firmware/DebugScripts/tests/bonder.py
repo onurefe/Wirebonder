@@ -36,19 +36,23 @@ CAPTURE_DIR = "captures"
 # Must match BonderModule::Opcode.
 OPCODE_NAMES = {
     0: "ZMOVE",
-    1: "MZMOVE",
-    2: "YMOVE",
+    1: "YMOVE",
+    2: "YREVERSE",
     3: "TMOVE",
     4: "TIMER",
     5: "WAIT",
-    6: "CLRFLAGS",
-    7: "CLAMPOPEN",
-    8: "CLAMPCLOSE",
-    9: "SCAN",
-    10: "PLL",
-    11: "SETFORCE",
-    12: "USREPORT",
-    13: "MZDOWN",
+    6: "WAITCONTACT",
+    7: "CLRFLAGS",
+    8: "CLAMPOPEN",
+    9: "CLAMPCLOSE",
+    10: "SCAN",
+    11: "PLL",
+    12: "SETFORCE",
+    13: "USREPORT",
+    14: "MZDRIVE",
+    15: "TACHMOVE",
+    16: "TACHSAMPLE",
+    17: "TACHREPORT",
 }
 
 # Must match BonderModule::EventFlag bit positions.
@@ -70,6 +74,8 @@ EVENT_NAMES = {
     14: "clamp-settled",
     15: "wait-timeout",
     16: "left-button-pressed",
+    17: "left-button-released",
+    18: "clamp-toggle-requested",
 }
 
 BONDING_MODES = {
@@ -209,7 +215,7 @@ class DebugBonderWatch(BridgeCommand):
         mask = self._int(entry, "mask")
         flags = self._int(entry, "eventFlags")
 
-        print("  %3d. pc=%-3d %-10s [%s]" %
+        print("  %3d. pc=%-3d %-11s [%s]" %
               (sequence + 1, pc,
                OPCODE_NAMES.get(opcode, "OP(%d)" % opcode),
                "OK" if succeeded else "ERROR"))
@@ -224,29 +230,44 @@ class DebugBonderWatch(BridgeCommand):
         clamp = self._int(entry, "clampState")
         energy = self._float(entry, "transferredEnergy")
 
-        if opcode in (0, 1, 13):
+        name = OPCODE_NAMES.get(opcode)
+
+        if name in ("ZMOVE", "TACHMOVE"):
             print("       arg=%.4f z=%.4f/%.4f mm" %
                   (arg_value, z, target))
-        elif opcode == 2:
+        elif name == "MZDRIVE":
+            # The instruction's operand is a HeightRange, not an arg; the VM
+            # reports the lower bound (the height it completes at).
+            print("       lower=%.4f z=%.4f/%.4f mm" %
+                  (arg_value, z, target))
+            requested = event_names(mask)
+            if requested:
+                print("       mask: %s" % ", ".join(requested))
+        elif name == "YMOVE":
             print("       target=%.4f mm y=%.4f mm" % (arg_value, y))
-        elif opcode == 3:
+        elif name == "YREVERSE":
+            print("       displacement=%.4f mm y=%.4f mm" % (arg_value, y))
+        elif name == "TMOVE":
             print("       target=%.4f mm t=%.4f mm" % (arg_value, t))
-        elif opcode == 4:
+        elif name in ("TIMER", "TACHSAMPLE"):
             print("       duration=%.4f s" % arg_value)
-        elif opcode in (5, 6):
+        elif name in ("WAIT", "CLRFLAGS"):
             requested = event_names(mask)
             print("       mask: %s" %
                   (", ".join(requested) if requested else "none"))
-        elif opcode in (7, 8):
+        elif name == "WAITCONTACT":
+            # Level-triggered on the contact sensor; it carries no mask.
+            print("       waiting for contact (level-triggered)")
+        elif name in ("CLAMPOPEN", "CLAMPCLOSE"):
             print("       clamp=%s" %
                   CLAMP_STATES.get(clamp, "?(%d)" % clamp))
-        elif opcode == 9:
+        elif name == "SCAN":
             print("       target power=%.4f W" % arg_value)
-        elif opcode == 10:
+        elif name == "PLL":
             print("       requested=%.6f J transferred=%.6f J" %
                   (arg_value, energy))
-        elif opcode == 11:
-            print("       force current=%.4f A" % arg_value)
+        elif name == "SETFORCE":
+            print("       force=%.4f g" % arg_value)
 
         events = event_names(flags)
         if events:

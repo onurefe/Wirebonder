@@ -1,15 +1,14 @@
 #pragma once
 
-#include "bonder_module.hpp"
+#include "Protocol/protocol_common.hpp"
 
-// Ultrasonic-only diagnostic: scans the transducer, derives its operating
-// point, transfers the configured first-bond energy, and publishes a report.
-class UltrasonicTestProtocol final : public BonderProtocol {
+// Ultrasonic bench test: one scan and one drive at the tail-assist settings,
+// with the result reported.
+class UltrasonicTestProtocol {
 public:
-    const Instruction *getProtocolPtr() const override;
-    uint8_t getProtocolSize() const override;
-    bool requiresMotionControl() const override { return false; }
+    static const BonderModule::Instruction *getProtocolPtr();
+    static uint8_t getProtocolSize();
 
 private:
-    static const Instruction s_protocol[];
+    static const BonderModule::Instruction s_protocol[];
 };

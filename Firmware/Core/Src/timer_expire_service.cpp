@@ -10,15 +10,17 @@ Timer::Timer()
     , m_startTick(0)
     , m_oneShot(false)
     , m_periodInTicks(0)
-    , m_callback(nullptr)
-    , m_callbackContext(nullptr)
 {
 }
 
-void Timer::setExpirationListenerCallback(void *context, Callback cb)
+bool Timer::addExpirationListenerCallback(void *context, Callback cb)
 {
-    m_callbackContext = context;
-    m_callback        = cb;
+    return m_callbacks.add(context, cb);
+}
+
+bool Timer::removeExpirationListenerCallback(void *context, Callback cb)
+{
+    return m_callbacks.remove(context, cb);
 }
 
 void Timer::start(bool oneShot, float periodInSeconds)
@@ -57,8 +59,8 @@ void Timer::tick(uint32_t globalTick)
             m_startTick += m_periodInTicks;
         }
 
-        if (m_callback != nullptr) {
-            m_callback(m_callbackContext, this);
+        {
+            m_callbacks.invoke(this);
         }
     }
 }

@@ -79,14 +79,50 @@ With 32 configurations stored, creating another fails with \msg{Add failed} and
 saving a new name fails with \msg{Save failed}. Delete something you no longer
 need.
 
-\TODO{If a house convention for naming configurations exists --- by wire
-diameter, device type, customer or job number --- describe it here, with
-worked examples. A consistent scheme matters because names are limited to ten
-characters.}
+\section{Naming}
 
-\section{Recommended practice}
+Names are ten characters, from \texttt{A--Z}, \texttt{0--9}, space, \texttt{-}
+and \texttt{\_}. That is tight, so decide on a scheme before you have twenty
+configurations named \menuitem{TEST3}.
 
-\TODO{Write the site's recipe-control practice: who is permitted to change a
-qualified configuration, how changes are recorded, how a recipe is re-qualified
-after a tool or wire change, and how configurations are backed up given that
-the machine has no export function.}
+A scheme that works within ten characters is
+\texttt{\emph{material}-\emph{diameter}}, for example:
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}L{88mm}@{}}
+\toprule
+\textbf{Name} & \textbf{Meaning} \\
+\midrule
+\menuitem{AL25-AL}   & 25\,\textmu m aluminium wire onto aluminium pads \\
+\menuitem{AU25-AU}   & 25\,\textmu m gold wire onto gold \\
+\menuitem{AL50-AL}   & 50\,\textmu m aluminium \\
+\menuitem{AL25-TEST} & A development version of \menuitem{AL25-AL} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Remember that the mode is already shown next to the name --- you do not need to
+encode it. \menuitem{AL25-AL} in the Semi Auto list and \menuitem{AL25-AL} in
+the Manual list are separate configurations and do not clash.
+
+\section{Backing up your recipes}
+
+\begin{wbwarning}
+The machine has no export function and no way to copy configurations to another
+machine or to a computer. The only backup is a written record.
+\end{wbwarning}
+
+Once a configuration is proven, write its values down. All six screens, on
+paper or in a spreadsheet, kept with the machine. Appendix~\ref{app:defaults}
+lists the parameters in screen order to copy from, and the factory defaults to
+fall back to.
+
+Re-record it whenever it changes. A recipe that took a day to develop and
+exists only in the machine's memory is one storage fault away from being lost.
+
+\section{Recipe control}
+
+\TODO{Write the site's recipe-control practice: who may change a qualified
+configuration, how changes are recorded and approved, and when a recipe must be
+re-qualified --- at minimum after a tool change, a wire lot change, or any
+mechanical adjustment to the bond head.}

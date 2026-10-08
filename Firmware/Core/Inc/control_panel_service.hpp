@@ -1,6 +1,7 @@
 #ifndef CONTROL_PANEL_SERVICE_HPP
 #define CONTROL_PANEL_SERVICE_HPP
 
+#include "callback_list.hpp"
 #include "io_expander_service.hpp"
 #include "timer_expire_service.hpp"
 #include "process.hpp"
@@ -55,18 +56,6 @@ public:
     uint16_t getMask() const { return m_mask; }
 
 private:
-    struct CallbackRegistration {
-        PressCallback callback;
-        void *context;
-    };
-
-    struct ProlongedCallbackRegistration {
-        ProlongedPressCallback callback;
-        void *context;
-    };
-
-    static constexpr uint8_t kMaxCallbacks = 4U;
-
     uint32_t                m_prolongedPressThresholdMs;
     uint32_t                m_prolongedPressCallbackIntervalMs;
     uint16_t                m_mask;
@@ -76,10 +65,8 @@ private:
     uint32_t                m_lastChangeTick;    // debounce: last raw edge (ms)
     uint32_t                m_pressStartTick;    // last accepted press edge (ms)
     uint32_t                m_lastProlongedTick; // last prolonged callback fire (ms)
-    CallbackRegistration    m_pressCallbacks[kMaxCallbacks];
-    ProlongedCallbackRegistration m_prolongedPressCallbacks[kMaxCallbacks];
-    uint8_t                 m_pressCallbackCount;
-    uint8_t                 m_prolongedPressCallbackCount;
+    ListenerList<>         m_pressCallbacks;
+    ListenerList<uint32_t> m_prolongedPressCallbacks;
 };
 
 // ---------------------------------------------------------------------------
@@ -130,9 +117,10 @@ public:
     bool addLed(LedChannel *led);
 
     bool ledOutputsMatch() const;
-    void setOutputWriteListenerCallbacks(void *context,
-                                         OutputWriteCallback queuedCallback,
-                                         OutputWriteCallback completedCallback);
+    bool addOutputWriteQueuedListenerCallback(void *context, OutputWriteCallback cb);
+    bool removeOutputWriteQueuedListenerCallback(void *context, OutputWriteCallback cb);
+    bool addOutputWriteCompletedListenerCallback(void *context, OutputWriteCallback cb);
+    bool removeOutputWriteCompletedListenerCallback(void *context, OutputWriteCallback cb);
 
 private:
     void onStart() override;
@@ -157,9 +145,8 @@ private:
     uint8_t        m_buttonCount;
     LedChannel    *m_leds[kMaxLeds];
     uint8_t        m_ledCount;
-    OutputWriteCallback m_outputWriteQueuedCallback;
-    OutputWriteCallback m_outputWriteCompletedCallback;
-    void                *m_outputWriteCallbackContext;
+    ListenerList<uint8_t> m_outputWriteQueuedCallbacks;
+    ListenerList<uint8_t> m_outputWriteCompletedCallbacks;
 };
 
 #endif /* CONTROL_PANEL_SERVICE_HPP */

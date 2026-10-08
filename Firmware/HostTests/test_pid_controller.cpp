@@ -1,9 +1,27 @@
 #include <gtest/gtest.h>
+
+#include <cmath>
+#include <limits>
+
 #include "pid_controller.hpp"
 
+// leakTc defaults to infinity, i.e. no integral decay: expf(-dt/inf) is exactly
+// 1.0, so every test below that predicts an integral term arithmetically stays
+// exact. LeakyIntegralDecays overrides it. Fields are named rather than
+// positional so a future Config member cannot silently shift the rest along.
 static PidController::Config cfg(float kp, float ti, float td, float dt,
-                                  float ftc, float mn, float mx) {
-    return {kp, ti, td, dt, ftc, mn, mx};
+                                 float ftc, float mn, float mx,
+                                 float leakTc = std::numeric_limits<float>::infinity()) {
+    PidController::Config config{};
+    config.gain         = kp;
+    config.integralTc   = ti;
+    config.derivativeTc = td;
+    config.dt           = dt;
+    config.filterTc     = ftc;
+    config.leakTc       = leakTc;
+    config.outputMin    = mn;
+    config.outputMax    = mx;
+    return config;
 }
 
 TEST(PidController, ZeroErrorProducesZeroOutput) {
@@ -27,6 +45,29 @@ TEST(PidController, IntegralAccumulation) {
     float out = 0.f;
     for (int i = 0; i < 10; i++) out = pid.execute(1.f, 0.f);
     EXPECT_NEAR(out, 2.f, 1e-4f);
+}
+
+TEST(PidController, LeakyIntegralDecays) {
+    // With leakage the integral is a geometric series rather than an unbounded
+    // ramp: each step accumulates error*dt then decays by exp(-dt/leakTc), so
+    // it converges to dt*m/(1-m) instead of growing without bound.
+    const float dt     = 0.1f;
+    const float leakTc = 0.1f;
+    const float m      = std::exp(-dt / leakTc);
+    const float steady = dt * m / (1.0f - m);
+
+    PidController pid(cfg(1.f, 1.f, 0.f, dt, 0.f, -1000.f, 1000.f, leakTc));
+    pid.start();
+
+    float out = 0.f;
+    for (int i = 0; i < 200; i++) out = pid.execute(1.f, 0.f);
+
+    // output = Kp*(e + integral/Ti) = 1*(1 + steady/1)
+    EXPECT_NEAR(out, 1.f + steady, 1e-4f);
+
+    // The undecayed integral after 200 steps would be 20.0; leakage must hold
+    // it far below that.
+    EXPECT_LT(steady, 0.1f);
 }
 
 TEST(PidController, DerivativeOnStepThenZero) {

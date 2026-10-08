@@ -114,6 +114,7 @@ set(CPP_SOURCES
     Core/Src/eeprom_emulator.cpp
     Core/Src/machine_settings.cpp
     Core/Src/bonder_module.cpp
+    Core/Src/bonder_commands.cpp
     Core/Src/Protocol/protocol_semi_auto.cpp
     Core/Src/Protocol/protocol_manual.cpp
     Core/Src/Protocol/protocol_table_tear.cpp
@@ -121,7 +122,8 @@ set(CPP_SOURCES
     Core/Src/Protocol/protocol_ultrasonic_test.cpp
     Core/Src/Protocol/protocol_force_setup.cpp
     Core/Src/Protocol/protocol_tach_cal.cpp
-    Core/Src/Protocol/protocol_reset_prologue.cpp
+    Core/Src/Protocol/protocol_z_position_cal.cpp
+    Core/Src/Protocol/protocol_initialization.cpp
 )
 
 list(APPEND CPP_SOURCES
@@ -138,7 +140,8 @@ list(APPEND CPP_SOURCES
     Core/Src/DebugEnvironment/debug_environment_leds.cpp
     Core/Src/DebugEnvironment/debug_environment_lcd.cpp
     Core/Src/DebugEnvironment/debug_environment_solenoids.cpp
-    Core/Src/DebugEnvironment/debug_environment_bonder.cpp
+    # debug_environment_bonder.cpp: still on the pre-refactor VM API
+    # (telemetry, getVmStatus); out of the build until it is reworked.
     Core/Src/DebugEnvironment/debug_environment_homing.cpp
 )
 

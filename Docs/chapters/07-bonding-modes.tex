@@ -152,11 +152,24 @@ Semi Auto with two changes, for bonds that need the tool to drag as it lands:
 Everything else --- the triggers, the welds, the T-axis tear, the tail assist
 --- is as Semi Auto.
 
-\TODO{Describe when Lange Coupling is the right choice in this shop's work,
-with an example device or geometry, and give a starting value for
-\menuitem{Reverse} in that mode. The firmware defaults \menuitem{Reverse} to
-zero, which makes Lange Coupling behave almost identically to Semi Auto until
-somebody sets it.}
+The mode is named for Lange couplers --- interdigitated microwave couplers
+whose fingers are bridged by short wire crossovers. Those bonds are made onto
+narrow lines where the second bond has little room, and a short drag as the
+tool lands helps seat the wire on the line rather than beside it.
+
+\begin{wbwarning}
+\menuitem{Reverse} defaults to \textbf{zero}, and with it at zero this mode
+behaves almost exactly like Semi Auto --- the drag is what makes it different,
+and there is none until you set it. If you select Lange Cplr and see no change
+in behaviour, this is why.
+\end{wbwarning}
+
+Start with a small value --- a few hundredths of a millimetre --- and increase
+it until the second bond seats reliably. The drag happens under bond force, so
+too much of it will scrub the pad.
+
+\seeks{the mechanical setup for Lange coupler work, including tool selection
+and workholder requirements.}
 
 \section{What each mode shows}
 

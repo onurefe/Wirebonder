@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdint>
 
+#include "callback_list.hpp"
 #include "pin_monitor_service.hpp"
 #include "stepper_router_service.hpp"
 #include "process.hpp"
@@ -26,7 +27,8 @@ public:
     HomingModule(RouterChannel *yAxisRouter,
                  PinMonitorChannel *yAxisLimitSwitch);
 
-    void addEventListenerCallback(void *context, EventCallback callback);
+    bool addEventListenerCallback(void *context, EventCallback callback);
+    bool removeEventListenerCallback(void *context, EventCallback callback);
 
     bool home();
     void abortHoming();
@@ -58,8 +60,7 @@ private:
 
     RouterChannel *m_yAxisRouter;
     PinMonitorChannel *m_yAxisLimitSwitch;
-    EventCallback m_eventCallback;
-    void *m_eventCallbackContext;
+    ListenerList<Event> m_eventCallbacks;
     std::atomic<bool> m_limitActive;
     HomingState m_homingState;
 };

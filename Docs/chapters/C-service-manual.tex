@@ -1,0 +1,119 @@
+% Short form for the ToC and PDF bookmark; \ksmanual contains \emph, which
+% does not belong in either.
+\chapter[Using the K\&S Service Manual]{Using the \ksmanual}
+\label{app:ks}
+
+This machine is a \basemachine\ with its control electronics replaced. The
+mechanics are the original ones, so the \ksmanual\ remains a useful and
+accurate reference --- for the mechanics. It is not accurate about anything the
+controller does.
+
+This appendix says which is which.
+
+\section{What the \ksmanual\ is still right about}
+
+Everything mechanical, because none of it changed:
+
+\begin{itemize}[leftmargin=*]
+\item The bond head, the bond lever, and their adjustment.
+\item Fitting, aligning and replacing the bonding tool.
+\item Wire threading, the wire guides, the clamp mechanism, spool mounting and
+  tension.
+\item The workholder and stage mechanics.
+\item Chassis, installation, mounting and environmental requirements.
+\item Mechanical spares, consumables and part numbers.
+\item Bonding schedules, and the physics of what force, power and time do to a
+  bond.
+\item Bond inspection and pull-test practice.
+\end{itemize}
+
+\section{What it is wrong about}
+
+Everything downstream of the control card. Use this manual instead.
+
+\begin{center}\small
+\begin{tabular}{@{}L{40mm}L{82mm}@{}}
+\toprule
+\textbf{Topic} & \textbf{Why it differs} \\
+\midrule
+
+Control panel and display &
+Different hardware entirely. This machine has a 20$\times$4 character display
+and a menu system; key functions, menu structure and screen layouts do not
+correspond. See Chapters~\ref{ch:controls} and~\ref{ch:navigation}. \\
+\addlinespace
+
+Error and status messages &
+Entirely different message set. Chapter~\ref{ch:messages} is the only valid
+list. \\
+\addlinespace
+
+Parameter storage &
+This machine stores up to 32 named configurations per bonding mode in
+non-volatile memory, with a permanent \menuitem{DEFAULT}. See
+Chapter~\ref{ch:configurations}. \\
+\addlinespace
+
+Calibration procedures &
+The force, ultrasonic and tachometer calibrations in
+Chapter~\ref{ch:calibration} are specific to this controller and have no
+4523AD equivalent. \\
+\addlinespace
+
+Ultrasonic generator &
+This machine sweeps for resonance before every weld, tracks it, and delivers a
+measured \emph{energy} rather than running for a set time. The scan settings,
+the reported Q, and the tail assist have no 4523AD counterpart. \\
+\addlinespace
+
+Homing and power-up &
+This machine homes its Y axis automatically at power-up and refuses to move if
+that fails. See Chapter~\ref{ch:powerup}. \\
+\addlinespace
+
+Electrical schematics, wiring, fuses, supply &
+The control electronics are new. The 4523AD electrical documentation does not
+describe this machine. \\
+\addlinespace
+
+Regulatory markings &
+The base machine's original conformity does not carry over to the machine as
+rebuilt. \\
+
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{wbwarning}
+Do not use the \ksmanual's electrical documentation to diagnose or repair this
+machine. The control card is not the one it describes, and its wiring,
+connectors and voltages are different.
+\end{wbwarning}
+
+\section{Parameters: what maps and what does not}
+
+The first three parameter screens follow the 4523AD schedule and the names
+match, so a 4523AD bonding schedule can be entered here directly ---
+with the cautions in Chapter~\ref{ch:tuning}.
+
+\begin{center}\small
+\begin{tabular}{@{}L{34mm}L{88mm}@{}}
+\toprule
+\textbf{Screens} & \textbf{Relationship to the 4523AD} \\
+\midrule
+1/6 First bond    & Follows the 4523AD schedule; names match \\
+2/6 Loop          & Follows the 4523AD schedule; names match \\
+3/6 Second bond   & Follows the 4523AD schedule; names match \\
+4/6 Heights       & This controller. Similar concepts, different limits \\
+5/6 Timing        & This controller only --- no 4523AD equivalent \\
+6/6 Force \& U/S  & This controller only --- no 4523AD equivalent \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{wbnote}
+Force is in grams on both machines and transfers directly --- but only once
+\keycap{SETUP} has been run here, since until then this machine's commanded
+force is uncorrected. Power and energy do \emph{not} transfer, because the
+ultrasonic drive and transducer are not the same.
+\end{wbnote}

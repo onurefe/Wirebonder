@@ -1,12 +1,16 @@
 #pragma once
 
-#include "bonder_module.hpp"
+#include "Protocol/protocol_common.hpp"
 
-class ManualBondingProtocol final : public BonderProtocol {
+// Manual mode: the operator drives Z with the mouse buttons -- right toward the
+// phase's search height, left back toward its starting height -- and releasing
+// either stops in place. The automatic sequence takes over once Z settles at
+// the search height.
+class ManualBondingProtocol {
 public:
-    const BonderModule::Instruction *getProtocolPtr() const override;
-    uint8_t getProtocolSize() const override;
+    static const BonderModule::Instruction *getProtocolPtr();
+    static uint8_t getProtocolSize();
 
 private:
-    static const Instruction s_protocol[];
+    static const BonderModule::Instruction s_protocol[];
 };

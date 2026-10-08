@@ -27,31 +27,17 @@ SineGeneratorChannel::SineGeneratorChannel(
     , m_updatePeriodInNumSamples(updatePeriodInNumSamples)
     , m_dacVoltageRange(dacVoltageRange)
     , m_dacBits(dacBits)
-    , m_waveformControllerCallbacks{}
-    , m_waveformControllerCallbackCount(0)
 {
 }
 
 bool SineGeneratorChannel::addWaveformControllerCallback(void *context, SinusoidCallback cb)
 {
-    if (cb == nullptr) {
-        return false;
-    }
+    return m_waveformControllerCallbacks.add(context, cb);
+}
 
-    for (uint8_t i = 0; i < m_waveformControllerCallbackCount; i++) {
-        if (m_waveformControllerCallbacks[i].context == context &&
-            m_waveformControllerCallbacks[i].callback == cb) {
-            return true;
-        }
-    }
-
-    if (m_waveformControllerCallbackCount >= kMaxWaveformControllerCallbacks) {
-        return false;
-    }
-
-    m_waveformControllerCallbacks[m_waveformControllerCallbackCount++] =
-        WaveformControllerRegistration{cb, context};
-    return true;
+bool SineGeneratorChannel::removeWaveformControllerCallback(void *context, SinusoidCallback cb)
+{
+    return m_waveformControllerCallbacks.remove(context, cb);
 }
 
 uint32_t SineGeneratorChannel::getHalChannel(void)
@@ -120,15 +106,8 @@ void SineGeneratorChannel::updateParameters()
 {
     // First active controller supplies the waveform parameters; if none is
     // active amplitude/average/frequency are left unchanged.
-    for (uint8_t i = 0; i < m_waveformControllerCallbackCount; i++) {
-        if (m_waveformControllerCallbacks[i].callback(
-                m_waveformControllerCallbacks[i].context,
-                &m_amplitude,
-                &m_average,
-                &m_normalizedFrequency)) {
-            break;
-        }
-    }
+    (void)m_waveformControllerCallbacks.invokeFirst(
+        &m_amplitude, &m_average, &m_normalizedFrequency);
 
     // Prevent DAC clipping.
     if ((m_average + m_amplitude) > m_dacVoltageRange ||

@@ -7,9 +7,8 @@ LvdtSensorModule::LvdtSensorModule(SineGeneratorChannel* excitation, IQDemodulat
     : m_excitation(excitation)
     , m_secondaryA(secondaryA)
     , m_secondaryB(secondaryB)
-    , m_callback(nullptr)
-    , m_callbackContext(nullptr)
     , m_strokeMm(strokeMm)
+    , m_positionOffsetMm(0.0f)
     , m_magA(0.0f)
     , m_magB(0.0f)
     , m_updatedA(false)
@@ -18,10 +17,24 @@ LvdtSensorModule::LvdtSensorModule(SineGeneratorChannel* excitation, IQDemodulat
 {
 }
 
-void LvdtSensorModule::addMeasurementListenerCallback(void* callbackContext, MeasurementCallback callback) 
-{   
-    m_callback = callback;
-    m_callbackContext = callbackContext;   
+void LvdtSensorModule::setPositionOffsetMm(float offsetMm)
+{
+    m_positionOffsetMm = offsetMm;
+}
+
+float LvdtSensorModule::getPositionOffsetMm() const
+{
+    return m_positionOffsetMm;
+}
+
+bool LvdtSensorModule::addMeasurementListenerCallback(void* callbackContext, MeasurementCallback callback)
+{
+    return m_callbacks.add(callbackContext, callback);
+}
+
+bool LvdtSensorModule::removeMeasurementListenerCallback(void* callbackContext, MeasurementCallback callback)
+{
+    return m_callbacks.remove(callbackContext, callback);
 }
 
 void LvdtSensorModule::onStart()
@@ -151,12 +164,20 @@ bool LvdtSensorModule::tryComputePositionMm(float magA, float magB, float& posit
 
     const float normalizedPosition = (magA - magB) / sum;
 
-    positionMm = normalizedPosition * (m_strokeMm * 0.5f);
+    /* Displacement from the sensor's electrical centre, turned the right way
+       up by LVDT_MODULE_DIRECTION and scaled by what the ratio actually
+       spans, plus whatever offset the Z position calibration established.
+       Until it has run that offset is zero and this is the raw displacement
+       -- the machine then works in the LVDT's own coordinates, where relative
+       moves are right and absolute heights are not. */
+    positionMm = (LVDT_MODULE_DIRECTION * normalizedPosition *
+                  (m_strokeMm * 0.5f) / LVDT_MODULE_RATIO_AT_FULL_STROKE) +
+                 m_positionOffsetMm;
     return true;
 }
 
 void LvdtSensorModule::fireCallback(float positionMm, float magA, float magB) const {
-    if (m_callback != nullptr) {
-        m_callback(m_callbackContext, positionMm, magA, magB);
+    {
+        m_callbacks.invoke(positionMm, magA, magB);
     }
 }

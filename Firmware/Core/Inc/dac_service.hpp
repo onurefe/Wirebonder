@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "stm32f4xx_hal.h"
+#include "callback_list.hpp"
 #include "complex.h"
 #include "configuration.h"
 #include "process.hpp"
@@ -89,6 +90,7 @@ public:
     void stop() override;
 
     bool addWaveformControllerCallback(void *context, SinusoidCallback cb);
+    bool removeWaveformControllerCallback(void *context, SinusoidCallback cb);
     void setFrequency(float normalizedFrequency);
 
     void bufferFillRequestHandler(bool secondHalf) override;
@@ -119,15 +121,7 @@ private:
     float    m_dacVoltageRange;
     uint8_t  m_dacBits;
 
-    struct WaveformControllerRegistration {
-        SinusoidCallback callback;
-        void *context;
-    };
-
-    static constexpr uint8_t kMaxWaveformControllerCallbacks = 4U;
-
-    WaveformControllerRegistration m_waveformControllerCallbacks[kMaxWaveformControllerCallbacks];
-    uint8_t m_waveformControllerCallbackCount;
+    ArbiterList<float *, float *, float *> m_waveformControllerCallbacks;
 };
 
 // -----------------------------------------------------------------------
