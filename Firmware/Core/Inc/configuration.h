@@ -506,19 +506,6 @@
 #define BONDER_MODULE_TAIL_FEED_HEIGHT_FRACTION                      0.5f
 #define BONDER_MODULE_TAIL_VIBRATION_BUILDUP_TIME                    0.010f /* s */
 
-/* Anti-stiction dither for MZDRIVE's hand-driven descent, superposed on the
-   velocity handed to the loop. Amplitude zero disables it; the divider is the
-   half period in control ticks, so 2 is 250 Hz on a 1 kHz loop. Small enough
-   to average to no motion: what breaks the stiction is the edge, which the
-   velocity PID's derivative term answers with a torque impulse.
-   Keep it well below ZMOTOR_MAX_*_SPEED: the position loop clamps its output
-   to that speed, so a larger amplitude just becomes a full-speed reversal
-   every half period. It also runs while MZDRIVE is parked, and a motor that
-   cannot follow the reversals sits near stall current -- 40 mm/s burned a
-   Z motor that way. */
-#define BONDER_COMMAND_MZDRIVE_DITHER_AMPLITUDE                      0.5f   /* mm/s  */
-#define BONDER_COMMAND_MZDRIVE_DITHER_DIVIDER                        4U    /* ticks */
-
 /* How far MZDRIVE's walked setpoint may lead the carriage. Bounds the catch-up
    motion when the axis cannot follow the commanded speed. */
 #define BONDER_COMMAND_MZDRIVE_MAX_FOLLOWING_ERROR                   1.0f  /* mm */

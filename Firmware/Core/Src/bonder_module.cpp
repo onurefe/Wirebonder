@@ -48,8 +48,6 @@ BonderConfig BonderModule::m_config = {};
 float BonderModule::m_tailFeedHeight = 0.0f;
 float BonderModule::m_tailVibrationBuildupTime = BONDER_MODULE_TAIL_VIBRATION_BUILDUP_TIME;
 float BonderModule::m_tailAssistEnergy = 0.0f;
-float BonderModule::m_mzDriveDitherAmplitude = BONDER_COMMAND_MZDRIVE_DITHER_AMPLITUDE;
-uint8_t BonderModule::m_mzDriveDitherDivider = BONDER_COMMAND_MZDRIVE_DITHER_DIVIDER;
 
 BonderCommandZMove             BonderModule::m_CmdZMove;
 BonderCommandYMove             BonderModule::m_CmdYMove;
@@ -963,8 +961,6 @@ void BonderModule::startInstructionMzDrive(void **args)
     ordered_args.upperHeight = *((float *)args[1]);
     ordered_args.maxSpeed = *((float *)args[2]);
     ordered_args.maxStopDistance = *((float *)args[3]);
-    ordered_args.ditherAmplitude = m_mzDriveDitherAmplitude;
-    ordered_args.ditherDivider = m_mzDriveDitherDivider;
     m_CmdMzDrive.start(&ordered_args);
 }
 

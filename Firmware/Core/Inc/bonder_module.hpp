@@ -209,14 +209,6 @@ class BonderModule: public Process {
        state, not a profile parameter, while the timing is being dialled in. */
     static float m_tailVibrationBuildupTime;
 
-    /* Anti-stiction dither for the hand-driven descent, injected on MZDRIVE's
-       velocity feedforward -- so it reaches the velocity loop's command, where
-       the derivative term turns each edge into a torque kick, and never
-       touches the position setpoint. Amplitude zero leaves it off; the divider
-       is in control ticks per half period (2 -> 250 Hz on a 1 kHz loop). */
-    static float m_mzDriveDitherAmplitude;
-    static uint8_t m_mzDriveDitherDivider;
-
     /* Energy (J) the tail-assist drive is given. Derived, not configured:
        configure() sizes it so the drive outlasts the T axis's restore move
        (see BONDER_MODULE_TAIL_ASSIST_ENERGY_SAFETY_FACTOR). */

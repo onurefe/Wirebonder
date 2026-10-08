@@ -251,10 +251,6 @@ class BonderCommandMzDrive: public BonderCommand {
         // distance rather than a rate, so the stop feels the same at any
         // speed setting.
         float maxStopDistance;
-        // Anti-stiction dither superposed on the velocity handed to the loop
-        // (mm/s peak, zero disables), and its half period in control ticks.
-        float ditherAmplitude;
-        uint8_t ditherDivider;
     } Args;
 
     enum EventId: uint8_t {
@@ -282,10 +278,6 @@ class BonderCommandMzDrive: public BonderCommand {
     float m_velocity;
     // Decided in execute() from the buttons and read by the control loop.
     std::atomic<Direction> m_direction;
-    float m_ditherAmplitude;
-    uint8_t m_ditherDivider;
-    uint8_t m_ditherTicks;
-    bool m_ditherPositive;
 
     // Set by the control loop once the profile has walked the setpoint onto
     // the descent target; cleared again if it walks back up. Arriving there is
@@ -305,12 +297,6 @@ class BonderCommandMzDrive: public BonderCommand {
 
     // The route has run out and the carriage has caught up with it.
     bool isMotionCompleted() const;
-    // Alternating velocity offset that keeps the contact sliding, so static
-    // friction never re-forms and the axis cannot stick-slip its way down.
-    // Rides on the feedforward only: the position setpoint never sees it, so
-    // it averages to no motion.
-    float ditherVelocity();
-
 
     static bool onZMotorPositionSetpoint(void *context, float *positionSetpoint,
                                          float *velocityFeedforward);

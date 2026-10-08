@@ -364,11 +364,6 @@ bool BonderCommandMzDrive::start(void *args)
     m_acceleration = rampAcceleration(casted_args->maxSpeed,
                                       casted_args->maxStopDistance);
 
-    m_ditherAmplitude = casted_args->ditherAmplitude;
-    m_ditherDivider = casted_args->ditherDivider;
-    m_ditherTicks = 0U;
-    m_ditherPositive = false;
-
     // Stay put until a button is pressed: the axis is already parked wherever
     // the previous command left it.
     m_direction.store(Direction::None);
@@ -440,32 +435,10 @@ bool BonderCommandMzDrive::onZMotorPositionSetpoint(void *context, float *positi
 
     self->advanceProfile();
     *positionSetpoint = self->m_setpoint;
-    /* The profile's own velocity, so the loop is left with the residual only,
-       plus the dither -- which reaches the velocity loop's command exactly
-       where its derivative term can turn each edge into a torque kick. */
-    *velocityFeedforward = self->m_velocity + self->ditherVelocity();
+    // The profile's own velocity: the loop is left with the residual only.
+    *velocityFeedforward = self->m_velocity;
 
     return true;
-}
-
-// Square wave at the control rate divided down. Amplitude is small enough to
-// average to nothing mechanically; what breaks the stiction is the edge, not
-// the level -- the velocity loop's derivative term sees a step and answers
-// with an impulse, which is the same trick as injecting a digital square into
-// an analogue velocity loop's summing junction.
-float BonderCommandMzDrive::ditherVelocity()
-{
-    if ((m_ditherAmplitude <= 0.0f) || (m_ditherDivider == 0U)) {
-        return 0.0f;
-    }
-
-    m_ditherTicks++;
-    if (m_ditherTicks >= m_ditherDivider) {
-        m_ditherTicks = 0U;
-        m_ditherPositive = !m_ditherPositive;
-    }
-
-    return m_ditherPositive ? m_ditherAmplitude : -m_ditherAmplitude;
 }
 
 // One tick of the trapezoid. Up is positive throughout, so a descent is the
