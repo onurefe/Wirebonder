@@ -16,11 +16,6 @@ public:
         IQDemodulatorChannel* secondaryB,
         float strokeMm);
 
-    // Where the sensor's electrical centre sits above the Z origin. Starts at
-    // the configured estimate and is replaced by the measured value once the
-    // axis has been calibrated against its top stop.
-    void setPositionOffsetMm(float offsetMm);
-    float getPositionOffsetMm() const;
 
 
     bool addMeasurementListenerCallback(void* callbackContext, MeasurementCallback callback);
@@ -56,12 +51,14 @@ private:
     ListenerList<float, float, float> m_callbacks;
 
     float m_strokeMm;
-    float m_positionOffsetMm;
 
     volatile float m_magA;
     volatile float m_magB;
     volatile bool m_updatedA;
     volatile bool m_updatedB;
+    // Readings still to drop after startMeasurement() while the excitation
+    // and the secondaries settle (LVDT_MODULE_SETTLING_SAMPLES).
+    uint8_t m_settlingSamplesLeft;
     MeasurementState m_measurementState;
 };
 

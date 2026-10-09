@@ -46,11 +46,13 @@ private:
         char name[kNameSize];
     };
 
-    /* Bumped when a field is removed from BonderConfig rather than appended:
-       the layout shifts, so records written by an earlier firmware would be
-       misread field-for-field. A record carrying the old magic is ignored and
-       the profile comes up on defaults. */
-    static constexpr uint32_t kRecordMagic = 0x42434D35UL; // "BCM5"
+    /* Bumped when a field is removed from BonderConfig rather than appended
+       -- the layout shifts, so records written by an earlier firmware would
+       be misread field-for-field -- or when stored values change meaning
+       (BCM6: heights went from bottom-of-travel to raw LVDT coordinates). A
+       record carrying the old magic is ignored and the profile comes up on
+       defaults. */
+    static constexpr uint32_t kRecordMagic = 0x42434D36UL; // "BCM6"
     // Own object-ID range, disjoint from ConfigurationRepository's records.
     static constexpr uint16_t kObjectIdBase = 0x0200U;
 

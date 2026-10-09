@@ -55,7 +55,7 @@ struct DebugCommandBlock {
     volatile uint32_t resultCount;
 
     // Command arguments.
-    volatile float args[5];
+    volatile float args[8];
 
     // Result buffers published by the environment; meaning is
     // environment-specific.

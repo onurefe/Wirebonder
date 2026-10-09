@@ -26,6 +26,9 @@ DcMotorVelocityControllerModule::DcMotorVelocityControllerModule(
     , m_positionMeasurement(0.0f)
     , m_velocityEstimate(0.0f)
     , m_appliedVoltage(0.0f)
+    , m_plannedVelocity(0.0f)
+    , m_holding(false)
+    , m_wasHolding(false)
     , m_targetDuty(DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY)
 {}
 
@@ -64,6 +67,7 @@ bool DcMotorVelocityControllerModule::enableControl()
     m_targetDuty = DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY;
     m_appliedVoltage = 0.0f;
     m_hasEstimate = false;
+    m_wasHolding = false;
 
     m_velocityPid.start();
     m_controlState = ControlState::Enabled;
@@ -149,6 +153,16 @@ float DcMotorVelocityControllerModule::getAppliedVoltage() const
     return m_appliedVoltage;
 }
 
+void DcMotorVelocityControllerModule::setPlannedVelocity(float velocity)
+{
+    m_plannedVelocity = velocity;
+}
+
+void DcMotorVelocityControllerModule::setHolding(bool holding)
+{
+    m_holding = holding;
+}
+
 void DcMotorVelocityControllerModule::enablePidBypass()
 {
     m_velocityPid.enableBypass();
@@ -199,6 +213,8 @@ void DcMotorVelocityControllerModule::onLvdtMeasured(float position, float magA,
     // Pull the fresh setpoint at the exact instant the loop consumes it: the
     // first active controller wins, otherwise the target stays at zero.
     float target_velocity = 0.0f;
+    m_plannedVelocity = 0.0f;   // set afresh by the controller, if any
+    m_holding = false;
     (void)m_velocityControllerCallbacks.invokeFirst(&target_velocity);
 
     // A listener or controller may have shut the loop down from inside this
@@ -207,18 +223,46 @@ void DcMotorVelocityControllerModule::onLvdtMeasured(float position, float magA,
         return;
     }
 
-    float drive = m_velocityPid.execute(
-        target_velocity,
-        m_velocityEstimate);
+    // Holding: no drive, and the PID starts afresh when the hold ends, so
+    // nothing it accumulated while correcting is released as a kick.
+    const bool holding = m_holding && !m_velocityPid.isBypassEnabled();
+    if (holding && !m_wasHolding) {
+        m_velocityPid.stop();
+        m_velocityPid.start();
+    }
+    m_wasHolding = holding;
+
+    float drive = holding
+        ? 0.0f
+        : m_velocityPid.execute(target_velocity, m_velocityEstimate);
+
+    // Friction is pushed against up front rather than left for the
+    // integrator to find; bypassed, the drive is taken exactly as given. It
+    // opposes the motion, so as a load it carries the opposite sign, and it
+    // fades in over FRICTION_FULL_SPEED of planned speed -- not the loop's
+    // whole command, whose position correction alone can reach full scale at
+    // a hold -- so it stays quiet while the gearbox carries the head.
+    float direction = 0.0f;
+    if (ZMOTOR_FRICTION_FULL_SPEED > 0.0f) {
+        direction = m_plannedVelocity / ZMOTOR_FRICTION_FULL_SPEED;
+        direction = (direction > 1.0f) ? 1.0f : ((direction < -1.0f) ? -1.0f : direction);
+    }
+    const float knownLoad = m_velocityPid.isBypassEnabled()
+        ? 0.0f
+        : -(ZMOTOR_FRICTION_VOLTAGE * direction);
+    if (!holding) {
+        drive -= knownLoad;
+    }
 
     m_targetDuty = computeTargetDuty(drive);
 
     /* The model is driven by what the bridge will actually see, after the
        duty clamp, not by what the PID asked for -- otherwise a saturated
-       drive would be credited with motion it never produced. The PWM ramps
-       to this duty over the next segment, a lag the model does not carry. */
+       drive would be credited with motion it never produced. The friction
+       just compensated acts on the head alongside it. The PWM ramps to this duty over the next
+       segment, a lag the model does not carry. */
     m_appliedVoltage = dutyToVoltage(m_targetDuty);
-    m_estimator.predict(m_appliedVoltage);
+    m_estimator.predict(m_appliedVoltage + knownLoad);
 
     m_velocityListenerCallbacks.invoke(m_velocityEstimate);
 }

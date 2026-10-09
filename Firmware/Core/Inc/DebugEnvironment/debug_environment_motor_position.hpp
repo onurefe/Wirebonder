@@ -9,13 +9,23 @@
 #include "dac_service.hpp"
 #include "pwm_service.hpp"
 #include "lvdt_module.hpp"
+#include "force_coil_module.hpp"
 #include "dc_motor_velocity_controller_module.hpp"
 #include "dc_motor_position_controller_module.hpp"
 
+// One control tick. Voltage is what was applied over the period that ended
+// at this reading; coil current is the force coil's latest measurement, so a
+// step can be run with the bond force the protocols hold during Z moves;
+// setpoint is what the position loop was given this tick (the target itself
+// for a plain step, the walked profile for a profiled one).
 struct DebugMotorPositionTelemetrySample {
     float position;
     float magA;
     float magB;
+    float velocity;
+    float voltage;
+    float coilCurrent;
+    float setpoint;
 };
 
 struct DebugMotorPositionStallTelemetrySample {
@@ -26,7 +36,8 @@ struct DebugMotorPositionStallTelemetrySample {
 };
 
 // Sandbox for the Z-axis position loop: LVDT excitation/demodulation feeding
-// DcMotorPositionControllerModule on top of the LVDT-estimated velocity loop.
+// DcMotorPositionControllerModule on top of the LVDT-estimated velocity loop,
+// with the force coil available so a step can run under bond force.
 class MotorPositionDebugEnvironment : public DebugEnvironment {
 public:
     static constexpr uint16_t EnvironmentId =
@@ -77,18 +88,25 @@ private:
 
     static bool onProvidePositionSetpoint(void *context, float *positionSetpoint,
                                           float *velocityFeedforward);
+    static void onCoilCurrentMeasured(void *context, float measuredCurrent);
+    void releaseCoil();
 
     void startStep();
     void startStallScan();
     void stopCapture();
-    bool provideStepSetpoint(float *positionSetpoint);
+    bool provideStepSetpoint(float *positionSetpoint, float *velocityFeedforward);
+    void advanceProfile();
     bool provideStallScanSetpoint(float *positionSetpoint);
     void finish(uint32_t sampleCount);
 
     // Hardware sandbox — exclusively owned by this environment.
     static uint16_t m_adc2Buffer[2 * ADC2_SAMPLES_PER_CHANNEL * ADC2_NUM_CONVERSIONS];
     static uint16_t m_dac2Buffer[2 * DAC2_SAMPLES];
+    static uint16_t m_pwmChannel1Buffer[2 * TIM1_PWM_CHANNEL1_SAMPLES];
     static uint16_t m_pwmChannel2Buffer[2 * TIM1_PWM_CHANNEL2_SAMPLES];
+
+    static AnalogChannel m_forceCoilISensChannel;
+    static PwmRampChannel m_forceCoilPwmChannel;
 
     static IQDemodulatorChannel m_lvdtAChannel;
     static IQDemodulatorChannel m_lvdtBChannel;
@@ -100,6 +118,7 @@ private:
     static PwmService m_tim1PwmService;
 
     static LvdtSensorModule m_lvdtSensorModule;
+    static ForceCoilDriverModule m_forceCoil;
     static DcMotorVelocityControllerModule m_velocityController;
     static DcMotorPositionControllerModule m_positionController;
 
@@ -120,6 +139,23 @@ private:
     float m_endDrive = 0.0f;
     float m_driveStep = 0.0f;
     float m_relaxDrive = 0.0f;
+
+    // Force coil during a step: off unless asked for, switched on after
+    // m_coilDelaySamples so a capture can hold still before and after.
+    float m_coilAmps = 0.0f;
+    uint32_t m_coilDelaySamples = 0;
+    bool m_coilEnabled = false;
+    volatile float m_coilCurrent = 0.0f;
+
+    // Optional ZMOVE-style profile for a step: walk the setpoint to the
+    // target at m_profileSpeed with m_profileAccel ramps, feeding the
+    // profile's velocity forward, so a capture reproduces the moves the
+    // protocols make. Zero speed keeps the plain step.
+    float m_profileSpeed = 0.0f;
+    float m_profileAccel = 0.0f;
+    float m_profileSetpoint = 0.0f;
+    float m_profileVelocity = 0.0f;
+    bool m_profileStarted = false;
 };
 
 #endif /* DEBUG_ENVIRONMENT_MOTOR_POSITION_HPP */

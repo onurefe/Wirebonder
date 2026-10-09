@@ -122,7 +122,6 @@ set(CPP_SOURCES
     Core/Src/Protocol/protocol_lange_coupling.cpp
     Core/Src/Protocol/protocol_ultrasonic_test.cpp
     Core/Src/Protocol/protocol_force_setup.cpp
-    Core/Src/Protocol/protocol_z_position_cal.cpp
     Core/Src/Protocol/protocol_initialization.cpp
 )
 

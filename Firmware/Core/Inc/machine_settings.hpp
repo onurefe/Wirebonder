@@ -20,18 +20,6 @@ struct MachineSettingsData {
     // the downward one when pushing them into the position loop.
     float zMotorMaxUpwardSpeed;
     float zMotorMaxDownwardSpeed;
-    // What turns an LVDT displacement into a machine height, in mm: how far
-    // the sensor's electrical centre sits above the Z origin. Measured by
-    // Start Z Pos. Cal., which runs the head onto the bottom of its travel
-    // and declares that point BONDER_MODULE_ZAXIS_MIN_POSITION. Applied by
-    // Robot::updateZPositionReference().
-    //
-    // Zero until that calibration has run, which is not a guess standing in
-    // for a measurement -- it means the machine simply works in the LVDT's
-    // own coordinates, measured from its electrical centre. Relative moves
-    // are correct there; absolute heights are not, so the protocols that use
-    // them will not reach their targets until the axis has been referenced.
-    float zPositionOffset;
     // Force held by the Setup protocol (ForceSetupProtocol) while the
     // operator lowers the Z axis onto an external gauge, in grams. Edited on
     // the settings page ("Setup Force").
@@ -65,9 +53,10 @@ private:
 
     // Bumped on every layout change (MST4 re-referenced zPositionOffset to
     // the bottom of travel rather than the top, MST5/MST6 came and went with
-    // a boot-seeding flag); the length check below would already reject
-    // older records, this makes it explicit.
-    static constexpr uint32_t kRecordMagic = 0x4D535436UL; // "MST6"
+    // a boot-seeding flag, MST7 dropped zPositionOffset when Z went to raw
+    // LVDT coordinates); the length check below would already reject older
+    // records, this makes it explicit.
+    static constexpr uint32_t kRecordMagic = 0x4D535437UL; // "MST7"
     // Reserved, disjoint from the EEPROM emulator's build-reset record
     // (0x0001) and ConfigurationManager's range (0x0200-0x021F).
     static constexpr uint16_t kObjectId = 0x0002U;

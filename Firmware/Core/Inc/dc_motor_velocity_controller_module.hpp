@@ -53,6 +53,19 @@ public:
     void enablePidBypass();
     void disablePidBypass();
 
+    // The speed the motion is planned at this tick (mm/s, up positive),
+    // without any correction on top: a profile's own velocity, zero while
+    // holding. Friction compensation fades in on this, so a
+    // position correction at a hold cannot switch them on. The controller
+    // sets it from inside its callback each tick; it reads zero otherwise.
+    void setPlannedVelocity(float velocity);
+
+    // Switch the drive off and keep the PID reset while the controller
+    // judges the head to be holding (see ZMOTOR_HOLD_DEADBAND). Set from
+    // inside the controller callback each tick, like the planned velocity;
+    // it reads false otherwise. The estimator keeps running throughout.
+    void setHolding(bool holding);
+
 private:
     enum class ControlState : uint8_t { Disabled, Enabled };
 
@@ -103,6 +116,9 @@ private:
     float m_positionMeasurement;
     float m_velocityEstimate;
     float m_appliedVoltage;
+    float m_plannedVelocity;
+    bool m_holding;
+    bool m_wasHolding;
 
     float m_targetDuty;
 };

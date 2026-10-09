@@ -32,6 +32,14 @@
 
 #define LVDT_MODULE_MIN_TOTAL_MAGNITUDE                              1E-3
 
+/* Measurements dropped after the excitation starts. The first demodulation
+   window only partly contains the excitation and the secondaries are still
+   ringing up, so the first reading can be millimetres off (bench 2026-10-08:
+   up to 8 mm on sample 0, still 10-60 um on sample 2, settled by sample 3).
+   Seeding the Z Kalman filter from such a reading made the axis jiggle for
+   ~100 ms every time the loop was enabled. */
+#define LVDT_MODULE_SETTLING_SAMPLES                                 5U
+
 /* PllModule -----------------------------------------------------------------*/
 #define PLL_MODULE_CENTER_FREQUENCY                                  60000.0f
 #define PLL_MODULE_CONTROL_FREQ                                      1000
@@ -275,26 +283,60 @@
    at the cost of a noisier velocity); the disturbance drift is how fast the
    friction/load estimate may wander. With these values the estimator
    settles in about 5 ms (|pole| 0.8 per 1 ms tick). */
-#define ZMOTOR_MODEL_GAIN                                            1.0f   /* mm/s per V */
-#define ZMOTOR_MODEL_TIME_CONSTANT                                   0.020f /* s */
-#define ZAXIS_KALMAN_POSITION_NOISE                                  0.002f /* mm, 1 sigma */
-#define ZAXIS_KALMAN_ACCELERATION_NOISE                              200.0f /* mm/s^2, 1 sigma */
-#define ZAXIS_KALMAN_DISTURBANCE_DRIFT                               2.0f   /* V/sqrt(s) */
+#define ZMOTOR_MODEL_GAIN                                            5.41f  /* mm/s per V */
+#define ZMOTOR_MODEL_TIME_CONSTANT                                   0.005f /* s */
+#define ZAXIS_KALMAN_POSITION_NOISE                                  0.0045f /* mm, 1 sigma */
+/* 3000 was tried (bench 2026-10-09) to make the estimate follow the LVDT
+   through stalls: it doubled the drive noise and did not track the stalls
+   any better, so it is back at 1000. */
+#define ZAXIS_KALMAN_ACCELERATION_NOISE                              1000.0f /* mm/s^2, 1 sigma */
+#define ZAXIS_KALMAN_DISTURBANCE_DRIFT                               2.00f   /* V/sqrt(s) */
+
+/* Coulomb friction of the head and gear train, as motor voltage, pushed
+   along in the direction the motion is planned. Taken from the planned
+   (profile) velocity -- not the measured one, which would chatter on noise,
+   nor the loop's whole command, whose position correction alone reached full
+   scale at a hold (bench 2026-10-09: -1 V held for a second after a climb) --
+   and faded in linearly up to FRICTION_FULL_SPEED. From the
+   open-loop fit (2026-10-08): climbs and descents differed by 2 x 0.17 V
+   beyond the steady load. No breakaway kick: static friction is left to
+   the loop.
+
+   Two other compensations were tried and removed (bench 2026-10-09). The
+   force coil's load on the Z drive measured nil (climbs and descents with
+   35 g on and off differed by under 0.03 V). The head's spring, +0.92 V
+   upward, made arrivals overshoot once cancelled -- the integrator carried
+   it through a climb and released it as a kick when the plan ended -- and
+   climbs were no smoother with it than without. */
+#define ZMOTOR_FRICTION_VOLTAGE                                      0.17f  /* V */
+#define ZMOTOR_FRICTION_FULL_SPEED                                   1.0f   /* mm/s */
+
+/* Hold deadband. Once nothing is planned -- a profile has ended, or no move
+   is commanded -- and the head is within HOLD_DEADBAND of its setpoint, the
+   drive is switched off and the velocity PID reset: the gearbox holds the
+   head at 0 V, while correcting the last fraction of a millimetre through
+   its static friction only wound the drive up to -1.2..-1.75 V for a second
+   or more and then slipped past (bench 2026-10-09). It lets go again when a
+   move is planned or the head drifts beyond HOLD_RELEASE. Both stay under
+   DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR, the tolerance a Z move is
+   judged to have arrived within, so a held head still completes its move. */
+#define ZMOTOR_HOLD_DEADBAND                                         0.10f  /* mm */
+#define ZMOTOR_HOLD_RELEASE                                          0.15f  /* mm */
 
 #define DCMOTOR_VELOCITY_MODULE_MIN_DUTY                             0.05f
 #define DCMOTOR_VELOCITY_MODULE_MAX_DUTY                             0.95f
 #define DCMOTOR_VELOCITY_MODULE_ZERO_VELOCITY_DUTY                   0.5
 #define DCMOTOR_VELOCITY_MODULE_VOLTAGE_TO_DUTY_SCALE                (1.0f / 27.0f)
 
-/* Velocity PID, acting on the Kalman velocity estimate. These are the gains
-   that were tuned against the old tachometer and are carried over only as a
-   starting point: the estimate has its own lag and noise, so retune them on
-   the bench once the motor model above has been identified. The input filter
-   was sized for tachometer ripple and may be unnecessary on the estimate. */
-#define DCMOTOR_VELOCITY_MODULE_PID_GAIN                             0.3025f
-#define DCMOTOR_VELOCITY_MODULE_PID_INTEGRAL_TC                      0.0121f
-#define DCMOTOR_VELOCITY_MODULE_PID_DERIVATIVE_TC                    0.003f
-#define DCMOTOR_VELOCITY_MODULE_PID_INPUT_FILTER_TC                  1.59e-3f
+/* Velocity PI on the Kalman estimate. The integral time is not the 5 ms the
+   motor fit suggested: that figure came from fitting the start-up lurch, and
+   the geared head actually takes 15-40 ms to break away and 50-100 ms to
+   settle its speed. At 5 ms the loop limit-cycled at ~15 Hz on climbs
+   (bench 2026-10-09: voltage swinging +/-1.5 V around 3.6 V). */
+#define DCMOTOR_VELOCITY_MODULE_PID_GAIN                             0.151f
+#define DCMOTOR_VELOCITY_MODULE_PID_INTEGRAL_TC                      0.030f
+#define DCMOTOR_VELOCITY_MODULE_PID_DERIVATIVE_TC                    0.0f
+#define DCMOTOR_VELOCITY_MODULE_PID_INPUT_FILTER_TC                  0.0f
 
 #define DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MIN                       -13.5f
 #define DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MAX                       13.5f
@@ -304,7 +346,7 @@
 #define DCMOTOR_POSITION_MODULE_CONTROL_FREQUENCY                    1000
 
 
-#define DCMOTOR_POSITION_MODULE_PROPORTIONAL_GAIN                    100.0f
+#define DCMOTOR_POSITION_MODULE_PROPORTIONAL_GAIN                    10.0f
 
 /* Weight on the velocity a setpoint provider feeds forward. One means the
    provider's own profile velocity is commanded as-is and the proportional
@@ -319,14 +361,18 @@
    increases upward, so the upward limit is the loop's positive output bound;
    both are stored as positive magnitudes in mm/s and the downward one is
    negated when applied to the lower bound. */
-#define ZMOTOR_MAX_UPWARD_SPEED_DEFAULT                              3.5f
+/* Upward faster than downward: the head carries a constant upward load worth
+   about 0.75 V (open-loop fit 2026-10-08), so a slow climb needs almost no
+   drive of its own and sits where stiction and backlash make it jerky. At
+   10 mm/s the drive stays clearly positive and the climb is smooth. */
+#define ZMOTOR_MAX_UPWARD_SPEED_DEFAULT                              25.0f
 #define ZMOTOR_MAX_UPWARD_SPEED_MIN                                  0.1f
-#define ZMOTOR_MAX_UPWARD_SPEED_MAX                                  10.0f
+#define ZMOTOR_MAX_UPWARD_SPEED_MAX                                  50.0f
 #define ZMOTOR_MAX_UPWARD_SPEED_STEP                                 0.1f
 
-#define ZMOTOR_MAX_DOWNWARD_SPEED_DEFAULT                            3.5f
+#define ZMOTOR_MAX_DOWNWARD_SPEED_DEFAULT                            5.0f
 #define ZMOTOR_MAX_DOWNWARD_SPEED_MIN                                0.1f
-#define ZMOTOR_MAX_DOWNWARD_SPEED_MAX                                10.0f
+#define ZMOTOR_MAX_DOWNWARD_SPEED_MAX                                20.0f
 #define ZMOTOR_MAX_DOWNWARD_SPEED_STEP                               0.1f
 
 
@@ -366,61 +412,45 @@
 #define FORCE_SETUP_MEASURED_FORCE_MAX                               200.0f
 #define FORCE_SETUP_MEASURED_FORCE_STEP                              0.1f
 
-/* The Z travel window. Zero is the lowest point the axis may be driven to --
-   below the pad, so overtravel still has somewhere to go -- and the ceiling is
-   the retract limit. Every Z command clamps its target into this before
-   moving, so a protocol or a profile asking for more stops at the boundary and
-   carries on rather than failing to arrive.
+/* The Z travel window, in raw LVDT coordinates -- the same numbers the debug
+   environments show. There is no calibration and no offset: a height in the
+   firmware is exactly what the LVDT reads there.
 
-   The window, not the mechanism, is what bounds the machine: it sits inside
-   the physical travel so the head never reaches a hard stop, and below the
-   depth where the lever mechanism's tension -- and its cam bumps -- build up. */
-#define BONDER_MODULE_ZAXIS_MIN_POSITION                             0.0f
-#define BONDER_MODULE_ZAXIS_MAX_POSITION                             12.0f
+   The minimum is the lowest point the axis may be driven to -- below the pad,
+   so overtravel still has somewhere to go -- and the maximum is the retract
+   limit. Every Z command clamps its target into this before moving, so a
+   protocol or a profile asking for more stops at the boundary and carries on
+   rather than failing to arrive. Keep the window inside the mechanical travel
+   and below the top of the LVDT's usable range: a target past either can
+   never be reached and holds the motor against the mechanism until the move
+   times out.
 
-/* Where the pad surface falls inside that window. Every protocol height is
-   chosen relative to it, so it is the number to re-measure whenever the
-   fixture or the substrate changes. */
-#define BONDER_MODULE_ZAXIS_PAD_POSITION                             2.0f
+   Measured 2026-10-08 with one open-loop climb (2.7 V) from the bottom stop
+   to the top stop: the bottom stop reads -11.13 mm and the top stop +9.05 mm.
+   The head climbs at a steady 17-20 mm/s from about -6 to +6.6 mm, then
+   slows abruptly (17 -> 12 mm/s) -- a load or LVDT non-linearity near the
+   top -- and stops at +9.05. The workspace is set inside that: 2.1 mm clear
+   of the bottom stop and under the slow-down at the top. */
+#define BONDER_MODULE_ZAXIS_MIN_POSITION                             (-9.0f)
+#define BONDER_MODULE_ZAXIS_MAX_POSITION                             6.0f
 
-/* Z position calibration (Start Z. Pos. Cal.). The loops are bypassed and a
-   fixed drive is applied for a fixed time: first away from the origin, then
-   back towards it. The retreat puts the drivetrain's slack -- and the lever's
-   friction state -- into a known condition, so the origin is always reached
-   by the same approach and the reading does not depend on where the head
-   started or which way it last moved.
+/* Z-axis positions, in the same raw LVDT millimetres as the workspace. Each
+   must lie inside it; a profile's own values are clamped into it anyway.
 
-   Wherever the head ends up is declared BONDER_MODULE_ZAXIS_MIN_POSITION,
-   which fixes the LVDT's offset and with it every absolute Z number.
+   They keep the spacing of the original defaults (measured up from the bottom
+   of travel, scaled by 0.594 to fit a 12 mm window): the pad 2 mm above the
+   old bottom reference, the overtravel 0.6 mm below the pad, the retract
+   10.5 mm up. That set was placed in this window and then raised 2.5 mm, so
+   the pad and search heights still need checking against the actual work. */
+#define BONDER_MODULE_ZAXIS_PAD_POSITION                             (-3.5f)
 
-   The drive is deliberately small: enough to reach the stop and hold against
-   it, little enough that resting there is harmless. Find it by eye. */
-#define BONDER_COMMAND_ZCAL_DRIVE                                    2.5f   /* V */
-#define BONDER_COMMAND_ZCAL_PHASE_TIME                               2.5f   /* s */
-
-#define BONDER_MODULE_ZAXIS_MIN_POSITION                             0.0f
-#define BONDER_MODULE_ZAXIS_MAX_POSITION                             12.0f
-
-/* Where the pad surface falls inside that window. Every protocol height is
-   chosen relative to it, so it is the number to re-measure whenever the
-   fixture or the substrate changes. */
-#define BONDER_MODULE_ZAXIS_PAD_POSITION                             2.0f
-
-/* Z-axis positions (mm above the bottom of travel; the pad is at
-   BONDER_MODULE_ZAXIS_PAD_POSITION).
-
-   The clearances above the pad were scaled by 0.594 to fit the 12 mm window,
-   which keeps their proportions: the retract lands 0.5 mm under the ceiling
-   and everything else holds its share of the travel. Two values are not
-   scaled because they are physical rather than chosen -- the pad position
-   itself, and the overtravel's depth below it. */
-#define BONDER_MODULE_DEFAULT_RESET_HEIGHT                           11.0   /* retracted home position              */
-#define BONDER_MODULE_DEFAULT_LOOP_HEIGHT                            7.9    /* apex of the wire loop                */
-#define BONDER_MODULE_DEFAULT_FIRST_SEARCH_HEIGHT                    6.2    /* first-bond controlled descent        */
-#define BONDER_MODULE_DEFAULT_SECOND_SEARCH_HEIGHT                   6.2    /* second-bond controlled descent       */
-#define BONDER_MODULE_DEFAULT_KINK_HEIGHT                            6.8    /* wire kink point, just above pad      */
-#define BONDER_MODULE_DEFAULT_LOWEST_OVERTRAVEL                      1.4  /* maximum overtravel below pad surface */
-#define BONDER_MODULE_DEFAULT_SECOND_Z_HEIGHT                        5.0    /* table-tear height for the Y tail/tear */
+#define BONDER_MODULE_DEFAULT_RESET_HEIGHT                           5.0f   /* retracted home position              */
+#define BONDER_MODULE_DEFAULT_LOOP_HEIGHT                            2.4f   /* apex of the wire loop                */
+#define BONDER_MODULE_DEFAULT_FIRST_SEARCH_HEIGHT                    0.7f   /* first-bond controlled descent        */
+#define BONDER_MODULE_DEFAULT_SECOND_SEARCH_HEIGHT                   0.7f   /* second-bond controlled descent       */
+#define BONDER_MODULE_DEFAULT_KINK_HEIGHT                            1.3f   /* wire kink point, just above pad      */
+#define BONDER_MODULE_DEFAULT_LOWEST_OVERTRAVEL                      (-4.1f) /* maximum overtravel below pad surface */
+#define BONDER_MODULE_DEFAULT_SECOND_Z_HEIGHT                        (-0.5f) /* table-tear height for the Y tail/tear */
 
 /* Z speed (mm/s, both directions) while the manual protocol runs. Per profile
    rather than machine-wide: manual mode is the one program where the operator
@@ -432,8 +462,8 @@
    hand-driven ones run at MANUAL_Z_SPEED and stop over
    MANUAL_Z_STOP_DISTANCE of travel (the ramp is a distance there so the feel
    does not change with the speed setting). */
-#define BONDER_MODULE_DEFAULT_ZMOVE_MAX_SPEED                        3.5   /* mm/s   */
-#define BONDER_MODULE_DEFAULT_ZMOVE_MAX_ACCELERATION                 30.0  /* mm/s^2 */
+#define BONDER_MODULE_DEFAULT_ZMOVE_MAX_SPEED                        30.0  /* mm/s; downward moves are held to the SETTINGS DOWN SPEED */
+#define BONDER_MODULE_DEFAULT_ZMOVE_MAX_ACCELERATION                 100.0 /* mm/s^2; short ramps keep climbs out of the slow band where the spring makes them rough */
 #define BONDER_MODULE_DEFAULT_MANUAL_Z_STOP_DISTANCE                 0.4   /* mm     */
 #define BONDER_MODULE_DEFAULT_MANUAL_Z_SPEED                         1.5
 
@@ -492,14 +522,22 @@
    generous multiple of the move's own worst case, so it only fires when the
    mechanism has genuinely stalled -- a command that trips its deadline fails
    into the normal error path instead of holding the VM forever. */
-/* Tail assist. The feed is released at a fraction of the reset height on the
-   way up from the tear -- a marker in the travel rather than a delay, so it is
+/* Tail assist. The feed is released at a fraction of the way from the bottom of
+   the Z window to the reset height on the way up from the tear -- a marker in the travel rather than a delay, so it is
    insensitive to the Z speed -- and the drive is given a moment to ring the
    transducer up before the wire is drawn through it. Both are being dialled in
    on the bench, which is why they are constants here rather than profile
    parameters. */
 #define BONDER_MODULE_TAIL_FEED_HEIGHT_FRACTION                      0.5f
 #define BONDER_MODULE_TAIL_VIBRATION_BUILDUP_TIME                    0.010f /* s */
+
+/* Manual Z raises run at least this fast, whatever the profile's manual
+   speed. The spring that lifts the head makes slow climbs rough -- below
+   about 4 mm/s the motor has to hold the head back and the gears change
+   flank (bench 2026-10-09: 114 % uneven at 3 mm/s, 43 % at 10 mm/s) -- while
+   lowering stays at the profile's slow speed for fine positioning. Each
+   direction ramps over the profile's stop distance at its own speed. */
+#define BONDER_COMMAND_MZDRIVE_RAISE_SPEED                           10.0f  /* mm/s */
 
 /* How far MZDRIVE's walked setpoint may lead the carriage. Bounds the catch-up
    motion when the axis cannot follow the commanded speed. */

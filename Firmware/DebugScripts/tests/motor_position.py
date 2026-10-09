@@ -11,27 +11,40 @@ CMD_STALL_SCAN = 3
 # Keep in sync with DCMOTOR_POSITION_MODULE_CONTROL_FREQUENCY.
 SAMPLE_RATE_HZ = 1000.0
 DEFAULT_DURATION_S = 4.0
-SAMPLE_FORMAT = "<fff"
+# DebugMotorPositionTelemetrySample: position, magA, magB, Kalman velocity,
+# voltage applied over the preceding tick, force-coil current, setpoint.
+SAMPLE_FORMAT = "<fffffff"
 SAMPLE_SIZE = struct.calcsize(SAMPLE_FORMAT)
 STALL_SAMPLE_FORMAT = "<ffff"
 STALL_SAMPLE_SIZE = struct.calcsize(STALL_SAMPLE_FORMAT)
 
 
 class DebugMotorPosition(BridgeCommand):
-    """debug-motor-position <position | velocity> [duration_s] [open].
+    """debug-motor-position <position | velocity> [duration_s] [open]
+                         [force=<g>] [delay=<s>] [speed=<mm/s>] [accel=<mm/s^2>]
 
     Closed loop (default): arg 1 is a position setpoint.
     Open loop ('open'): bypasses the position controller; arg 1 is passed
-    directly as the inner velocity-loop setpoint while position is recorded."""
+    directly as the inner velocity-loop setpoint while position is recorded.
+    force=<g> holds the force coil at that bond force (grams) for the capture,
+    switched on delay=<s> seconds in (default 0), as the protocols do during
+    Z moves. speed=<mm/s> walks to the target the way a ZMOVE does, ramping at
+    accel=<mm/s^2> (default: the profile default), instead of stepping."""
 
     NAME = "debug-motor-position"
 
     def invoke(self, arg, from_tty):
-        target_position, duration, bypass_controller = parse_args(arg)
+        try:
+            (target_position, duration, bypass_controller, force, delay,
+             speed, accel) = parse_args(arg)
+        except ValueError as exc:
+            print("invalid arguments: %s" % exc)
+            return
 
         if target_position is None:
             print("usage: debug-motor-position <position | velocity> "
-                  "[duration_s] [open]")
+                  "[duration_s] [open] [force=<g>] [delay=<s>] "
+                  "[speed=<mm/s>] [accel=<mm/s^2>]")
             return
 
         if not self.svc.ensure_booted():
@@ -40,7 +53,8 @@ class DebugMotorPosition(BridgeCommand):
         if not self.svc.run_request(Channel.MOTOR_POSITION, CMD_START,
                                     "capturing motor position",
                                     [target_position, duration,
-                                     1.0 if bypass_controller else 0.0]):
+                                     1.0 if bypass_controller else 0.0,
+                                     force, delay, speed, accel]):
             print("interrupted; status = %s" % self.svc.status_name())
             return
 
@@ -63,13 +77,13 @@ class DebugMotorPosition(BridgeCommand):
             struct.unpack_from(SAMPLE_FORMAT, raw, i * SAMPLE_SIZE)
             for i in range(count)
         ]
-        positions = [position for position, _mag_a, _mag_b in samples]
+        positions = [sample[0] for sample in samples]
         dt = 1.0 / SAMPLE_RATE_HZ
 
-        rows = [[i, i * dt, position, mag_a, mag_b]
-                for i, (position, mag_a, mag_b) in enumerate(samples)]
+        rows = [[i, i * dt] + list(sample) for i, sample in enumerate(samples)]
         path = write_capture("motor_position",
-                             ["tick", "time_s", "position", "magA", "magB"],
+                             ["tick", "time_s", "position", "magA", "magB",
+                              "velocity", "voltage", "coil_a", "setpoint"],
                              rows)
 
         if bypass_controller:
@@ -86,15 +100,43 @@ def parse_args(arg):
     args = arg.split()
 
     if not args:
-        return None, None, None
+        return None, None, None, 0.0, 0.0, 0.0, 0.0
 
     target_position = float(args[0])
-    duration = float(args[1]) if len(args) > 1 else DEFAULT_DURATION_S
-    bypass_controller = (
-        len(args) > 2 and args[2].lower() in ("open", "bypass", "1")
-    )
+    duration = DEFAULT_DURATION_S
+    bypass_controller = False
+    force = 0.0
+    delay = 0.0
+    speed = 0.0
+    accel = 0.0
+    positional = 0
 
-    return target_position, duration, bypass_controller
+    for token in args[1:]:
+        lowered = token.lower()
+        if lowered.startswith("force="):
+            force = float(lowered[len("force="):])
+        elif lowered.startswith("delay="):
+            delay = float(lowered[len("delay="):])
+        elif lowered.startswith("speed="):
+            speed = float(lowered[len("speed="):])
+        elif lowered.startswith("accel="):
+            accel = float(lowered[len("accel="):])
+        elif lowered in ("open", "bypass"):
+            bypass_controller = True
+        elif positional == 0:
+            duration = float(token)
+            positional += 1
+        elif positional == 1:
+            bypass_controller = lowered == "1"
+            positional += 1
+        else:
+            raise ValueError("unexpected '%s'" % token)
+
+    if min(force, delay, speed, accel) < 0.0:
+        raise ValueError("force, delay, speed and accel must not be negative")
+
+    return (target_position, duration, bypass_controller, force, delay,
+            speed, accel)
 
 
 def print_position_metrics(metrics):

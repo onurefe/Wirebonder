@@ -183,94 +183,6 @@ void BonderCommandZMove::advanceProfile()
 }
 
 // =============================================================================
-// BonderCommandOpenZMove
-// =============================================================================
-
-bool BonderCommandOpenZMove::start(void *args)
-{
-    BonderCommandOpenZMove::Args *casted_args =
-        reinterpret_cast<BonderCommandOpenZMove::Args *>(args);
-
-    if (casted_args == nullptr) {
-        return false;
-    }
-
-    m_drive = casted_args->drive;
-    armTimeout(static_cast<uint32_t>(casted_args->duration * 1000.0f));
-
-    /* Both loops out of the way: the position loop passes its input straight
-       through as a target velocity, and the velocity PID passes that straight
-       through as a drive. What the setpoint callback returns is therefore the
-       voltage the motor sees. */
-    m_resources->m_zMotorController->enableBypass();
-    m_resources->m_zMotorController->enableDriveBypass();
-    m_resources->m_zMotorController->addPositionSetpointControllerCallback(
-        this, &this->onZMotorPositionSetpoint);
-
-    return true;
-}
-
-// The duration is the completion condition, not a failure: this is a timed
-// push, so running out of time is how it ends.
-BonderCommand::InstrStatus BonderCommandOpenZMove::execute()
-{
-    if (!hasTimedOut()) {
-        return BonderCommand::InstrStatus::Running;
-    }
-
-    notify(BonderCommandOpenZMove::EventId::MoveCompleted);
-    stop();
-
-    return BonderCommand::InstrStatus::Done;
-}
-
-bool BonderCommandOpenZMove::stop()
-{
-    m_resources->m_zMotorController->removePositionSetpointControllerCallback(
-        this, &this->onZMotorPositionSetpoint);
-    m_resources->m_zMotorController->disableDriveBypass();
-    m_resources->m_zMotorController->disableBypass();
-
-    return true;
-}
-
-bool BonderCommandOpenZMove::onZMotorPositionSetpoint(void *context, float *positionSetpoint,
-                                                      float *velocityFeedforward)
-{
-    BonderCommandOpenZMove *self = static_cast<BonderCommandOpenZMove *>(context);
-
-    if ((positionSetpoint == nullptr) || (velocityFeedforward == nullptr)) {
-        return false;
-    }
-
-    // Bypassed, so this is a drive voltage rather than a position.
-    *positionSetpoint = self->m_drive;
-    *velocityFeedforward = 0.0f;
-
-    return true;
-}
-
-// =============================================================================
-// BonderCommandZReference
-// =============================================================================
-
-bool BonderCommandZReference::start(void *args)
-{
-    (void)args;
-
-    m_measuredPosition = m_resources->m_zMotorController->getPosition();
-
-    return true;
-}
-
-BonderCommand::InstrStatus BonderCommandZReference::execute()
-{
-    notify(BonderCommandZReference::EventId::OriginMeasured, &m_measuredPosition);
-
-    return BonderCommand::InstrStatus::Done;
-}
-
-// =============================================================================
 // BonderCommandMzDrive
 // =============================================================================
 
@@ -287,6 +199,9 @@ bool BonderCommandMzDrive::start(void *args)
     m_driveSpeed = casted_args->maxSpeed;
     m_acceleration = rampAcceleration(casted_args->maxSpeed,
                                       casted_args->maxStopDistance);
+    m_raiseSpeed = fmaxf(casted_args->maxSpeed, BONDER_COMMAND_MZDRIVE_RAISE_SPEED);
+    m_raiseAcceleration = rampAcceleration(m_raiseSpeed,
+                                           casted_args->maxStopDistance);
 
     // Stay put until a button is pressed: the axis is already parked wherever
     // the previous command left it.
@@ -398,7 +313,7 @@ float BonderCommandMzDrive::requestedVelocity() const
     case Direction::Lower:
         return -m_driveSpeed;
     case Direction::Raise:
-        return m_driveSpeed;
+        return m_raiseSpeed;
     case Direction::None:
     default:
         return 0.0f;
@@ -410,14 +325,16 @@ float BonderCommandMzDrive::requestedVelocity() const
 // that is left.
 float BonderCommandMzDrive::approachLimited(float velocity) const
 {
-    if ((m_acceleration <= 0.0f) || (velocity == 0.0f)) {
+    const float acceleration = (velocity > 0.0f) ? m_raiseAcceleration : m_acceleration;
+
+    if ((acceleration <= 0.0f) || (velocity == 0.0f)) {
         return velocity;
     }
 
     const float remaining = (velocity > 0.0f)
         ? (m_upperHeight - m_setpoint)
         : (m_setpoint - m_lowerHeight);
-    const float limit = stopInTimeSpeed(m_acceleration, remaining);
+    const float limit = stopInTimeSpeed(acceleration, remaining);
 
     return (velocity > 0.0f) ? fminf(velocity, limit) : fmaxf(velocity, -limit);
 }
@@ -426,7 +343,16 @@ float BonderCommandMzDrive::approachLimited(float velocity) const
 // press, a release and a reversal all take the same travel.
 void BonderCommandMzDrive::advanceVelocity(float targetVelocity)
 {
-    m_velocity = slewVelocity(m_velocity, targetVelocity, m_acceleration);
+    m_velocity = slewVelocity(m_velocity, targetVelocity,
+                              accelerationFor((m_velocity != 0.0f) ? m_velocity
+                                                                   : targetVelocity));
+}
+
+// A fast raise is brought to rest on its own ramp rather than coasting down
+// the slow lowering one, and a reversal changes ramp as it passes zero.
+float BonderCommandMzDrive::accelerationFor(float velocity) const
+{
+    return (velocity > 0.0f) ? m_raiseAcceleration : m_acceleration;
 }
 
 void BonderCommandMzDrive::advanceSetpoint()

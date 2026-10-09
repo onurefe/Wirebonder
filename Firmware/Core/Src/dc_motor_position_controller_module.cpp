@@ -1,11 +1,17 @@
 #include "dc_motor_position_controller_module.hpp"
 
+// A held head must still count as arrived, or a Z move would never complete.
+static_assert(ZMOTOR_HOLD_DEADBAND < ZMOTOR_HOLD_RELEASE &&
+              ZMOTOR_HOLD_RELEASE < DCMOTOR_POSITION_MODULE_MAX_POSITION_ERROR,
+              "hold band must sit inside the arrival tolerance");
+
 DcMotorPositionControllerModule::DcMotorPositionControllerModule(
     DcMotorVelocityControllerModule *velocityController)
     : m_velocityController(velocityController)
     , m_controlState(ControlState::Disabled)
     , m_bypassEnabled(false)
     , m_hasPositionMeasurement(false)
+    , m_holding(false)
     , m_positionMeasurement(0.0f)
     , m_lvdtMagnitudeA(0.0f)
     , m_lvdtMagnitudeB(0.0f)
@@ -47,6 +53,7 @@ bool DcMotorPositionControllerModule::enableControl()
     }
 
     m_hasPositionMeasurement = false;
+    m_holding = false;
 
     // Enabled first: the velocity loop starts the LVDT, and its first
     // measurement must find this loop ready to take it.
@@ -262,6 +269,24 @@ bool DcMotorPositionControllerModule::onControlUpdate(float *targetVelocity)
     }
 
     *targetVelocity = execute(positionSetpoint, velocityFeedforward);
+
+    // What is planned, not what is corrected: the provider's own velocity,
+    // or, bypassed, the velocity it hands over directly.
+    m_velocityController->setPlannedVelocity(
+        m_bypassEnabled ? *targetVelocity : velocityFeedforward);
+
+    // Hold once nothing is planned and the head is close enough, and let go
+    // when a move is planned or it drifts out of the wider release band.
+    const float holdError = fabsf(positionSetpoint - m_positionMeasurement);
+    const bool planned = fabsf(velocityFeedforward) > 1e-6f;
+    if (m_bypassEnabled || planned) {
+        m_holding = false;
+    } else if (m_holding) {
+        m_holding = (holdError <= ZMOTOR_HOLD_RELEASE);
+    } else {
+        m_holding = (holdError < ZMOTOR_HOLD_DEADBAND);
+    }
+    m_velocityController->setHolding(m_holding);
     return true;
 }
 

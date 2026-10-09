@@ -44,7 +44,6 @@ class RobotRequest {
             Initialize,
             TestUs,
             TestForce,
-            CalibrateZPosition,
             ExecuteBondingProtocol,
         };
 
@@ -135,7 +134,6 @@ private:
     static bool isCriticalBonderError(BonderModule::Error error);
     bool startUsTest();
     bool startForceTest();
-    bool startZPositionCalibration();
     bool startBondingProtocol();
 
     /* Loads a protocol into the bonder VM. Must follow configureBonderModule()
@@ -153,7 +151,6 @@ private:
     /* Lights the Test / Setup keypad LED for as long as its request is the
        one actually running. */
     static void updateRequestIndicators();
-    void updateZPositionReference();
     void updateZPositionSpeedLimits();
 
     static void turnoffPeripherals(void);
@@ -167,7 +164,6 @@ private:
     static void onBonderModuleErrorOccurred(void *context, BonderModule::Error error);
     static void onUltrasonicReport(
         void *context, const BonderModule::UltrasonicReport& report);
-    static void onZReferenceReport(void *context, float settledPosition);
     static void onUserInterfaceEvent(void *ctx, UserInterfaceModule::Event event);
     static void onMouseButtonEvent(void *ctx,
                                    UserInterfaceModule::MouseButtonEvent event);
@@ -210,7 +206,6 @@ private:
     static const RobotRequest               m_initializeRequest;
     static const RobotRequest               m_testUsRequest;
     static const RobotRequest               m_testForceRequest;
-    static const RobotRequest               m_calibrateZPositionRequest;
     static const RobotRequest               m_executeBondingRequest;
 
     // =========================================================================

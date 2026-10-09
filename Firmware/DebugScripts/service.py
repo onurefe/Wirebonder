@@ -62,7 +62,7 @@ class TransactionWatchpoint(gdb.Breakpoint):
 
 
 class DebugService:
-    NUM_ARGS = 5
+    NUM_ARGS = 8
     NUM_RESULT_POINTERS = 4
     TICK_SYMBOL = "DebugEnvironment::execute"
 

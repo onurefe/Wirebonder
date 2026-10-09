@@ -30,12 +30,6 @@ inline constexpr float &tailVibrationBuildupTime =
 // BonderModule::m_tailAssistEnergy.
 inline constexpr float &tailAssistEnergy = BonderModule::m_tailAssistEnergy;
 
-// Open-loop drives used while referencing the axis: away from the origin
-// first, then back down onto it.
-inline float zCalRetreatDrive = BONDER_COMMAND_ZCAL_DRIVE;
-inline float zCalApproachDrive = -BONDER_COMMAND_ZCAL_DRIVE;
-inline float zCalPhaseTime = BONDER_COMMAND_ZCAL_PHASE_TIME;
-
 // Zero, for the operands that mean "off" (force) or "origin" (an axis).
 inline float kZero = 0.0f;
 

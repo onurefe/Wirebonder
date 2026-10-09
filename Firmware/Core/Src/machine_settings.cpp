@@ -25,7 +25,6 @@ bool MachineSettingsStore::initialize()
     m_data.spotlightOn = SPOTLIGHT_ON_DEFAULT;
     m_data.zMotorMaxUpwardSpeed = ZMOTOR_MAX_UPWARD_SPEED_DEFAULT;
     m_data.zMotorMaxDownwardSpeed = ZMOTOR_MAX_DOWNWARD_SPEED_DEFAULT;
-    m_data.zPositionOffset = 0.0f;
     m_data.forceSetupTrackingForce = FORCE_SETUP_TRACKING_FORCE_DEFAULT;
     m_data.forceCoilForceOffset = FORCE_COIL_FORCE_OFFSET_DEFAULT;
     return save();

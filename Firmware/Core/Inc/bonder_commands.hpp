@@ -152,53 +152,6 @@ class BonderCommandZMove: public BonderCommand {
 
 };
 
-// Open-loop Z motion: a fixed drive for a fixed time, with both loops
-// bypassed so the value goes straight through as a drive voltage. Nothing is
-// controlled and nothing is measured -- it exists so a calibration can put the
-// head somewhere known without depending on the very feedback it is about to
-// calibrate. Stalling against a stop is inert: no integrator to wind up and no
-// position error to amplify.
-class BonderCommandOpenZMove: public BonderCommand {
-    public:
-    typedef struct {
-        // Signed drive (volts): positive is the Z-increasing direction.
-        float drive;
-        // How long to apply it (seconds).
-        float duration;
-    } Args;
-
-    enum EventId: uint8_t {
-        MoveCompleted = 0,
-    };
-
-    bool start(void *args) override;
-    InstrStatus execute() override;
-    bool stop() override;
-
-    private:
-    static bool onZMotorPositionSetpoint(void *context, float *positionSetpoint,
-                                         float *velocityFeedforward);
-
-    float m_drive;
-};
-
-// Declares wherever the head is now to be the Z origin, and reports it so the
-// LVDT's offset can be corrected. Measures only -- getting the head there is
-// the preceding open-loop moves' job.
-class BonderCommandZReference: public BonderCommand {
-    public:
-    enum EventId: uint8_t {
-        // eventParams: const float * (position the head was found at)
-        OriginMeasured = 0,
-    };
-
-    bool start(void *args) override;
-    InstrStatus execute() override;
-
-    private:
-    float m_measuredPosition;
-};
-
 // Operator-driven Z motion between two heights: the right mouse button drives
 // towards heights.lower, the left towards heights.upper, releasing both stops
 // in place. Completes once the carriage settles at the lower bound. The
@@ -244,6 +197,10 @@ class BonderCommandMzDrive: public BonderCommand {
     float m_lowerHeight;
     float m_upperHeight;
     float m_driveSpeed;
+    // Raising runs faster than lowering (BONDER_COMMAND_MZDRIVE_RAISE_SPEED)
+    // and ramps at its own rate over the same stop distance.
+    float m_raiseSpeed;
+    float m_raiseAcceleration;
     // Derived from the drive speed and the acceleration distance (mm/s^2).
     float m_acceleration;
 
@@ -267,6 +224,9 @@ class BonderCommandMzDrive: public BonderCommand {
     float requestedVelocity() const;
     float approachLimited(float velocity) const;
     void advanceVelocity(float targetVelocity);
+    // The ramp for whichever way the carriage is moving, or about to move
+    // from rest.
+    float accelerationFor(float velocity) const;
     void advanceSetpoint();
     void limitSetpointLead();
 

@@ -68,8 +68,6 @@ BonderCommandPll               BonderModule::m_CmdPll;
 BonderCommandSetForce          BonderModule::m_CmdSetForce;
 BonderCommandUsReport          BonderModule::m_CmdUsReport;
 BonderCommandMzDrive           BonderModule::m_CmdMzDrive;
-BonderCommandOpenZMove         BonderModule::m_CmdOpenZMove;
-BonderCommandZReference        BonderModule::m_CmdZReference;
 
 // =============================================================================
 // Reporting
@@ -105,16 +103,6 @@ bool BonderModule::removeUltrasonicReportListenerCallback(void *context, Ultraso
     return m_ultrasonicReportCallbacks.remove(context, cb);
 }
 
-bool BonderModule::addZReferenceReportListenerCallback(void *context, ZReferenceReportCallback cb)
-{
-    return m_zReferenceReportCallbacks.add(context, cb);
-}
-
-bool BonderModule::removeZReferenceReportListenerCallback(void *context, ZReferenceReportCallback cb)
-{
-    return m_zReferenceReportCallbacks.remove(context, cb);
-}
-
 void BonderModule::setRunning(bool running)
 {
     if (m_running == running) {
@@ -141,8 +129,12 @@ void BonderModule::configure(const BonderConfig &config)
         m_config.numOfScannedFrequencies = BONDER_MODULE_SCAN_MAX_FREQUENCIES;
     }
 
-    m_tailFeedHeight =
-        m_config.resetHeight * BONDER_MODULE_TAIL_FEED_HEIGHT_FRACTION;
+    // A fraction of the way up from the bottom of the window, not of the
+    // height's raw value: heights are raw LVDT readings, whose zero is
+    // wherever the sensor's electrical centre happens to sit.
+    m_tailFeedHeight = BONDER_MODULE_ZAXIS_MIN_POSITION +
+        (m_config.resetHeight - BONDER_MODULE_ZAXIS_MIN_POSITION) *
+        BONDER_MODULE_TAIL_FEED_HEIGHT_FRACTION;
 
     /* The assist has to keep the tool ringing for the whole of the tail draw.
        That is the T axis returning to its origin from tail + tear, so the
@@ -383,12 +375,6 @@ uint32_t BonderModule::producedEventFlags(Opcode opcode)
 
     case Opcode::USREPORT:
         return EVENT_US_REPORT_READY;
-
-    case Opcode::ZREFERENCE:
-        return EVENT_Z_REFERENCE_MEASURED;
-
-    case Opcode::OPENZMOVE:
-        return EVENT_Z_OPEN_MOVE_COMPLETED;
 
     case Opcode::WAITMOUSELEFTBUTTONEVENTS:
     case Opcode::WAITMOUSELEFTBUTTONSTATE:
@@ -632,10 +618,6 @@ void BonderModule::registerCommands()
     registerCommand(Opcode::SETFORCE, m_CmdSetForce, &BonderModule::onSetForceCmdEvent);
     registerCommand(Opcode::USREPORT, m_CmdUsReport, &BonderModule::onUsReportCmdEvent);
     registerCommand(Opcode::MZDRIVE, m_CmdMzDrive, &BonderModule::onMzDriveCmdEvent);
-    registerCommand(Opcode::OPENZMOVE, m_CmdOpenZMove,
-                    &BonderModule::onOpenZMoveCmdEvent);
-    registerCommand(Opcode::ZREFERENCE, m_CmdZReference,
-                    &BonderModule::onZReferenceCmdEvent);
 
     // WAITFLAGS and CLRFLAGS act on the VM's own flag latch, so no command
     // backs them; their table entries stay null.
@@ -731,14 +713,6 @@ void BonderModule::startInstruction(const Instruction &instruction)
 
     case BonderModule::Opcode::MZDRIVE:
         startInstructionMzDrive(args);
-        break;
-
-    case BonderModule::Opcode::OPENZMOVE:
-        startInstructionOpenZMove(args);
-        break;
-
-    case BonderModule::Opcode::ZREFERENCE:
-        startInstructionZReference(args);
         break;
 
     default:
@@ -929,21 +903,6 @@ void BonderModule::startInstructionMzDrive(void **args)
     ordered_args.maxSpeed = *((float *)args[2]);
     ordered_args.maxStopDistance = *((float *)args[3]);
     m_CmdMzDrive.start(&ordered_args);
-}
-
-// args[0]: signed drive (V), args[1]: duration (s)
-void BonderModule::startInstructionOpenZMove(void **args)
-{
-    BonderCommandOpenZMove::Args ordered_args;
-    ordered_args.drive = *((float *)args[0]);
-    ordered_args.duration = *((float *)args[1]);
-    m_CmdOpenZMove.start(&ordered_args);
-}
-
-void BonderModule::startInstructionZReference(void **args)
-{
-    (void)args;
-    m_CmdZReference.start(nullptr);
 }
 
 
@@ -1236,25 +1195,3 @@ void BonderModule::onMzDriveCmdEvent(void *context, uint8_t eventId, void *event
     }
 }
 
-void BonderModule::onOpenZMoveCmdEvent(void *context, uint8_t eventId, void *eventParams)
-{
-    BonderModule *self = static_cast<BonderModule *>(context);
-    (void)eventParams;
-
-    if (eventId == BonderCommandOpenZMove::EventId::MoveCompleted) {
-        self->setEventFlags(EVENT_Z_OPEN_MOVE_COMPLETED);
-    }
-}
-
-void BonderModule::onZReferenceCmdEvent(void *context, uint8_t eventId, void *eventParams)
-{
-    BonderModule *self = static_cast<BonderModule *>(context);
-
-    if ((eventId != BonderCommandZReference::EventId::OriginMeasured) ||
-        (eventParams == nullptr)) {
-        return;
-    }
-
-    self->setEventFlags(EVENT_Z_REFERENCE_MEASURED);
-    self->m_zReferenceReportCallbacks.invoke(*static_cast<const float *>(eventParams));
-}

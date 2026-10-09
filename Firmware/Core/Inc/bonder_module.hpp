@@ -81,11 +81,6 @@ class BonderModule: public Process {
                      // toward arg1; releasing both stops in place and
                      // re-pressing resumes. Raises Z_POSITION_REACHED once
                      // the carriage settles at arg0
-        OPENZMOVE,   // arg0: signed drive (V), arg1: duration (s). Bypasses
-                     // both loops and pushes for that long; nothing is
-                     // controlled and nothing measured
-        ZREFERENCE,  // declares wherever the head is now to be the Z origin
-                     // and reports it, so the LVDT offset can be corrected
         NUM_COMMANDS    // JUST FOR COUNTING NUMBER OF COMMANDS.
     };
     
@@ -123,9 +118,7 @@ class BonderModule: public Process {
         EVENT_AXIS_MOVE_ERROR           = 1u << 23,
         // A WAITZPOSITION saw its height go by. Kept apart from
         // EVENT_Z_POSITION_REACHED, which means a commanded move has settled.
-        EVENT_Z_HEIGHT_REACHED          = 1u << 24,
-        EVENT_Z_REFERENCE_MEASURED      = 1u << 25,
-        EVENT_Z_OPEN_MOVE_COMPLETED     = 1u << 26
+        EVENT_Z_HEIGHT_REACHED          = 1u << 24
     };
     
     enum class Error {
@@ -157,10 +150,6 @@ class BonderModule: public Process {
     using BonderErrorCallback        = void (*)(void *context, Error error);
     using UltrasonicReportCallback   =
         void (*)(void *context, const UltrasonicReport &report);
-    // Where the head was found at the origin, in the coordinates the LVDT
-    // currently reports. The difference from
-    // BONDER_MODULE_ZAXIS_MIN_POSITION is the correction to its offset.
-    using ZReferenceReportCallback   = void (*)(void *context, float settledPosition);
 
     static const uint8_t BONDER_INSTRUCTION_MAX_ARGS = 4;
 
@@ -240,8 +229,6 @@ class BonderModule: public Process {
     bool removeErrorListenerCallback(void *context, BonderErrorCallback cb);
     bool addUltrasonicReportListenerCallback(void *context, UltrasonicReportCallback cb);
     bool removeUltrasonicReportListenerCallback(void *context, UltrasonicReportCallback cb);
-    bool addZReferenceReportListenerCallback(void *context, ZReferenceReportCallback cb);
-    bool removeZReferenceReportListenerCallback(void *context, ZReferenceReportCallback cb);
 
     private:
     void onStart() override;
@@ -332,8 +319,6 @@ class BonderModule: public Process {
     void startInstructionSetForce(void **args);
     void startInstructionUsReport(void **args);
     void startInstructionMzDrive(void **args);
-    void startInstructionOpenZMove(void **args);
-    void startInstructionZReference(void **args);
 
     // Everything the commands drive, in one bag they can be handed by init().
     BonderVMResources m_resources;
@@ -341,7 +326,6 @@ class BonderModule: public Process {
     ListenerList<bool>                    m_stateChangedCallbacks;
     ListenerList<Error>                   m_errorCallbacks;
     ListenerList<const UltrasonicReport &> m_ultrasonicReportCallbacks;
-    ListenerList<float>                   m_zReferenceReportCallbacks;
 
     BonderCommand *m_commandList[Opcode::NUM_COMMANDS] = {};
 
@@ -384,8 +368,6 @@ class BonderModule: public Process {
     static BonderCommandSetForce          m_CmdSetForce;
     static BonderCommandUsReport          m_CmdUsReport;
     static BonderCommandMzDrive           m_CmdMzDrive;
-    static BonderCommandOpenZMove         m_CmdOpenZMove;
-    static BonderCommandZReference        m_CmdZReference;
 
     static void onZMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
     static void onYMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
@@ -407,6 +389,4 @@ class BonderModule: public Process {
     static void onSetForceCmdEvent(void *context, uint8_t eventId, void *eventParams);
     static void onUsReportCmdEvent(void *context, uint8_t eventId, void *eventParams);
     static void onMzDriveCmdEvent(void *context, uint8_t eventId, void *eventParams);
-    static void onOpenZMoveCmdEvent(void *context, uint8_t eventId, void *eventParams);
-    static void onZReferenceCmdEvent(void *context, uint8_t eventId, void *eventParams);
 };

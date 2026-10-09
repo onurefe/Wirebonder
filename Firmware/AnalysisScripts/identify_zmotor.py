@@ -35,6 +35,36 @@ configuration.h lines to paste.
    limits. Check the result on the machine with a closed-loop step, e.g.
    debug-motor-velocity 3 1.
 
+4. coil -- what the force coil does to the Z drive (FIRMWARE_MODE_DEBUG_
+   MOTOR_POSITION). Measured while moving, not holding: the geared iron-core
+   motor holds the head against a wide band of drive through static friction,
+   so a holding voltage says little. Make the same climb and descent with the
+   coil off and on:
+
+     (gdb) debug-motor-position -6 3
+     (gdb) debug-motor-position 4 2
+     (gdb) debug-motor-position -6 3
+     (gdb) debug-motor-position 4 2 force=35
+     (gdb) debug-motor-position -6 3 force=35
+     python3 identify_zmotor.py coil <the last four captures>
+
+   The voltage over each run's constant-speed stretch is compared. A load from
+   the coil shifts climbs and descents the same way; extra friction from it
+   opposes both, so it shifts them apart. A diagnostic only: the firmware has
+   no coil-load compensation, because the 2026-10-09 measurement found none.
+
+5. moves -- how smoothly closed-loop moves run (FIRMWARE_MODE_DEBUG_MOTOR_
+   POSITION), e.g. profiled climbs like the protocols make:
+
+     (gdb) debug-motor-position -6 3
+     (gdb) debug-motor-position 4 2 speed=10
+     python3 identify_zmotor.py moves <captures>
+
+   Reports, per move: its duration, how unevenly it ran, how far it trailed
+   the setpoint, how often the motor voltage changed sign (each change takes
+   the gears across their backlash), and how much of it was spent slower than
+   the speed below which the spring outruns a climb.
+
 The fit uses only position and voltage, never the velocity column: that is the
 estimate made from the very model being identified.
 """
@@ -51,6 +81,12 @@ DT = 1.0e-3                      # control period, DCMOTOR_*_CONTROL_FREQUENCY
 PID_OUTPUT_LIMIT = 13.5          # DCMOTOR_VELOCITY_MODULE_PID_OUTPUT_MIN/MAX (V)
 DRIVE_LIMIT = (0.95 - 0.5) * 27.0  # duty clamp expressed in volts
 PID_LEAK_TC = 10.0               # DCMOTOR_VELOCITY_MODULE_PID_LEAKAGE_TC
+
+# Readings ignored at the start of a capture. Firmware since the LVDT settling
+# fix already drops them (LVDT_MODULE_SETTLING_SAMPLES); captures taken before
+# it begin with readings that can be millimetres off.
+SETTLING_SKIP = 5
+SKIP_HELP = "readings to ignore at the start of each capture (LVDT settling)"
 
 # configuration.h placeholders, used when a value is not given.
 DEFAULT_POSITION_NOISE = 0.002   # mm
@@ -212,7 +248,7 @@ class Pid:
 def run_noise(args):
     path = args.file or newest_capture(args.captures)
     cap = read_capture(path)
-    t, x = cap["time"], cap["position"]
+    t, x = cap["time"][args.skip:], cap["position"][args.skip:]
 
     slope, intercept = linear_fit(t, x)
     residual = [xi - (slope * ti + intercept) for ti, xi in zip(t, x)]
@@ -275,7 +311,7 @@ def fit_window(cap, end_s):
 
 
 class Segment:
-    def __init__(self, cap, end_s):
+    def __init__(self, cap, end_s, skip):
         self.path = cap["path"]
         self.mode = cap["mode"]
         n = fit_window(cap, end_s)
@@ -283,7 +319,11 @@ class Segment:
         x0 = cap["position"][0]
         # Relative to the first sample, so the sums stay well conditioned.
         self.position = [p - x0 for p in cap["position"][:n]]
-        self.travel = max(self.position) - min(self.position)
+        # The model still runs from the first tick, where the drive starts;
+        # only the readings taken while the LVDT settled are left out.
+        self.skip = min(skip, n - 2)
+        settled = self.position[self.skip:]
+        self.travel = max(settled) - min(settled)
         self.direction = "up" if mean(self.voltage) >= 0.0 else "down"
 
 
@@ -316,6 +356,8 @@ def regress(segments, tau, delay, with_load):
     for index, segment in enumerate(segments):
         s_u, s_1 = responses(segment, tau, delay)
         for k, y in enumerate(segment.position):
+            if k < segment.skip:
+                continue
             row = [0.0] * size
             row[0] = s_u[k]
             if with_load:
@@ -371,7 +413,7 @@ def run_fit(args):
 
     segments = []
     for path in paths:
-        segment = Segment(read_capture(path), args.end)
+        segment = Segment(read_capture(path), args.end, args.skip)
         if max(abs(v) for v in segment.voltage) < 0.3:
             print("skipped %s: no drive (a rest capture?)" % path)
             continue
@@ -406,10 +448,10 @@ def run_fit(args):
         print("%-44s %6s %7.2f %6.3fmm %7.2fum" % (
             os.path.basename(segment.path)[-44:], segment.direction,
             mean(segment.voltage), segment.travel,
-            1000.0 * math.sqrt(error / len(segment.position))))
+            1000.0 * math.sqrt(error / (len(segment.position) - segment.skip))))
 
     poor = [seg for seg, error in zip(segments, sse)
-            if math.sqrt(error / len(seg.position)) > 0.02 * seg.travel]
+            if math.sqrt(error / (len(seg.position) - seg.skip)) > 0.02 * seg.travel]
     if poor:
         print("\nwarning: the model does not fit %s well (residual above 2%% of the"
               " travel). Check for a run that hit something, or add drive levels."
@@ -564,7 +606,7 @@ def run_pid(args):
     # it wants the inner loop at least ~3x faster than itself.
     position_gain = 2.0 * math.pi * bandwidth / 3.0
     print("position loop: keep DCMOTOR_POSITION_MODULE_PROPORTIONAL_GAIN at or below"
-          " %.0f (it is 100 now)" % position_gain)
+          " %.0f" % position_gain)
 
     print("\n#define DCMOTOR_VELOCITY_MODULE_PID_GAIN                             %.4ff" % gain)
     print("#define DCMOTOR_VELOCITY_MODULE_PID_INTEGRAL_TC                      %.4ff" % ti)
@@ -581,6 +623,230 @@ def run_pid(args):
 
 
 # -----------------------------------------------------------------------------
+# coil
+# -----------------------------------------------------------------------------
+
+def cruise(path):
+    """Mean voltage, coil current and speed over the middle of a run's travel,
+    and how unevenly it moved there, or None if it barely moved."""
+    with open(path, newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows or "coil_a" not in rows[0]:
+        sys.exit("%s has no coil current -- it predates the force= option" % path)
+
+    position = [float(r["position"]) for r in rows]
+    voltage = [float(r["voltage"]) for r in rows]
+    current = [float(r["coil_a"]) for r in rows]
+    n = len(position)
+
+    start = sorted(position[:5])[2]
+    end = sorted(position[-100:])[50]
+    travel = end - start
+    if abs(travel) < 1.0:
+        return None
+
+    # The middle 20-80 % of the travel: past the start-up and before the
+    # position loop's final approach. A run this uneven has no clean
+    # constant-speed stretch, so the stretch is chosen by distance, and its
+    # speed is distance over time rather than an average of noisy rates.
+    def progress(k):
+        return (position[k] - start) / travel
+    first = next((k for k in range(n) if progress(k) >= 0.2), None)
+    last = next((k for k in range(n - 1, -1, -1) if progress(k) <= 0.8), None)
+    if first is None or last is None or last - first < 50:
+        return None
+    window = range(first, last + 1)
+
+    speed = (position[last] - position[first]) / ((last - first) * DT)
+    # Unevenness: the 10 ms speed against the mean, as a fraction of it.
+    local = smoothed_velocity(position, half_width=5)
+    rough = math.sqrt(mean([(local[k] - speed) ** 2 for k in window])) / abs(speed)
+
+    return {
+        "path": path,
+        "direction": "up" if travel > 0 else "down",
+        "speed": speed,
+        "rough": rough,
+        "voltage": mean([voltage[k] for k in window]),
+        "voltage_sd": math.sqrt(mean([(voltage[k] - mean([voltage[m] for m in window])) ** 2
+                                      for k in window])),
+        "current": mean([current[k] for k in window]),
+        "samples": len(window),
+    }
+
+
+def run_coil(args):
+    runs = []
+    for path in args.files:
+        run = cruise(path)
+        if run is None:
+            print("skipped %s: it hardly moved" % path)
+            continue
+        run["coil"] = run["current"] > args.on_threshold
+        runs.append(run)
+
+    print("%-36s %5s %5s %10s %8s %16s %9s" %
+          ("capture", "dir", "coil", "speed", "uneven", "voltage (sd)", "current"))
+    for run in runs:
+        print("%-36s %5s %5s %6.2fmm/s %7.0f%% %+7.3fV (%.2f) %8.4fA" % (
+            os.path.basename(run["path"])[-36:], run["direction"],
+            "on" if run["coil"] else "off", run["speed"], 100.0 * run["rough"],
+            run["voltage"], run["voltage_sd"], run["current"]))
+
+    groups = {}
+    for run in runs:
+        groups.setdefault((run["direction"], run["coil"]), []).append(run)
+    missing = [key for key in (("up", False), ("up", True),
+                               ("down", False), ("down", True))
+               if key not in groups]
+    if missing:
+        sys.exit("\nneed a climb and a descent with the coil both off and on; "
+                 "missing: %s" % ", ".join("%s/coil %s" % (d, "on" if c else "off")
+                                           for d, c in missing))
+
+    def average(direction, coil, key):
+        return mean([run[key] for run in groups[(direction, coil)]])
+
+    dv_up = average("up", True, "voltage") - average("up", False, "voltage")
+    dv_down = average("down", True, "voltage") - average("down", False, "voltage")
+    di = mean([average(d, True, "current") - average(d, False, "current")
+               for d in ("up", "down")])
+    speed_change = max(abs(average(d, True, "speed") / average(d, False, "speed") - 1.0)
+                       for d in ("up", "down"))
+
+    # The coil's load adds the same to both directions; extra friction
+    # opposes the motion, so it adds to climbs and subtracts from descents.
+    load = -(dv_up + dv_down) / 2.0
+    friction = (dv_up - dv_down) / 2.0
+
+    print("\nwith the coil on (%.4f A more):" % di)
+    print("  climb voltage   %+.3f V" % dv_up)
+    print("  descent voltage %+.3f V" % dv_down)
+    print("  -> load from the coil : %+.3f V (%+.3f V per A)%s" % (
+        load, load / di,
+        "  pulls the head down" if load < 0 else "  pushes the head up"))
+    print("  -> extra friction     : %.3f V" % friction)
+    if speed_change > 0.1:
+        print("\nwarning: the cruise speed differs by %.0f%% between coil off and"
+              " on; the loop did not hold speed, so the voltages compare unlike"
+              " runs" % (100.0 * speed_change))
+    if abs(load) < 0.1 and abs(friction) < 0.1:
+        print("\nNeither is measurable (both under 0.1 V): the coil has no"
+              " effect on the Z drive worth compensating.")
+    elif abs(friction) > abs(load):
+        print("\nThe extra friction is larger than the load. Compensating the"
+              " load alone will not smooth the motion much; the coil's effect is"
+              " mostly friction, which no known-load term can cancel.")
+
+
+# -----------------------------------------------------------------------------
+# moves
+# -----------------------------------------------------------------------------
+
+def analyse_move(path, slow_speed, hysteresis):
+    with open(path, newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows or "voltage" not in rows[0]:
+        return None
+
+    position = [float(r["position"]) for r in rows]
+    voltage = [float(r["voltage"]) for r in rows]
+    setpoint = ([float(r["setpoint"]) for r in rows]
+                if "setpoint" in rows[0] else None)
+    n = len(position)
+
+    start = sorted(position[:5])[2]
+    end = sorted(position[-100:])[50]
+    travel = end - start
+    if abs(travel) < 0.5:
+        return None
+
+    # The move: from leaving the start to settling within 50 um of the end.
+    # A slow move can outlast the capture; it is then measured to the end.
+    first = next((k for k in range(n) if abs(position[k] - start) > 0.02), None)
+    settled = next((k for k in range(n)
+                    if all(abs(position[m] - end) < 0.05 for m in range(k, min(n, k + 50)))),
+                   None)
+    finished = settled is not None and settled < n - 50
+    if not finished:
+        settled = n
+    if first is None or settled <= first + 20:
+        return None
+    move = range(first, settled)
+
+    local = smoothed_velocity(position, half_width=5)
+    lo = next(k for k in range(n) if (position[k] - start) / travel >= 0.2)
+    hi = next(k for k in range(n - 1, -1, -1) if (position[k] - start) / travel <= 0.8)
+    mid = range(lo, max(lo + 1, hi + 1))
+    speed = (position[hi] - position[lo]) / (max(1, hi - lo) * DT)
+    uneven = (math.sqrt(mean([(local[k] - speed) ** 2 for k in mid])) / abs(speed)
+              if speed else float("nan"))
+
+    # Sign changes of the drive, with a little hysteresis so noise around
+    # zero is not counted: each one is a trip across the gear backlash.
+    flips, sign = 0, 0
+    for k in move:
+        if voltage[k] > hysteresis:
+            new = 1
+        elif voltage[k] < -hysteresis:
+            new = -1
+        else:
+            continue
+        if sign and new != sign:
+            flips += 1
+        sign = new
+
+    slow = sum(1 for k in move if abs(local[k]) < slow_speed) / len(move)
+    # Lag only means something against a walked setpoint; a plain step jumps
+    # straight to the target.
+    profiled = (setpoint is not None and
+                max(setpoint) - min(setpoint) > 0.5 and
+                max(abs(setpoint[k + 1] - setpoint[k]) for k in range(n - 1)) < 0.05)
+    lag = (math.sqrt(mean([(position[k] - setpoint[k]) ** 2 for k in move]))
+           if profiled else None)
+
+    # Past the target in the direction of travel, against the walked
+    # setpoint's end (or the settled position for a plain step); and the
+    # drive left on once the head should be resting.
+    target = setpoint[-1] if profiled else end
+    beyond = [(position[k] - target) * (1.0 if travel > 0 else -1.0)
+              for k in range(first, n)]
+    overshoot = max(0.0, max(beyond))
+    tail = range(max(first, n - int(0.3 / DT)), n)
+    rest_drive = mean([abs(voltage[k]) for k in tail])
+
+    return {
+        "path": path, "travel": travel, "duration": len(move) * DT,
+        "speed": speed, "uneven": uneven, "flips": flips, "slow": slow,
+        "lag": lag, "finished": finished, "overshoot": overshoot,
+        "rest_drive": rest_drive,
+    }
+
+
+def run_moves(args):
+    print("%-36s %5s %7s %8s %10s %7s %8s %6s %6s %8s %7s" % (
+        "capture", "dir", "travel", "time", "mid speed", "uneven", "lag rms",
+        "flips", "slow", "overshot", "rest |V|"))
+    for path in args.files:
+        m = analyse_move(path, args.slow_speed, args.hysteresis)
+        if m is None:
+            print("%-36s  (no closed-loop move found)" % os.path.basename(path)[-36:])
+            continue
+        print("%-36s %5s %6.2fmm %7.3fs %6.2fmm/s %6.0f%% %8s %6d %5.0f%% %6.0fum %6.2fV" % (
+            os.path.basename(m["path"])[-36:],
+            "up" if m["travel"] > 0 else "down", abs(m["travel"]), m["duration"],
+            m["speed"], 100.0 * m["uneven"],
+            "-" if m["lag"] is None else "%.0fum" % (1000.0 * m["lag"]),
+            m["flips"], 100.0 * m["slow"], 1000.0 * m["overshoot"],
+            m["rest_drive"]) +
+            ("" if m["finished"] else "  (still moving at capture end)"))
+    print("\nflips: drive sign changes during the move (gear backlash crossings);"
+          " slow: share of the move below %.1f mm/s;\novershot: furthest past the"
+          " target; rest |V|: mean drive over the capture's last 0.3 s"
+          % args.slow_speed)
+
+
+# -----------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
@@ -591,6 +857,7 @@ def main():
 
     noise = sub.add_parser("noise", help="LVDT noise from a capture at rest")
     noise.add_argument("file", nargs="?", help="capture (default: newest)")
+    noise.add_argument("--skip", type=int, default=SETTLING_SKIP, help=SKIP_HELP)
     noise.set_defaults(run=run_noise)
 
     fit = sub.add_parser("fit", help="motor model from open-loop steps")
@@ -600,7 +867,23 @@ def main():
     fit.add_argument("--end", type=float,
                      help="fit only the first END seconds of each capture "
                           "(default: until the head stops at a limit)")
+    fit.add_argument("--skip", type=int, default=SETTLING_SKIP, help=SKIP_HELP)
     fit.set_defaults(run=run_fit)
+
+    coil = sub.add_parser("coil", help="force-coil load from moving captures")
+    coil.add_argument("files", nargs="+",
+                      help="motor_position captures: climbs and descents, coil off and on")
+    coil.add_argument("--on-threshold", type=float, default=0.01,
+                      help="coil current (A) above which a run counts as coil on")
+    coil.set_defaults(run=run_coil)
+
+    moves = sub.add_parser("moves", help="smoothness of closed-loop moves")
+    moves.add_argument("files", nargs="+", help="motor_position captures")
+    moves.add_argument("--slow-speed", type=float, default=4.0,
+                       help="speed (mm/s) below which the spring outruns a climb")
+    moves.add_argument("--hysteresis", type=float, default=0.2,
+                       help="volts around zero ignored when counting sign changes")
+    moves.set_defaults(run=run_moves)
 
     pid = sub.add_parser("pid", help="velocity PI gains by simulation")
     pid.add_argument("--gain", type=float, required=True, help="motor gain, mm/s per V")

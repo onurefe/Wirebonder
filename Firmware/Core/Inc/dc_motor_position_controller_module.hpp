@@ -111,6 +111,9 @@ private:
     ControlState m_controlState;
     bool m_bypassEnabled;
     bool m_hasPositionMeasurement;
+    // Inside the hold deadband (see ZMOTOR_HOLD_DEADBAND); decided here,
+    // where the error and the plan are both known.
+    bool m_holding;
 
     ArbiterList<float *, float *> m_setpointControllerCallbacks;
     ListenerList<float>  m_velocityListenerCallbacks;

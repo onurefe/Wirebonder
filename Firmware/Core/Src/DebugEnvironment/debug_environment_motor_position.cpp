@@ -4,6 +4,8 @@
 
 #include "DebugEnvironment/debug_environment_motor_position.hpp"
 
+#include <cmath>
+
 extern ADC_HandleTypeDef hadc2;
 extern DAC_HandleTypeDef hdac;
 extern TIM_HandleTypeDef htim1;
@@ -17,7 +19,21 @@ extern TIM_HandleTypeDef htim5;
 
 uint16_t MotorPositionDebugEnvironment::m_adc2Buffer[2 * ADC2_SAMPLES_PER_CHANNEL * ADC2_NUM_CONVERSIONS];
 uint16_t MotorPositionDebugEnvironment::m_dac2Buffer[2 * DAC2_SAMPLES];
+uint16_t MotorPositionDebugEnvironment::m_pwmChannel1Buffer[2 * TIM1_PWM_CHANNEL1_SAMPLES];
 uint16_t MotorPositionDebugEnvironment::m_pwmChannel2Buffer[2 * TIM1_PWM_CHANNEL2_SAMPLES];
+
+AnalogChannel MotorPositionDebugEnvironment::m_forceCoilISensChannel(
+    ADC_CHANNEL_FORCE_COIL_ISENS_CONVERSION_ORDER,
+    static_cast<uint32_t>(ADC_CHANNEL_FORCE_COIL_ISENS_OVERSAMPLING_RATIO),
+    FORCE_COIL_MODULE_V2I_CONVERSION_FACTOR,
+    -FORCE_COIL_MODULE_V2I_CONVERSION_FACTOR * FORCE_COIL_MODULE_ZERO_CURRENT_VOLTAGE);
+
+PwmRampChannel MotorPositionDebugEnvironment::m_forceCoilPwmChannel(
+    &htim1, TIM_CHANNEL_1,
+    MotorPositionDebugEnvironment::m_pwmChannel1Buffer,
+    2 * TIM1_PWM_CHANNEL1_SAMPLES,
+    TIM1_PWM_CHANNEL1_SEGMENT_LIFETIME_IN_SAMPLES,
+    /* complementaryOutput = */ true);   // drives CH1 (PWM) + CH1N (nPWM)
 
 IQDemodulatorChannel MotorPositionDebugEnvironment::m_lvdtAChannel(
     ADC_CHANNEL_LVDT_A_CONVERSION_ORDER,
@@ -59,6 +75,10 @@ LvdtSensorModule MotorPositionDebugEnvironment::m_lvdtSensorModule(
     &MotorPositionDebugEnvironment::m_lvdtBChannel,
     LVDT_MODULE_STROKE_MM);
 
+ForceCoilDriverModule MotorPositionDebugEnvironment::m_forceCoil(
+    &MotorPositionDebugEnvironment::m_forceCoilISensChannel,
+    &MotorPositionDebugEnvironment::m_forceCoilPwmChannel);
+
 DcMotorVelocityControllerModule MotorPositionDebugEnvironment::m_velocityController(
     &MotorPositionDebugEnvironment::m_lvdtSensorModule,
     &MotorPositionDebugEnvironment::m_zMotorPwmChannel);
@@ -69,11 +89,13 @@ DcMotorPositionControllerModule MotorPositionDebugEnvironment::m_positionControl
 MotorPositionDebugEnvironment::MotorPositionDebugEnvironment()
 {
     // ADC2 channels (conversion-order ascending).
+    m_adc2Service.addChannel(&m_forceCoilISensChannel);
     m_adc2Service.addChannel(&m_lvdtAChannel);
     m_adc2Service.addChannel(&m_lvdtBChannel);
 
     m_dacService.addChannel(&m_lvdtExcitationChannel);
 
+    m_tim1PwmService.addChannel(&m_forceCoilPwmChannel);
     m_tim1PwmService.addChannel(&m_zMotorPwmChannel);
 
     addProcess(&m_tim1PwmService);
@@ -82,9 +104,12 @@ MotorPositionDebugEnvironment::MotorPositionDebugEnvironment()
     addProcess(&m_velocityController);
     addProcess(&m_lvdtSensorModule);
     addProcess(&m_positionController);
+    addProcess(&m_forceCoil);
 
     m_positionController.addPositionSetpointControllerCallback(
         this, &MotorPositionDebugEnvironment::onProvidePositionSetpoint);
+    m_forceCoil.addCurrentListenerCallback(
+        this, &MotorPositionDebugEnvironment::onCoilCurrentMeasured);
 }
 
 void MotorPositionDebugEnvironment::handleCommand(uint16_t localCommand)
@@ -116,8 +141,17 @@ void MotorPositionDebugEnvironment::startStep()
     const float targetPosition = arg(0);
     const float duration = arg(1);
     const bool bypassController = arg(2) > 0.0f;
+    // Optional: hold the force coil at this many grams (0 = off) from
+    // coilDelay seconds into the capture, as the protocols do during Z moves.
+    const float coilGrams = arg(3);
+    const float coilDelay = arg(4);
+    // Optional: walk to the target like a ZMOVE, at this speed (mm/s) and
+    // acceleration (mm/s^2; 0 takes the profile default).
+    const float profileSpeed = arg(5);
+    const float profileAccel = arg(6);
 
-    if (duration <= 0.0f) {
+    if (duration <= 0.0f || coilGrams < 0.0f || coilDelay < 0.0f ||
+        profileSpeed < 0.0f || profileAccel < 0.0f) {
         setError(ERROR_INVALID_ARGUMENT);
         return;
     }
@@ -131,8 +165,34 @@ void MotorPositionDebugEnvironment::startStep()
         sampleLimit = 1u;
     }
 
-    if (sampleLimit > DEBUG_MOTOR_POSITION_CONTROLLER_TELEMETRY_DEPTH) {
-        sampleLimit = DEBUG_MOTOR_POSITION_CONTROLLER_TELEMETRY_DEPTH;
+    // The sample is wider than the depth was sized for; the buffer decides.
+    constexpr uint32_t kMaxSamples =
+        DEBUG_TELEMETRY_BUFFER_SIZE_BYTES / sizeof(DebugMotorPositionTelemetrySample);
+    if (sampleLimit > kMaxSamples) {
+        sampleLimit = kMaxSamples;
+    }
+
+    // Same conversion as BonderCommandSetForce, without the setup offset.
+    m_coilAmps = (coilGrams > 0.0f)
+        ? (coilGrams - FORCE_COIL_CURRENT_TO_GRAMS_OFFSET) /
+              FORCE_COIL_CURRENT_TO_GRAMS_SCALE
+        : 0.0f;
+    m_profileSpeed = profileSpeed;
+    m_profileAccel = (profileAccel > 0.0f)
+        ? profileAccel
+        : static_cast<float>(BONDER_MODULE_DEFAULT_ZMOVE_MAX_ACCELERATION);
+    m_profileStarted = false;
+
+    m_coilDelaySamples = static_cast<uint32_t>(
+        coilDelay * static_cast<float>(DCMOTOR_POSITION_MODULE_CONTROL_FREQUENCY));
+    m_coilEnabled = false;
+    if (m_coilAmps > 0.0f) {
+        m_forceCoil.setCurrentSetpoint(0.0f);
+        if (!m_forceCoil.enableControl()) {
+            setError(ERROR_NOT_INITIALIZED);
+            return;
+        }
+        m_coilEnabled = true;
     }
 
     m_sampleIdx = 0;
@@ -156,6 +216,7 @@ void MotorPositionDebugEnvironment::startStep()
 
     if (!m_positionController.enableControl()) {
         m_captureActive = false;
+        releaseCoil();
         setError(ERROR_NOT_INITIALIZED);
     }
 }
@@ -226,6 +287,7 @@ void MotorPositionDebugEnvironment::startStallScan()
 
 void MotorPositionDebugEnvironment::stopCapture()
 {
+    releaseCoil();
     m_positionController.disableDriveBypass();
     m_positionController.disableBypass();
     m_positionController.disableControl();
@@ -250,8 +312,8 @@ bool MotorPositionDebugEnvironment::onProvidePositionSetpoint(
         return false;
     }
 
-    // Step and stall-scan setpoints carry no profile; this exercises the
-    // position loop on its own, which is the point of the environment.
+    // Stall scans and plain steps carry no profile; a profiled step feeds its
+    // own velocity forward.
     if (velocityFeedforward != nullptr) {
         *velocityFeedforward = 0.0f;
     }
@@ -260,23 +322,46 @@ bool MotorPositionDebugEnvironment::onProvidePositionSetpoint(
         return self->provideStallScanSetpoint(positionSetpoint);
     }
 
-    return self->provideStepSetpoint(positionSetpoint);
+    return self->provideStepSetpoint(positionSetpoint, velocityFeedforward);
 }
 
-bool MotorPositionDebugEnvironment::provideStepSetpoint(float *positionSetpoint)
+bool MotorPositionDebugEnvironment::provideStepSetpoint(float *positionSetpoint,
+                                                        float *velocityFeedforward)
 {
     if (m_sampleIdx >= m_sampleLimit) {
         return false;
     }
 
+    if (m_coilEnabled && m_sampleIdx == m_coilDelaySamples) {
+        m_forceCoil.setCurrentSetpoint(m_coilAmps);
+    }
+
+    float setpoint = m_stepValue;
+    if (m_profileSpeed > 0.0f) {
+        if (!m_profileStarted) {
+            m_profileSetpoint = m_positionController.getPosition();
+            m_profileVelocity = 0.0f;
+            m_profileStarted = true;
+        }
+        advanceProfile();
+        setpoint = m_profileSetpoint;
+        if (velocityFeedforward != nullptr) {
+            *velocityFeedforward = m_profileVelocity;
+        }
+    }
+
     m_telemetry[m_sampleIdx++] = DebugMotorPositionTelemetrySample{
         m_positionController.getPosition(),
         m_positionController.getLvdtMagnitudeA(),
-        m_positionController.getLvdtMagnitudeB()
+        m_positionController.getLvdtMagnitudeB(),
+        m_positionController.getVelocity(),
+        m_velocityController.getAppliedVoltage(),
+        m_coilCurrent,
+        setpoint
     };
 
     if (positionSetpoint != nullptr) {
-        *positionSetpoint = m_stepValue;
+        *positionSetpoint = setpoint;
     }
 
     if (m_sampleIdx >= m_sampleLimit) {
@@ -344,12 +429,66 @@ bool MotorPositionDebugEnvironment::provideStallScanSetpoint(float *positionSetp
 void MotorPositionDebugEnvironment::finish(uint32_t sampleCount)
 {
     m_captureActive = false;
+    releaseCoil();
 
     m_positionController.disableDriveBypass();
     m_positionController.disableBypass();
     m_positionController.disableControl();
 
     setDone(RESULT_CAPTURE_COMPLETE, sampleCount);
+}
+
+// One tick of BonderCommandZMove's trapezoid, so a profiled step moves the
+// way the protocols do: full speed towards the target, given up early enough
+// to stop on it, slewed at the acceleration, and never let to lead the
+// carriage by more than the following-error bound.
+void MotorPositionDebugEnvironment::advanceProfile()
+{
+    const float period = 1.0f / static_cast<float>(DCMOTOR_POSITION_MODULE_CONTROL_FREQUENCY);
+    const float remaining = m_stepValue - m_profileSetpoint;
+    const bool descending = (remaining < 0.0f);
+
+    float target = descending ? -m_profileSpeed : m_profileSpeed;
+    const float limit = sqrtf(2.0f * m_profileAccel * fabsf(remaining));
+    target = descending ? fmaxf(target, -limit) : fminf(target, limit);
+
+    const float step = m_profileAccel * period;
+    m_profileVelocity = (m_profileVelocity < target)
+        ? fminf(m_profileVelocity + step, target)
+        : fmaxf(m_profileVelocity - step, target);
+    m_profileSetpoint += m_profileVelocity * period;
+
+    const bool overshot = descending ? (m_profileSetpoint < m_stepValue)
+                                     : (m_profileSetpoint > m_stepValue);
+    if (overshot) {
+        m_profileSetpoint = m_stepValue;
+        m_profileVelocity = 0.0f;
+    }
+
+    const float measured = m_positionController.getPosition();
+    const float lead = BONDER_COMMAND_MZDRIVE_MAX_FOLLOWING_ERROR;
+    m_profileSetpoint = fminf(fmaxf(m_profileSetpoint, measured - lead), measured + lead);
+}
+
+void MotorPositionDebugEnvironment::releaseCoil()
+{
+    if (!m_coilEnabled) {
+        return;
+    }
+
+    m_forceCoil.setCurrentSetpoint(0.0f);
+    m_forceCoil.disableControl();
+    m_coilEnabled = false;
+}
+
+void MotorPositionDebugEnvironment::onCoilCurrentMeasured(void *context,
+                                                          float measuredCurrent)
+{
+    auto *self = static_cast<MotorPositionDebugEnvironment *>(context);
+
+    if (self != nullptr) {
+        self->m_coilCurrent = measuredCurrent;
+    }
 }
 
 #endif // FIRMWARE_MODE == FIRMWARE_MODE_DEBUG_MOTOR_POSITION

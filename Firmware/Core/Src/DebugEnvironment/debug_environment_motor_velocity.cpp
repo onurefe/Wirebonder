@@ -213,6 +213,8 @@ bool MotorVelocityDebugEnvironment::onVelocityControlUpdate(void *context,
     if (targetVelocity != nullptr) {
         *targetVelocity = self->m_stepValue;
     }
+    // A velocity step is its own plan.
+    m_velocityController.setPlannedVelocity(self->m_stepValue);
 
     return true;
 }

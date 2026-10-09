@@ -8,23 +8,13 @@ LvdtSensorModule::LvdtSensorModule(SineGeneratorChannel* excitation, IQDemodulat
     , m_secondaryA(secondaryA)
     , m_secondaryB(secondaryB)
     , m_strokeMm(strokeMm)
-    , m_positionOffsetMm(0.0f)
     , m_magA(0.0f)
     , m_magB(0.0f)
     , m_updatedA(false)
     , m_updatedB(false)
+    , m_settlingSamplesLeft(0U)
     , m_measurementState(MeasurementState::Idle)
 {
-}
-
-void LvdtSensorModule::setPositionOffsetMm(float offsetMm)
-{
-    m_positionOffsetMm = offsetMm;
-}
-
-float LvdtSensorModule::getPositionOffsetMm() const
-{
-    return m_positionOffsetMm;
 }
 
 bool LvdtSensorModule::addMeasurementListenerCallback(void* callbackContext, MeasurementCallback callback)
@@ -66,6 +56,7 @@ bool LvdtSensorModule::startMeasurement()
 
     m_updatedA = false;
     m_updatedB = false;
+    m_settlingSamplesLeft = LVDT_MODULE_SETTLING_SAMPLES;
     m_measurementState = MeasurementState::Measuring;
     m_excitation->start(
         LVDT_MODULE_EXCITATION_AMPLITUDE,
@@ -134,6 +125,12 @@ void LvdtSensorModule::handleMeasurement(Secondary secondary, float re, float im
         return;
     }
 
+    // Nobody sees a reading taken before the excitation has settled.
+    if (m_settlingSamplesLeft > 0U) {
+        --m_settlingSamplesLeft;
+        return;
+    }
+
     float positionMm = 0.0f;
 
     if (tryComputePositionMm(magA, magB, positionMm)) {
@@ -166,13 +163,10 @@ bool LvdtSensorModule::tryComputePositionMm(float magA, float magB, float& posit
 
     /* Displacement from the sensor's electrical centre, turned the right way
        up by LVDT_MODULE_DIRECTION and scaled by what the ratio actually
-       spans, plus whatever offset the Z position calibration established.
-       Until it has run that offset is zero and this is the raw displacement
-       -- the machine then works in the LVDT's own coordinates, where relative
-       moves are right and absolute heights are not. */
-    positionMm = (LVDT_MODULE_DIRECTION * normalizedPosition *
-                  (m_strokeMm * 0.5f) / LVDT_MODULE_RATIO_AT_FULL_STROKE) +
-                 m_positionOffsetMm;
+       spans. This is the machine's Z coordinate as it stands: there is no
+       offset, so every height in the firmware is a raw LVDT reading. */
+    positionMm = LVDT_MODULE_DIRECTION * normalizedPosition *
+                 (m_strokeMm * 0.5f) / LVDT_MODULE_RATIO_AT_FULL_STROKE;
     return true;
 }
 

@@ -10,7 +10,6 @@
 #include "Protocol/protocol_lange_coupling.hpp"
 #include "Protocol/protocol_ultrasonic_test.hpp"
 #include "Protocol/protocol_force_setup.hpp"
-#include "Protocol/protocol_z_position_cal.hpp"
 #include "Protocol/protocol_initialization.hpp"
 #include "stdio.h"
 
@@ -46,12 +45,6 @@ struct BonderProtocolSelection {
 
 // Protocol accessors are defined further down, next to the callbacks that use
 // them; the startXxx() helpers reach for them before that point.
-static BonderProtocolSelection zPositionCalProtocol()
-{
-    return {ZPositionCalProtocol::getProtocolPtr(),
-            ZPositionCalProtocol::getProtocolSize()};
-}
-
 static BonderProtocolSelection initializationProtocol();
 static BonderProtocolSelection ultrasonicTestProtocol();
 static BonderProtocolSelection forceSetupProtocol();
@@ -466,8 +459,6 @@ const RobotRequest Robot::m_testUsRequest(
     RobotRequest::RequestCode::TestUs, "US TEST", false);
 const RobotRequest Robot::m_testForceRequest(
     RobotRequest::RequestCode::TestForce, "FORCE TEST", false);
-const RobotRequest Robot::m_calibrateZPositionRequest(
-    RobotRequest::RequestCode::CalibrateZPosition, "Z POS. CAL.", false);
 const RobotRequest Robot::m_executeBondingRequest(
     RobotRequest::RequestCode::ExecuteBondingProtocol, "BONDING", false);
 
@@ -717,8 +708,6 @@ Robot::Robot()
         this, &Robot::onBonderModuleErrorOccurred);
     m_bonderModule.addUltrasonicReportListenerCallback(
         this, &Robot::onUltrasonicReport);
-    m_bonderModule.addZReferenceReportListenerCallback(
-        this, &Robot::onZReferenceReport);
 
     // Y-axis homing.
     m_yAxisHomingModule.addEventListenerCallback(
@@ -779,7 +768,6 @@ void Robot::start()
     updateClampIndicator();
     updateAreaLightDrive();
     updateSpotlightDrive();
-    updateZPositionReference();
     updateZPositionSpeedLimits();
 
     /* Nothing may move until the Y axis has a position reference. */
@@ -862,9 +850,6 @@ void Robot::startExecutingRequest(RobotRequest &request)
     }
     else if (request_code == RobotRequest::RequestCode::TestForce) {
         success = startForceTest();
-    }
-    else if (request_code == RobotRequest::RequestCode::CalibrateZPosition) {
-        success = startZPositionCalibration();
     }
     else if (request_code == RobotRequest::RequestCode::ExecuteBondingProtocol) {
         success = startBondingProtocol();
@@ -994,17 +979,6 @@ bool Robot::startForceTest()
     return startBonderProtocol(forceSetupProtocol());
 }
 
-bool Robot::startZPositionCalibration()
-{
-    configureBonderModule();
-
-    if (!m_bonderModule.engage()) {
-        return false;
-    }
-
-    return startBonderProtocol(zPositionCalProtocol());
-}
-
 bool Robot::startBondingProtocol()
 {
     const BondingMode mode =
@@ -1110,12 +1084,6 @@ void Robot::updateSpotlightDrive()
     }
 }
 
-void Robot::updateZPositionReference()
-{
-    const MachineSettingsData& data = m_machineSettingsStore.data();
-    m_lvdtSensorModule.setPositionOffsetMm(data.zPositionOffset);
-}
-
 void Robot::updateZPositionSpeedLimits()
 {
     const MachineSettingsData& data = m_machineSettingsStore.data();
@@ -1203,8 +1171,7 @@ static bool isBonderDrivenRequest(RobotRequest::RequestCode code)
     return (code == RobotRequest::RequestCode::ExecuteBondingProtocol) ||
            (code == RobotRequest::RequestCode::Initialize) ||
            (code == RobotRequest::RequestCode::TestForce) ||
-           (code == RobotRequest::RequestCode::TestUs) ||
-           (code == RobotRequest::RequestCode::CalibrateZPosition);
+           (code == RobotRequest::RequestCode::TestUs);
 }
 
 void Robot::onBonderModuleStateChanged(void *context, bool isIdle)
@@ -1280,32 +1247,10 @@ bool Robot::isCriticalBonderError(BonderModule::Error error)
     /* UnableToStartPositionControl is deliberately absent: the loop never
        ran, so the axis was never commanded and the machine is not left in an
        unknown posture. Reporting it without locking is what lets the operator
-       see it, retry, and still reach the calibration. */
+       see it and retry. */
     return (error == BonderModule::Error::UnableToSetPosition) ||
            (error == BonderModule::Error::UnableToMoveAxis) ||
            (error == BonderModule::Error::UnableToSetForceCoilCurrent);
-}
-
-/* The head has been run onto the bottom of its travel, so wherever the LVDT
-   says it is now must read as the bottom of the travel window. The correction
-   is the difference, applied to the offset the sensor is already using. */
-void Robot::onZReferenceReport(void *context, float settledPosition)
-{
-    Robot *robot = static_cast<Robot *>(context);
-    if (robot == nullptr) return;
-
-    if (m_robotState != RobotState::Busy) return;
-
-    if (robot->m_activeRequest.getRequestCode() !=
-        RobotRequest::RequestCode::CalibrateZPosition) {
-        return;
-    }
-
-    MachineSettingsData& data = robot->m_machineSettingsStore.mutableData();
-    data.zPositionOffset += (BONDER_MODULE_ZAXIS_MIN_POSITION - settledPosition);
-
-    robot->m_machineSettingsStore.save();
-    robot->updateZPositionReference();
 }
 
 void Robot::onUltrasonicReport(
@@ -1358,28 +1303,6 @@ void Robot::onUserInterfaceEvent(void *ctx, UserInterfaceModule::Event event)
     case UserInterfaceModule::Event::ActiveConfigurationChanged:
     case UserInterfaceModule::Event::ConfigurationConfirmed:
     case UserInterfaceModule::Event::ConfigurationSelectionStarted: 
-        break;
-
-    /* The one request accepted out of Error, because it is the only one that
-       does not need a valid Z frame -- it is what establishes one. A lost
-       frame is precisely what puts the machine here: BONDER INIT cannot reach
-       a reset height expressed in coordinates that no longer mean anything,
-       and its failure is critical. Refusing the calibration in that state
-       would leave the operator with no way back, since reset only re-runs the
-       initialization that is failing. Releasing Error the same way reset does
-       also re-queues that initialization, so it runs again behind the
-       calibration -- against the frame just measured. */
-    case UserInterfaceModule::Event::StartZPositionCalRequested:
-        if (((m_robotState == RobotState::Idle) ||
-             (m_robotState == RobotState::Error)) && \
-            (self->m_requestQueue.getElementCount() == 0)) {
-             if (m_robotState == RobotState::Error) {
-                 self->beginBonderRecovery("Z POS. CAL.");
-             }
-             self->m_requestQueue.enqueue(self->m_calibrateZPositionRequest);
-        } else {
-            m_userInterfaceModule.warnUser("BUSY! TRY LATER");
-        }
         break;
 
     case UserInterfaceModule::Event::MachineSettingsChanged:
